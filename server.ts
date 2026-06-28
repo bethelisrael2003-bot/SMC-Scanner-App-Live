@@ -44,6 +44,8 @@ const RESOLUTIONS: Record<string, string> = {
   "1week": "WEEK",
 };
 
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 // Helper to call Python SMC Engine
 async function runPythonScan(pair: string): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -174,18 +176,18 @@ async function fetchWithRetry(url: string, options: any, maxRetries = 5, initial
 
       if (res.status === 429 && attempt < maxRetries) {
         attempt++;
-        const delay = initialDelay * Math.pow(2, attempt) + Math.random() * 100;
-        console.warn(`[WARN] Capital API 429 rate limit hit. Retrying attempt ${attempt}/${maxRetries} after ${Math.round(delay)}ms... url: ${url}`);
-        await new Promise((resolve) => setTimeout(resolve, delay));
+        const backoff = initialDelay * Math.pow(2, attempt) + Math.random() * 100;
+        console.warn(`[WARN] Capital API 429 rate limit hit. Retrying attempt ${attempt}/${maxRetries} after ${Math.round(backoff)}ms... url: ${url}`);
+        await delay(backoff);
         continue;
       }
       return res;
     } catch (error) {
       if (attempt < maxRetries) {
         attempt++;
-        const delay = initialDelay * Math.pow(2, attempt) + Math.random() * 105;
-        console.warn(`[WARN] Connection issue with Capital. Retrying attempt ${attempt}/${maxRetries} after ${Math.round(delay)}ms... error:`, error);
-        await new Promise((resolve) => setTimeout(resolve, delay));
+        const backoff = initialDelay * Math.pow(2, attempt) + Math.random() * 105;
+        console.warn(`[WARN] Connection issue with Capital. Retrying attempt ${attempt}/${maxRetries} after ${Math.round(backoff)}ms... error:`, error);
+        await delay(backoff);
         continue;
       }
       throw error;
@@ -667,7 +669,6 @@ function checkSessionStatus() {
   const now = new Date();
   const dow = now.getUTCDay();
   const hour = now.getUTCHours() + now.getUTCMinutes() / 60;
-  const lagosOffset = 1;
   const currentGmtStr = now.toISOString().substring(11, 16) + " UTC";
   if (dow === 6) return { session: "WEEKEND", message: "Saturday - market closed", canTrade: false, mondayReduced: false, currentGmt: currentGmtStr };
   if (dow === 0 && hour < 21) return { session: "WEEKEND", message: "Sunday - market closed until ~21:00 GMT", canTrade: false, mondayReduced: false, currentGmt: currentGmtStr };
@@ -708,18 +709,21 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
     return res;
   };
   const result: any = { pair, checks: [], passed: false, decision: "WAIT", grade: "-", bonuses: 0, bonus_list: [], plan: null };
-  const weekly = await getCandles(pair, "1week", 30);
-  const daily = await getCandles(pair, "1day", 100);
-  const h4 = await getCandles(pair, "4h", 120);
-  const h1 = await getCandles(pair, "1h", 120);
-  const m15 = await getCandles(pair, "15min", 120);
+  
+  const weekly = await getCandles(pair, "1week", 30); await delay(500);
+  const daily = await getCandles(pair, "1day", 100); await delay(500);
+  const h4 = await getCandles(pair, "4h", 120); await delay(500);
+  const h1 = await getCandles(pair, "1h", 120); await delay(500);
+  const m15 = await getCandles(pair, "15min", 120); await delay(500);
+  
   if (!h1 || h1.length < 20) { result.checks.push("Insufficient H1 data from Capital.com"); return cacheAndReturn(result); }
   const wOldest = weekly ? [...weekly].reverse() : null;
   const dOldest = daily ? [...daily].reverse() : null;
   const h4Oldest = h4 ? [...h4].reverse() : null;
   const h1Oldest = [...h1].reverse();
   const m15Oldest = m15 ? [...m15].reverse() : null;
-  const live = await getLivePrice(pair);
+  const live = await getLivePrice(pair); await delay(500);
+  
   const last = live ? live.mid : h1Oldest[h1Oldest.length - 1].c;
   result.price = last; result.live = live;
   const hAtr = atr(h1Oldest, 14);
@@ -882,13 +886,14 @@ async function runBackgroundCycle() {
     for (const pair of pairs) {
       const res = await analyzePair(pair, true);
       if (res && res.passed) recordSignalIfNeeded(res, session);
+      await delay(1000); // 1s delay between pairs in background
     }
     lastAutoScannerStatus.lastScanTime = new Date().toISOString();
     lastAutoScannerStatus.message = "Scan completed";
   } finally { isScanningBackground = false; lastAutoScannerStatus.isScanning = false; }
 }
 
-setInterval(runBackgroundCycle, 60000);
+setInterval(runBackgroundCycle, 120000); // Increased interval to 2 minutes
 setTimeout(runBackgroundCycle, 5000);
 
 app.use(express.json());
@@ -912,11 +917,18 @@ app.post("/api/performance/enter", (req, res) => {
   saveTrades(trades); res.json({ success: true });
 });
 app.get("/api/session", (req, res) => res.json(checkSessionStatus()));
+
 app.get("/api/scan", async (req, res) => {
   const pairs = Object.keys(EPICS);
-  const results = await Promise.all(pairs.map(p => analyzePair(p, req.query.force === "true")));
+  const results = [];
+  for (const pair of pairs) {
+    const result = await analyzePair(pair, req.query.force === "true");
+    results.push(result);
+    await delay(1000); // 1s delay between pairs in sequential scan
+  }
   res.json({ timestamp: new Date().toISOString(), session: checkSessionStatus(), results, passed_count: results.filter(r => r.passed).length });
 });
+
 app.get("/api/news", async (req, res) => res.json(await getEconomicNews()));
 
 async function startServer() {
