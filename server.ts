@@ -799,6 +799,9 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
     if (!entryCandleInfo.valid) { result.checks.push(`[X] M15 entry: ${entryCandleInfo.reason}`); isFailedSetup = true; }
     else result.checks.push(`[OK] M15 entry: ${entryCandleInfo.reason}`);
   }
+  let wTrend = "RANGE";
+  if (wOldest && wOldest.length >= 5) wTrend = classifyTrend(wOldest, 2).trend;
+  result.weekly_trend = wTrend;
   let bonuses = 0;
   if (wTrend === h1Trend) bonuses++;
   if (freshness === "FRESH") bonuses++;
