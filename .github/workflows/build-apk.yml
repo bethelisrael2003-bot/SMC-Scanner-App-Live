@@ -4,6 +4,9 @@ on:
   push:
     branches: [ main ]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -43,6 +46,10 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v1.0.0
+          name: SMC Scanner v1.0.0
+          draft: false
+          prerelease: false
+          overwrite: true
           files: android/app/build/outputs/apk/release/app-release.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
