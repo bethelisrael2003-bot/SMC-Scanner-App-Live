@@ -27,6 +27,7 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { AnalysisResult, SessionInfo, EconomicEvent, TradePlan } from "./types";
 import { CandlestickChart } from "./components/CandlestickChart";
+import ErrorBoundary from "./components/ErrorBoundary";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "";
 
@@ -1334,11 +1335,18 @@ export default function App() {
                         <span className="text-xs font-mono text-zinc-500">Loading Chart Data...</span>
                       </div>
                     ) : chartData.length > 0 ? (
-                      <CandlestickChart 
-                        data={chartData} 
-                        pair={selectedPair} 
-                        livePrice={activeResult.price} 
-                      />
+                      <ErrorBoundary fallback={
+                        <div className="h-[300px] flex flex-col items-center justify-center bg-zinc-900/20 rounded-xl border border-zinc-800/80">
+                          <AlertTriangle className="w-8 h-8 text-amber-500 mb-2" />
+                          <span className="text-xs font-mono text-zinc-500">Chart rendering failed.</span>
+                        </div>
+                      }>
+                        <CandlestickChart 
+                          data={chartData} 
+                          pair={selectedPair} 
+                          livePrice={activeResult.price} 
+                        />
+                      </ErrorBoundary>
                     ) : (
                       <div className="h-[300px] flex flex-col items-center justify-center bg-zinc-900/20 rounded-xl border border-zinc-800/80">
                         <TrendingUp className="w-8 h-8 text-zinc-700 mb-2" />

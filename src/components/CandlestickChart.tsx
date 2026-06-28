@@ -15,39 +15,49 @@ export const CandlestickChart: React.FC<ChartProps> = ({ data, pair, livePrice }
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
-    const chart = createChart(chartContainerRef.current, {
-      layout: {
-        background: { type: ColorType.Solid, color: 'transparent' },
-        textColor: '#d1d4dc',
-      },
-      grid: {
-        vertLines: { color: 'rgba(42, 46, 57, 0.5)' },
-        horzLines: { color: 'rgba(42, 46, 57, 0.5)' },
-      },
-      width: chartContainerRef.current.clientWidth,
-      height: 300,
-      timeScale: {
-        timeVisible: true,
-        secondsVisible: false,
-      },
-    });
+    let chart: any;
+    try {
+      chart = createChart(chartContainerRef.current, {
+        layout: {
+          background: { type: ColorType.Solid, color: 'transparent' },
+          textColor: '#d1d4dc',
+        },
+        grid: {
+          vertLines: { color: 'rgba(42, 46, 57, 0.5)' },
+          horzLines: { color: 'rgba(42, 46, 57, 0.5)' },
+        },
+        width: chartContainerRef.current.clientWidth || 300,
+        height: 300,
+        timeScale: {
+          timeVisible: true,
+          secondsVisible: false,
+        },
+      });
 
-    const series = chart.addCandlestickSeries({
-      upColor: '#10b981',
-      downColor: '#ef4444',
-      borderVisible: false,
-      wickUpColor: '#10b981',
-      wickDownColor: '#ef4444',
-    });
+      const series = chart.addCandlestickSeries({
+        upColor: '#10b981',
+        downColor: '#ef4444',
+        borderVisible: false,
+        wickUpColor: '#10b981',
+        wickDownColor: '#ef4444',
+      });
 
-    series.setData(data as CandlestickData<Time>[]);
-    
-    chartRef.current = chart;
-    seriesRef.current = series;
+      if (Array.isArray(data) && data.length > 0) {
+        // Ensure data is sorted by time and no duplicates
+        const uniqueData = Array.from(new Map(data.map(item => [item.time, item])).values())
+          .sort((a, b) => (a.time as number) - (b.time as number));
+        series.setData(uniqueData as CandlestickData<Time>[]);
+      }
+      
+      chartRef.current = chart;
+      seriesRef.current = series;
+    } catch (err) {
+      console.error("Chart initialization error:", err);
+    }
 
     const handleResize = () => {
-      if (chartContainerRef.current) {
-        chart.applyOptions({ width: chartContainerRef.current.clientWidth });
+      if (chartContainerRef.current && chartRef.current) {
+        chartRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
       }
     };
 
@@ -55,25 +65,40 @@ export const CandlestickChart: React.FC<ChartProps> = ({ data, pair, livePrice }
 
     return () => {
       window.removeEventListener('resize', handleResize);
-      chart.remove();
+      if (chartRef.current) {
+        chartRef.current.remove();
+        chartRef.current = null;
+      }
     };
   }, []);
 
   useEffect(() => {
-    if (seriesRef.current && data.length > 0) {
-      seriesRef.current.setData(data as CandlestickData<Time>[]);
+    try {
+      if (seriesRef.current && Array.isArray(data) && data.length > 0) {
+        const uniqueData = Array.from(new Map(data.map(item => [item.time, item])).values())
+          .sort((a, b) => (a.time as number) - (b.time as number));
+        seriesRef.current.setData(uniqueData as CandlestickData<Time>[]);
+      }
+    } catch (err) {
+      console.error("Error updating chart data:", err);
     }
   }, [data]);
 
   useEffect(() => {
-    if (seriesRef.current && livePrice && data.length > 0) {
-      const lastCandle = data[data.length - 1];
-      seriesRef.current.update({
-        ...lastCandle,
-        close: livePrice,
-        high: Math.max(lastCandle.high, livePrice),
-        low: Math.min(lastCandle.low, livePrice),
-      } as CandlestickData<Time>);
+    try {
+      if (seriesRef.current && livePrice && Array.isArray(data) && data.length > 0) {
+        const lastCandle = data[data.length - 1];
+        if (lastCandle) {
+            seriesRef.current.update({
+              ...lastCandle,
+              close: livePrice,
+              high: Math.max(lastCandle.high, livePrice),
+              low: Math.min(lastCandle.low, livePrice),
+            } as CandlestickData<Time>);
+        }
+      }
+    } catch (err) {
+      console.error("Error updating live price on chart:", err);
     }
   }, [livePrice]);
 
