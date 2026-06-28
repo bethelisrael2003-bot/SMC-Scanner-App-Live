@@ -80,6 +80,14 @@ const EPICS: Record<string, string> = {
   "XAU/USD": "GOLD",
   "XAG/USD": "SILVER",
 };
+
+const RESOLUTIONS: Record<string, string> = {
+  "M15": "MINUTE_15",
+  "H1": "HOUR",
+  "H4": "HOUR_4",
+  "D1": "DAY",
+};
+
 const CAPITAL_REST_URL = "https://api-capital.backend-capital.com/api/v1";
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -90,7 +98,6 @@ function checkSessionStatus() {
   const hour = now.getUTCHours() + now.getUTCMinutes() / 60;
   const currentGmtStr = now.toISOString().substring(11, 16) + " UTC";
 
-  // 1. Weekend Logic: Saturday and Sunday (most of the day)
   if (dow === 6) { // Saturday
     return { session: "WEEKEND", message: "Saturday - market closed", canTrade: false, currentGmt: currentGmtStr };
   }
@@ -98,10 +105,9 @@ function checkSessionStatus() {
     return { session: "WEEKEND", message: "Sunday - market closed", canTrade: false, currentGmt: currentGmtStr };
   }
 
-  // 2. Kill Zone Logic (Weekdays)
   const isLondon = hour >= 7 && hour < 10;
   const isNY = hour >= 12 && hour < 16;
-  const isSydneyTokyo = (hour >= 23 || hour < 6); // Simple Asian session check
+  const isSydneyTokyo = (hour >= 23 || hour < 6); 
 
   const canTrade = isLondon || isNY;
   const sessionName = isLondon ? "LONDON_KZ" : isNY ? "NY_OVERLAP" : isSydneyTokyo ? "ASIAN_SESSION" : "OUTSIDE KILL ZONES";
@@ -121,6 +127,35 @@ async function getCapitalHeaders() {
   } catch (e) { return null; }
 }
 
+async function getCandles(pair: string, timeframe: string, count = 100) {
+  const epic = EPICS[pair];
+  const resolution = RESOLUTIONS[timeframe];
+  if (!epic || !resolution) return null;
+
+  try {
+    const headers = await getCapitalHeaders();
+    if (!headers) return null;
+
+    const url = `${CAPITAL_REST_URL}/prices/${epic}?resolution=${resolution}&max=${count}`;
+    const res = await fetch(url, { headers });
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    if (!data || !data.prices) return null;
+
+    return data.prices.map((p: any) => ({
+      time: Math.floor(new Date(p.snapshotTime).getTime() / 1000),
+      open: p.openPrice.bid,
+      high: p.highPrice.bid,
+      low: p.lowPrice.bid,
+      close: p.closePrice.bid,
+    }));
+  } catch (error) {
+    console.error(`Error getting candles for ${pair}:`, error);
+    return null;
+  }
+}
+
 async function analyzePair(pair: string): Promise<any> {
   const session = checkSessionStatus();
   const result: any = { 
@@ -130,9 +165,8 @@ async function analyzePair(pair: string): Promise<any> {
     plan: null 
   };
 
-  // GATE 0: SESSION CHECK - If market closed, stop immediately
   if (!session.canTrade) {
-    result.checks = [`[X] Market Status: ${session.session} (${session.message || "No trade zone"})`];
+    result.checks = [`[X] Market Status: ${session.session}`];
     return result;
   }
 
@@ -141,15 +175,9 @@ async function analyzePair(pair: string): Promise<any> {
     const epic = EPICS[pair];
     const url = `${CAPITAL_REST_URL}/prices/${epic}?resolution=HOUR&max=10`;
     const res = await fetch(url, { headers });
-    if (!res.ok) {
-        result.checks = [`[X] API Error: ${res.status}`];
-        return result;
-    }
+    if (!res.ok) return result;
     const data = await res.json();
-    if (!data?.prices?.length) {
-        result.checks = ["[X] No data available"];
-        return result;
-    }
+    if (!data?.prices?.length) return result;
     
     const p = data.prices[data.prices.length - 1];
     const bid = p.closePrice.bid;
@@ -161,7 +189,6 @@ async function analyzePair(pair: string): Promise<any> {
     
     result.checks = ["[OK] Price updated", `[OK] Spread: ${result.live.spread_pips} pips`];
     
-    // Core SMC Detection Logic (Simplified for Demo)
     const trend = data.prices.length > 5 ? (data.prices[4].closePrice.bid < bid ? "BULLISH" : "BEARISH") : "RANGE";
     
     if (trend !== "RANGE") {
@@ -174,7 +201,6 @@ async function analyzePair(pair: string): Promise<any> {
       result.checks.push("[X] Trend: RANGE (unclear structure)");
     }
   } catch (e) {
-    console.error(`[ERROR] analyzePair for ${pair}:`, e);
     result.checks = ["[X] System error during scan"];
   }
   return result;
@@ -193,7 +219,6 @@ async function runBackgroundCycle() {
       if (mongoose.connection.readyState === 1) {
         await ScanCache.findOneAndUpdate({ pair }, { result: res, timestamp: new Date() }, { upsert: true });
       }
-      if (res.passed && session.canTrade) await recordSignalIfNeeded(res);
       await delay(1000);
     }
     cachedScanResults = currentResults;
@@ -208,6 +233,18 @@ async function runBackgroundCycle() {
 
 setInterval(runBackgroundCycle, 180000);
 setTimeout(runBackgroundCycle, 5000);
+
+// API Routes
+app.get("/api/candles/:pair/:timeframe", async (req, res) => {
+  try {
+    const { pair, timeframe } = req.params;
+    const candles = await getCandles(decodeURIComponent(pair), timeframe);
+    if (!candles) return res.status(404).json({ error: "No candles found" });
+    res.json(candles);
+  } catch (err) {
+    res.status(500).json({ error: "Internal Error" });
+  }
+});
 
 app.get("/api/signals", async (req, res) => {
   try {
@@ -250,7 +287,6 @@ app.post("/api/admin/cleanup", async (req, res) => {
 
 app.get("/api/scan", async (req, res) => {
   try {
-    const session = checkSessionStatus();
     let results = cachedScanResults;
     if (results.length === 0 && mongoose.connection.readyState === 1) {
       const dbResults = await ScanCache.find().lean();
@@ -265,7 +301,7 @@ app.get("/api/scan", async (req, res) => {
     }
     res.json({ 
       timestamp: lastScanTimeFull || new Date().toISOString(), 
-      session, 
+      session: checkSessionStatus(), 
       results: results || [], 
       passed_count: (results || []).filter(r => r && r.passed).length,
       conflicts: []

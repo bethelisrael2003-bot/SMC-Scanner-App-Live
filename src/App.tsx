@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { AnalysisResult, SessionInfo, EconomicEvent, TradePlan } from "./types";
+import { CandlestickChart } from "./components/CandlestickChart";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "";
 
@@ -38,6 +39,9 @@ export default function App() {
   const [newsData, setNewsData] = useState<EconomicEvent[]>([]);
   const [newsFilter, setNewsFilter] = useState<"high_medium" | "high" | "all">("high_medium");
   const [selectedPair, setSelectedPair] = useState<string>("EUR/USD");
+  const [chartTimeframe, setChartTimeframe] = useState<string>("H1");
+  const [chartData, setChartData] = useState<any[]>([]);
+  const [chartLoading, setChartLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [autoScanEnabled, setAutoScanEnabled] = useState(true);
   const [newsLoading, setNewsLoading] = useState(false);
@@ -318,6 +322,26 @@ export default function App() {
       setPerfLoading(false);
     }
   };
+
+  const handleFetchCandles = async () => {
+    if (!selectedPair) return;
+    setChartLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/candles/${encodeURIComponent(selectedPair)}/${chartTimeframe}`);
+      if (!res.ok) throw new Error("Failed to fetch candles");
+      const data = await res.json();
+      setChartData(data);
+    } catch (err) {
+      console.error(err);
+      setChartData([]);
+    } finally {
+      setChartLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    handleFetchCandles();
+  }, [selectedPair, chartTimeframe]);
 
   const handleCopy = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
@@ -1275,11 +1299,52 @@ export default function App() {
                       </span>
                     </div>
                     <div className="p-2 justify-center bg-zinc-800/40 rounded-xl border border-zinc-750 flex items-center gap-2">
-                      <span className="text-zinc-500">Spread:</span>
+                      <span className="text-zinc-550">Spread:</span>
                       <span className="text-emerald-400 font-semibold">
                         {activeResult.live?.spread_pips ?? "--"} p
                       </span>
                     </div>
+                  </div>
+                </div>
+
+                {/* TIMEFRAME SWITCHER & CHART */}
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex bg-zinc-950/60 p-1 rounded-xl border border-zinc-850/80 w-fit">
+                      {["M15", "H1", "H4", "D1"].map((tf) => (
+                        <button
+                          key={tf}
+                          onClick={() => setChartTimeframe(tf)}
+                          className={`px-3 py-1.5 rounded-lg text-[10px] font-bold font-mono transition-all cursor-pointer ${
+                            chartTimeframe === tf
+                              ? "bg-zinc-800 text-white shadow-sm"
+                              : "text-zinc-500 hover:text-zinc-300"
+                          }`}
+                        >
+                          {tf}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="relative min-h-[300px] w-full">
+                    {chartLoading && chartData.length === 0 ? (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-900/20 rounded-xl border border-zinc-800/80 backdrop-blur-sm z-10">
+                        <RotateCw className="w-8 h-8 text-emerald-500 animate-spin mb-2" />
+                        <span className="text-xs font-mono text-zinc-500">Loading Chart Data...</span>
+                      </div>
+                    ) : chartData.length > 0 ? (
+                      <CandlestickChart 
+                        data={chartData} 
+                        pair={selectedPair} 
+                        livePrice={activeResult.price} 
+                      />
+                    ) : (
+                      <div className="h-[300px] flex flex-col items-center justify-center bg-zinc-900/20 rounded-xl border border-zinc-800/80">
+                        <TrendingUp className="w-8 h-8 text-zinc-700 mb-2" />
+                        <span className="text-xs font-mono text-zinc-500">No chart data available</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
