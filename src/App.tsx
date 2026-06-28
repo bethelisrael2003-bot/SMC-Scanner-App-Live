@@ -210,7 +210,7 @@ export default function App() {
   const handleFetchSignals = async () => {
     setSignalsLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/signals");
+      const res = await fetch(`${API_BASE_URL}/api/signals`);
       if (!res.ok) throw new Error("HTTP error fetching signals");
       const data = await res.json();
       setSignals(data);
@@ -223,7 +223,7 @@ export default function App() {
 
   const handleFetchScannerStatus = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/scanner/status");
+      const res = await fetch(`${API_BASE_URL}/api/scanner/status`);
       if (!res.ok) throw new Error("HTTP error retrieving scanner status");
       const data = await res.json();
       setScannerStatus(data);
@@ -268,7 +268,7 @@ export default function App() {
       if (force) {
         try {
           console.warn("Retrying fetch scan from cache as error fallback...");
-          const res = await fetch(`${API_BASE_URL}/api/scan");
+          const res = await fetch(`${API_BASE_URL}/api/scan`);
           if (res.ok) {
             const data = await res.json();
             setScanData(data);
@@ -294,7 +294,7 @@ export default function App() {
   const handleFetchNews = async () => {
     setNewsLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/news");
+      const res = await fetch(`${API_BASE_URL}/api/news`);
       if (!res.ok) throw new Error("HTTP error fetching calendar events");
       const data = await res.json();
       setNewsData(data);
@@ -308,7 +308,7 @@ export default function App() {
   const handleFetchPerformance = async () => {
     setPerfLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/performance/stats");
+      const res = await fetch(`${API_BASE_URL}/api/performance/stats`);
       if (!res.ok) throw new Error("HTTP error retrieving performance metrics");
       const data = await res.json();
       setPerformanceStats(data);
@@ -1108,7 +1108,7 @@ export default function App() {
                     onClick={async () => {
                       if (window.confirm("Are you sure you want to clear all historical and active trade tracking memory on the server? This cannot be undone.")) {
                         try {
-                          await fetch(`${API_BASE_URL}/api/performance/clear", { method: "POST" });
+                          await fetch(`${API_BASE_URL}/api/performance/clear`, { method: "POST" });
                           handleFetchPerformance();
                         } catch (err) {
                           console.error(err);
@@ -1468,7 +1468,7 @@ export default function App() {
 
                               // Fire-and-forget server synchronizer
                               try {
-                                await fetch(`${API_BASE_URL}/api/performance/enter", {
+                                await fetch(`${API_BASE_URL}/api/performance/enter`, {
                                   method: "POST",
                                   headers: { "Content-Type": "application/json" },
                                   body: JSON.stringify({
