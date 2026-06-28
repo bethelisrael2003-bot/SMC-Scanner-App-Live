@@ -1079,7 +1079,7 @@ export default function App() {
                 <div className="p-4 bg-zinc-900/40 border border-zinc-800/80 rounded-xl flex flex-col">
                   <span className="text-zinc-550 text-[10px] font-mono uppercase mb-2">Recent Trade Outcomes Track</span>
                   <div className="flex flex-wrap gap-1.5 items-center">
-                    {performanceStats?.sequence && performanceStats.sequence.length > 0 ? (
+                    {performanceStats && Array.isArray(performanceStats.sequence) && performanceStats.sequence.length > 0 ? (
                       performanceStats.sequence.map((icon, index) => (
                         <div
                           key={index}
@@ -1145,7 +1145,7 @@ export default function App() {
                 </div>
 
                 <div className="flex-1 flex flex-col gap-3 overflow-y-auto max-h-[600px] pr-1">
-                  {!performanceStats || performanceStats.trades.length === 0 ? (
+                  {!performanceStats || !Array.isArray(performanceStats.trades) || performanceStats.trades.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-20 text-center">
                       <Search className="w-8 h-8 text-zinc-650 mb-3 animate-pulse" />
                       <h4 className="text-sm font-semibold text-white">No virtual trades logged yet</h4>
@@ -1343,7 +1343,7 @@ export default function App() {
                   </h3>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 max-h-[280px] overflow-y-auto pr-1">
-                    {activeResult.checks.map((check: string, idx: number) => {
+                    {Array.isArray(activeResult.checks) && activeResult.checks.map((check: string, idx: number) => {
                       const isPass = check.includes("[OK]") || check.includes("Spread") && !check.includes("[X]");
                       const isFail = check.includes("[X]") || check.includes("FAIL");
                       const isWarning = check.includes("[!]");
@@ -1381,7 +1381,7 @@ export default function App() {
                     BONUSES & CONFLUENCES ({activeResult.bonuses}/7)
                   </h3>
 
-                  {activeResult.bonus_list.length > 0 ? (
+                  {Array.isArray(activeResult.bonus_list) && activeResult.bonus_list.length > 0 ? (
                     <div className="flex flex-wrap gap-2">
                       {activeResult.bonus_list.map((bonus: string, index: number) => (
                         <span
@@ -1561,7 +1561,7 @@ export default function App() {
                       USD Correlation Conflict Identified!
                     </span>
                     <div className="space-y-1.5 text-xs text-zinc-400 leading-relaxed font-mono mt-1">
-                      {scanData.conflicts.map((c: any, index: number) => (
+                      {Array.isArray(scanData.conflicts) && scanData.conflicts.map((c: any, index: number) => (
                         <p key={index}>
                           ⚠️ Conflicted pairs detected: <span className="text-white font-bold">[{c.pair1}]</span> and{" "}
                           <span className="text-white font-bold">[{c.pair2}]</span> share currency{" "}
