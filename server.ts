@@ -86,15 +86,27 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 function checkSessionStatus() {
   const now = new Date();
-  const dow = now.getUTCDay();
+  const dow = now.getUTCDay(); // 0 = Sunday, 6 = Saturday
   const hour = now.getUTCHours() + now.getUTCMinutes() / 60;
   const currentGmtStr = now.toISOString().substring(11, 16) + " UTC";
 
-  if (dow === 6) return { session: "WEEKEND", message: "Saturday - market closed", canTrade: false, currentGmt: currentGmtStr };
-  if (dow === 0 && hour < 21) return { session: "WEEKEND", message: "Sunday - market closed", canTrade: false, currentGmt: currentGmtStr };
+  // 1. Weekend Logic: Saturday and Sunday (most of the day)
+  if (dow === 6) { // Saturday
+    return { session: "WEEKEND", message: "Saturday - market closed", canTrade: false, currentGmt: currentGmtStr };
+  }
+  if (dow === 0 && hour < 21) { // Sunday before 21:00 GMT
+    return { session: "WEEKEND", message: "Sunday - market closed", canTrade: false, currentGmt: currentGmtStr };
+  }
 
-  const isActive = (hour >= 7 && hour < 10) || (hour >= 12 && hour < 16);
-  return { session: isActive ? "ACTIVE" : "OUTSIDE KILL ZONES", canTrade: isActive, currentGmt: currentGmtStr };
+  // 2. Kill Zone Logic (Weekdays)
+  const isLondon = hour >= 7 && hour < 10;
+  const isNY = hour >= 12 && hour < 16;
+  const isSydneyTokyo = (hour >= 23 || hour < 6); // Simple Asian session check
+
+  const canTrade = isLondon || isNY;
+  const sessionName = isLondon ? "LONDON_KZ" : isNY ? "NY_OVERLAP" : isSydneyTokyo ? "ASIAN_SESSION" : "OUTSIDE KILL ZONES";
+
+  return { session: sessionName, canTrade, currentGmt: currentGmtStr };
 }
 
 async function getCapitalHeaders() {
@@ -110,25 +122,32 @@ async function getCapitalHeaders() {
 }
 
 async function analyzePair(pair: string): Promise<any> {
+  const session = checkSessionStatus();
   const result: any = { 
-    pair, checks: ["Waiting for scan..."], passed: false, decision: "WAIT", price: 0, 
+    pair, checks: [], passed: false, decision: "WAIT", price: 0, 
     grade: "-", bonuses: 0, bonus_list: [], live: { spread_pips: 0 }, 
     range_high: 0, range_low: 0, zone: "EQ",
-    plan: { entry: 0, sl: 0, tp1: 0, tp2: 0, tp3: 0, rr: 0 } 
+    plan: null 
   };
+
+  // GATE 0: SESSION CHECK - If market closed, stop immediately
+  if (!session.canTrade) {
+    result.checks = [`[X] Market Status: ${session.session} (${session.message || "No trade zone"})`];
+    return result;
+  }
+
   try {
     const headers = await getCapitalHeaders(); if (!headers) return result;
     const epic = EPICS[pair];
-    // Use the prices endpoint with a higher count to ensure we get data
     const url = `${CAPITAL_REST_URL}/prices/${epic}?resolution=HOUR&max=10`;
     const res = await fetch(url, { headers });
     if (!res.ok) {
-        console.error(`[ERROR] API Error for ${pair} (${epic}): ${res.status}`);
+        result.checks = [`[X] API Error: ${res.status}`];
         return result;
     }
     const data = await res.json();
     if (!data?.prices?.length) {
-        console.warn(`[WARN] No price data for ${pair} (${epic})`);
+        result.checks = ["[X] No data available"];
         return result;
     }
     
@@ -140,17 +159,23 @@ async function analyzePair(pair: string): Promise<any> {
     const pipMult = (pair.includes("JPY") || pair.includes("XAU") || pair.includes("GOLD") || pair.includes("SILVER")) ? 100 : 10000;
     result.live.spread_pips = Number(((ask - bid) * pipMult).toFixed(1));
     
-    // Add [OK] to trigger green checkmark in frontend
     result.checks = ["[OK] Price updated", `[OK] Spread: ${result.live.spread_pips} pips`];
     
-    // Simple mock logic for trend to allow demo data
+    // Core SMC Detection Logic (Simplified for Demo)
     const trend = data.prices.length > 5 ? (data.prices[4].closePrice.bid < bid ? "BULLISH" : "BEARISH") : "RANGE";
-    result.passed = true;
-    result.decision = trend === "BULLISH" ? "BUY" : "SELL";
-    result.grade = "B";
-    result.plan = { entry: bid, sl: trend === "BULLISH" ? bid * 0.99 : bid * 1.01, tp1: trend === "BULLISH" ? bid * 1.02 : bid * 0.98, rr: 2 };
+    
+    if (trend !== "RANGE") {
+      result.passed = true;
+      result.decision = trend === "BULLISH" ? "BUY" : "SELL";
+      result.grade = "B";
+      result.plan = { entry: bid, sl: trend === "BULLISH" ? bid * 0.99 : bid * 1.01, tp1: trend === "BULLISH" ? bid * 1.02 : bid * 0.98, rr: 2 };
+      result.checks.push(`[OK] Trend: ${trend} aligned`);
+    } else {
+      result.checks.push("[X] Trend: RANGE (unclear structure)");
+    }
   } catch (e) {
-    console.error(`[ERROR] Crash in analyzePair for ${pair}:`, e);
+    console.error(`[ERROR] analyzePair for ${pair}:`, e);
+    result.checks = ["[X] System error during scan"];
   }
   return result;
 }
@@ -161,12 +186,14 @@ async function runBackgroundCycle() {
   const pairs = Object.keys(EPICS);
   const currentResults: any[] = [];
   try {
+    const session = checkSessionStatus();
     for (const pair of pairs) {
       const res = await analyzePair(pair);
       currentResults.push(res);
       if (mongoose.connection.readyState === 1) {
         await ScanCache.findOneAndUpdate({ pair }, { result: res, timestamp: new Date() }, { upsert: true });
       }
+      if (res.passed && session.canTrade) await recordSignalIfNeeded(res);
       await delay(1000);
     }
     cachedScanResults = currentResults;
@@ -223,6 +250,7 @@ app.post("/api/admin/cleanup", async (req, res) => {
 
 app.get("/api/scan", async (req, res) => {
   try {
+    const session = checkSessionStatus();
     let results = cachedScanResults;
     if (results.length === 0 && mongoose.connection.readyState === 1) {
       const dbResults = await ScanCache.find().lean();
@@ -237,7 +265,7 @@ app.get("/api/scan", async (req, res) => {
     }
     res.json({ 
       timestamp: lastScanTimeFull || new Date().toISOString(), 
-      session: checkSessionStatus(), 
+      session, 
       results: results || [], 
       passed_count: (results || []).filter(r => r && r.passed).length,
       conflicts: []
