@@ -27,7 +27,7 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { AnalysisResult, SessionInfo, EconomicEvent, TradePlan } from "./types";
 
-const API_BASE_URL = "https://smc-scanner-backend.onrender.com";
+const API_BASE_URL = import.meta.env.VITE_API_URL || "";
 
 export default function App() {
   const [scanData, setScanData] = useState<{
@@ -325,7 +325,7 @@ export default function App() {
     setTimeout(() => setCopiedText(null), 2000);
   };
 
-  const activeResult = scanData?.results.find((r) => r.pair === selectedPair);
+  const activeResult = (scanData && Array.isArray(scanData.results)) ? scanData.results.find((r) => r.pair === selectedPair) : null;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans antialiased selection:bg-emerald-500/20 selection:text-emerald-300">
@@ -550,7 +550,7 @@ export default function App() {
                       className="h-16 rounded-xl bg-zinc-900/30 animate-pulse border border-zinc-900"
                     />
                   ))
-                ) : scanData ? (
+                ) : scanData && scanData.results ? (
                   scanData.results.map((r) => {
                     const isSelected = selectedPair === r.pair;
                     const isActionable = r.decision === "BUY" || r.decision === "SELL";
@@ -656,7 +656,7 @@ export default function App() {
                         className="h-24 rounded-xl bg-zinc-900/30 animate-pulse border border-zinc-900"
                       />
                     ))
-                  ) : signals.length > 0 ? (
+                  ) : Array.isArray(signals) && signals.length > 0 ? (
                     signals.map((sig) => {
                       return (
                         <div
@@ -741,7 +741,7 @@ export default function App() {
                   </div>
                 ) : (
                   activeTrades.map((t) => {
-                    const scanItem = scanData?.results.find((r) => r.pair === t.pair);
+                    const scanItem = (scanData && Array.isArray(scanData.results)) ? scanData.results.find((r) => r.pair === t.pair) : null;
                     const currentPrice = scanItem ? scanItem.price : null;
 
                     let progressPercent = 0;
