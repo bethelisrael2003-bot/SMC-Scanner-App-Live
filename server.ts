@@ -5,11 +5,52 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import { spawn } from "child_process";
+import mongoose from "mongoose";
 
 dotenv.config();
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+const MONGODB_URI = process.env.MONGODB_URI || "";
+
+// MongoDB Connection
+if (MONGODB_URI) {
+  mongoose.connect(MONGODB_URI)
+    .then(() => console.log("[INFO] Connected to MongoDB Atlas"))
+    .catch(err => console.error("[ERROR] MongoDB connection error:", err));
+} else {
+  console.warn("[WARN] MONGODB_URI not found. Using local JSON files for persistence (will reset on Render restart).");
+}
+
+// MongoDB Schemas & Models
+const tradeSchema = new mongoose.Schema({
+  pair: String,
+  direction: String,
+  entry: Number,
+  sl: Number,
+  tp1: Number,
+  tp2: Number,
+  tp3: Number,
+  rr: Number,
+  timestamp: { type: Date, default: Date.now },
+  status: { type: String, default: "Open" },
+  grade: String,
+  id: String
+});
+
+const signalSchema = new mongoose.Schema({
+  pair: String,
+  direction: String,
+  grade: String,
+  timestamp: { type: Date, default: Date.now },
+  entryPrice: Number,
+  sl: Number,
+  tp1: Number,
+  id: String
+});
+
+const Trade = mongoose.model("Trade", tradeSchema);
+const Signal = mongoose.model("Signal", signalSchema);
 
 // Gemini API Configuration
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
