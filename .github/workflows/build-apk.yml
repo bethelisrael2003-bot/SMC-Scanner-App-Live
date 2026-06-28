@@ -31,11 +31,15 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
 
+      - name: Create local.properties
+        run: |
+          echo "storePassword=WhJ3Zqn9w9nclShz" > android/local.properties
+          echo "keyPassword=WhJ3Zqn9w9nclShz" >> android/local.properties
+          echo "keyAlias=smc-scanner" >> android/local.properties
+          echo "storeFile=smc-scanner-release.keystore" >> android/local.properties
+
       - name: Build Release APK
         run: cd android && ./gradlew assembleRelease
-        env:
-          KEYSTORE_PASSWORD: WhJ3Zqn9w9nclShz
-          KEY_PASSWORD: WhJ3Zqn9w9nclShz
 
       - name: Upload APK to Release
         uses: softprops/action-gh-release@v1
