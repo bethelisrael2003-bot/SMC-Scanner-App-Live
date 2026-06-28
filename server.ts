@@ -76,6 +76,40 @@ const CAPITAL_REST_URL = "https://api-capital.backend-capital.com/api/v1";
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+function checkSessionStatus() {
+  const now = new Date();
+  const dow = now.getUTCDay(); // 0 = Sunday, 6 = Saturday
+  const hour = now.getUTCHours() + now.getUTCMinutes() / 60;
+  const currentGmtStr = now.toISOString().substring(11, 16) + " UTC";
+
+  if (dow === 6) {
+    return { session: "WEEKEND", message: "Saturday - market closed", canTrade: false, mondayReduced: false, currentGmt: currentGmtStr };
+  }
+  if (dow === 0 && hour < 21) {
+    return { session: "WEEKEND", message: "Sunday - market closed until ~21:00 GMT", canTrade: false, mondayReduced: false, currentGmt: currentGmtStr };
+  }
+
+  const mondayReduced = (dow === 1 && hour < 4);
+
+  if (hour < 7) {
+    return { session: "ASIAN", message: "Asian session (00:00-07:00 GMT) - WAIT", canTrade: false, mondayReduced, currentGmt: currentGmtStr };
+  }
+  if (hour >= 7 && hour < 10) {
+    return { session: "LONDON_KZ", message: "London Kill Zone (07:00-10:00 GMT) - HIGH PRIORITY", canTrade: true, mondayReduced, currentGmt: currentGmtStr };
+  }
+  if (hour >= 10 && hour < 12) {
+    return { session: "MIDDAY", message: "Between London KZ and NY KZ - reduced priority", canTrade: true, mondayReduced, currentGmt: currentGmtStr };
+  }
+  if (hour >= 12 && hour < 16) {
+    return { session: "NY_OVERLAP", message: "London/NY Overlap (12:00-16:00 GMT) - BEST SESSION", canTrade: true, mondayReduced, currentGmt: currentGmtStr };
+  }
+  if (hour >= 16 && hour < 21) {
+    return { session: "LATE_NY", message: "Late NY - reduced priority", canTrade: true, mondayReduced, currentGmt: currentGmtStr };
+  }
+
+  return { session: "OFF_HOURS", message: "Outside active sessions", canTrade: false, mondayReduced, currentGmt: currentGmtStr };
+}
+
 async function getCapitalHeaders() {
   try {
     const res = await fetch(`${CAPITAL_REST_URL}/session`, {
@@ -106,9 +140,6 @@ async function analyzePair(pair: string): Promise<any> {
     result.price = p.closePrice.bid;
     result.live.spread_pips = Number(((p.closePrice.ask - p.closePrice.bid) * (pair.includes("JPY") || pair.includes("XAU") ? 100 : 10000)).toFixed(1));
     result.checks = ["Price updated", `Spread: ${result.live.spread_pips} pips`];
-    // In a real scan, the trend logic would be here. For fallback:
-    result.passed = false; 
-    result.decision = "WAIT";
   } catch (e) {}
   return result;
 }
@@ -123,7 +154,7 @@ async function recordSignalIfNeeded(res: any) {
       pair: res.pair, direction: res.decision, grade: res.grade, 
       entryPrice: res.plan?.entry || 0, sl: res.plan?.sl || 0, 
       tp1: res.plan?.tp1 || 0, tp2: res.plan?.tp2 || 0, tp3: res.plan?.tp3 || 0,
-      bonuses: res.bonuses || 0, session: "ACTIVE", id: `sig_${Date.now()}` 
+      bonuses: res.bonuses || 0, session: checkSessionStatus().session, id: `sig_${Date.now()}` 
     });
   } catch (err) { console.error("[ERROR] Signal log failed:", err); }
 }
@@ -134,13 +165,14 @@ async function runBackgroundCycle() {
   const pairs = Object.keys(EPICS);
   const currentResults: any[] = [];
   try {
+    const session = checkSessionStatus();
     for (const pair of pairs) {
       const res = await analyzePair(pair);
       currentResults.push(res);
       if (mongoose.connection.readyState === 1) {
         await ScanCache.findOneAndUpdate({ pair }, { result: res, timestamp: new Date() }, { upsert: true });
       }
-      if (res.passed) await recordSignalIfNeeded(res);
+      if (res.passed && session.canTrade) await recordSignalIfNeeded(res);
       await delay(1000);
     }
     cachedScanResults = currentResults;
@@ -153,6 +185,7 @@ async function runBackgroundCycle() {
   } finally { isScanningBackground = false; lastAutoScannerStatus.isScanning = false; }
 }
 
+// Background Loops
 setInterval(runBackgroundCycle, 180000);
 setTimeout(runBackgroundCycle, 5000);
 
@@ -171,7 +204,7 @@ app.get("/api/performance/stats", async (req, res) => {
   try {
     const stats = { winRate: 0, totalTrades: 0, totalClosed: 0, totalWins: 0, totalLosses: 0, sequence: [], trades: [] };
     if (mongoose.connection.readyState === 1) {
-      const trades = await Signal.find().sort({ timestamp: -1 }).lean(); // Use Signal for dummy display if Trades empty
+      const trades = await Trade.find().sort({ timestamp: -1 }).lean();
       stats.trades = (trades || []) as any;
       stats.totalTrades = trades.length;
     }
@@ -213,7 +246,7 @@ app.get("/api/scan", async (req, res) => {
     }
     res.json({ 
       timestamp: lastScanTimeFull || new Date().toISOString(), 
-      session: { session: "ACTIVE", canTrade: true, currentGmt: new Date().toISOString() }, 
+      session: checkSessionStatus(), 
       results: results || [], 
       passed_count: (results || []).filter(r => r && r.passed).length,
       conflicts: []
