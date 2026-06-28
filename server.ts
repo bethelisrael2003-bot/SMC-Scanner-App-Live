@@ -11,13 +11,28 @@ dotenv.config();
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
-const MONGODB_URI = process.env.MONGODB_URI || "";
+const MONGODB_URI = process.env.MONGODB_URI;
 
-// MongoDB Connection
-if (MONGODB_URI) {
-  mongoose.connect(MONGODB_URI)
-    .then(() => console.log("[INFO] Connected to MongoDB Atlas"))
-    .catch(err => console.error("[ERROR] MongoDB connection error:", err));
+// MongoDB Connection Helper
+async function connectToDatabase() {
+  if (!MONGODB_URI) {
+    console.error("[CRITICAL] MONGODB_URI is not defined in environment variables!");
+    console.warn("[WARN] Persistence will not work. Database operations will fail.");
+    return false;
+  }
+
+  try {
+    console.log("[INFO] Attempting to connect to MongoDB Atlas...");
+    // Removing deprecated options as they are default in Mongoose 6+
+    await mongoose.connect(MONGODB_URI, {
+      serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 30s
+    });
+    console.log("[SUCCESS] MongoDB connected successfully.");
+    return true;
+  } catch (err) {
+    console.error("[ERROR] MongoDB connection failed:", err);
+    return false;
+  }
 }
 
 // MongoDB Schemas & Models
@@ -169,6 +184,7 @@ async function fetchWithRetry(url: string, options: any, maxRetries = 5, initial
       if (res.status === 429 && attempt < maxRetries) {
         attempt++;
         const backoff = initialDelay * Math.pow(2, attempt) + Math.random() * 100;
+        console.warn(`[WARN] Capital API 429 rate limit hit. Retrying attempt ${attempt}/${maxRetries} after ${Math.round(backoff)}ms... url: ${url}`);
         await delay(backoff);
         continue;
       }
@@ -177,6 +193,7 @@ async function fetchWithRetry(url: string, options: any, maxRetries = 5, initial
       if (attempt < maxRetries) {
         attempt++;
         const backoff = initialDelay * Math.pow(2, attempt) + Math.random() * 105;
+        console.warn(`[WARN] Connection issue with Capital. Retrying attempt ${attempt}/${maxRetries} after ${Math.round(backoff)}ms... error:`, error);
         await delay(backoff);
         continue;
       }
@@ -245,55 +262,6 @@ function classifyTrend(candles: any[], lookback = 2) {
   return { trend: "RANGE", highs, lows };
 }
 
-function atr(candles: any[], period = 14) {
-  if (candles.length < period + 1) return null;
-  const trs: number[] = [];
-  for (let i = 1; i < candles.length; i++) {
-    trs.push(Math.max(candles[i].h - candles[i].l, Math.abs(candles[i].h - candles[i - 1].c), Math.abs(candles[i].l - candles[i - 1].c)));
-  }
-  return trs.slice(-period).reduce((a, b) => a + b, 0) / period;
-}
-
-function findLiquidityPools(candles: any[], tolPct = 0.0015) {
-  const pools: any[] = []; const last = candles[candles.length - 1].c; const window = candles.slice(-30);
-  const highs = window.map((c, i) => ({ i, h: c.h, t: c.t }));
-  for (let i = 0; i < highs.length; i++) {
-    for (let j = i + 1; j < highs.length; j++) {
-      if (Math.abs(highs[i].h - highs[j].h) / highs[i].h < tolPct) {
-        const level = (highs[i].h + highs[j].h) / 2;
-        if (level > last) { pools.push({ level, side: "BUY", source: "equal_high" }); break; }
-      }
-    }
-  }
-  const buyPools = pools.filter(p => p.side === "BUY").sort((a, b) => a.level - b.level);
-  return { buyPools: buyPools.slice(0, 2), sellPools: [] }; // simplified for brevity
-}
-
-function detectSweep(candles: any[], pool: any, lookback = 5) {
-  const level = pool.level; const tol = level * 0.0008; const recent = candles.slice(-Math.min(lookback, candles.length));
-  for (const c of recent) {
-    if (pool.side === "BUY" && c.h > level + tol && c.c < level) return { swept: true };
-    if (pool.side === "SELL" && c.l < level - tol && c.c > level) return { swept: true };
-  }
-  return { swept: false };
-}
-
-function checkPoiFreshness(candles: any[], poi: any) {
-  const high = poi.high || poi.top; const low = poi.low || poi.bottom; let touches = 0;
-  for (let i = poi.index + 1; i < candles.length; i++) {
-    if (candles[i].l <= high && candles[i].h >= low) { touches++; if (touches > 1) return "DEAD"; }
-  }
-  return touches === 0 ? "FRESH" : "USED";
-}
-
-function checkEntryCandle(candles: any[], direction: "BUY" | "SELL") {
-  const curr = candles[candles.length - 1]; const body = Math.abs(curr.c - curr.o); const rng = curr.h - curr.l;
-  if (rng === 0) return { valid: false };
-  if (direction === "BUY" && curr.c > curr.o && body / rng >= 0.6) return { valid: true, reason: "Strong Bullish" };
-  if (direction === "SELL" && curr.c < curr.o && body / rng >= 0.6) return { valid: true, reason: "Strong Bearish" };
-  return { valid: false, reason: "Weak" };
-}
-
 function checkSessionStatus() {
   const now = new Date(); const hour = now.getUTCHours();
   if (hour >= 7 && hour < 10) return { session: "LONDON_KZ", canTrade: true, currentGmt: now.toISOString() };
@@ -309,20 +277,24 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
     const h1 = await getCandles(pair, "1h", 120); await delay(500);
     const m15 = await getCandles(pair, "15min", 120); await delay(500);
     if (!h1 || h1.length < 20) return result;
-    const h1Trend = classifyTrend(h1.reverse(), 2).trend;
+    const h1Trend = classifyTrend([...h1].reverse(), 2).trend;
     const live = await getLivePrice(pair); await delay(500);
-    const last = live ? live.mid : h1[0].c;
-    result.price = last; result.passed = h1Trend !== "RANGE"; result.decision = h1Trend === "BULLISH" ? "BUY" : "SELL";
+    const last = live ? live.mid : h1[h1.length - 1].c;
+    result.price = last; result.passed = h1Trend !== "RANGE" && h1Trend !== "UNCLEAR"; result.decision = h1Trend === "BULLISH" ? "BUY" : "SELL";
     result.plan = { entry: last, sl: last * 0.99, tp1: last * 1.02, rr: 2 };
-  } catch (e) {}
+  } catch (e) { console.error(`[ERROR] Error analyzing ${pair}:`, e); }
   return result;
 }
 
 async function recordSignalIfNeeded(res: any) {
   if (!res?.passed) return;
-  const existing = await Signal.findOne({ pair: res.pair, direction: res.decision, timestamp: { $gt: new Date(Date.now() - 900000) } });
-  if (existing) return;
-  await Signal.create({ pair: res.pair, direction: res.decision, grade: res.grade, entryPrice: res.plan.entry, sl: res.plan.sl, tp1: res.plan.tp1 });
+  try {
+    const existing = await Signal.findOne({ pair: res.pair, direction: res.decision, timestamp: { $gt: new Date(Date.now() - 900000) } });
+    if (existing) return;
+    await Signal.create({ pair: res.pair, direction: res.decision, grade: res.grade, entryPrice: res.plan.entry, sl: res.plan.sl, tp1: res.plan.tp1, id: `sig_${Date.now()}` });
+  } catch (err) {
+    console.error("[ERROR] Failed to record signal in MongoDB:", err);
+  }
 }
 
 let isScanningBackground = false;
@@ -332,6 +304,7 @@ async function runBackgroundCycle() {
   if (isScanningBackground) return;
   isScanningBackground = true; lastAutoScannerStatus.isScanning = true;
   try {
+    const session = checkSessionStatus();
     const pairs = Object.keys(EPICS);
     for (const pair of pairs) {
       const res = await analyzePair(pair, true);
@@ -339,30 +312,57 @@ async function runBackgroundCycle() {
       await delay(1000);
     }
     lastAutoScannerStatus.lastScanTime = new Date().toISOString(); lastAutoScannerStatus.message = "Scan completed";
+  } catch (err) {
+    console.error("[ERROR] Background cycle failed:", err);
   } finally { isScanningBackground = false; lastAutoScannerStatus.isScanning = false; }
 }
 
-setInterval(runBackgroundCycle, 120000);
-setTimeout(runBackgroundCycle, 5000);
-
 app.use(express.json());
-app.get("/api/signals", async (req, res) => res.json(await Signal.find().sort({ timestamp: -1 }).limit(50)));
+
+app.get("/api/signals", async (req, res) => {
+  try {
+    const signals = await Signal.find().sort({ timestamp: -1 }).limit(50);
+    res.json(signals);
+  } catch (err) {
+    res.status(500).json({ error: "DB Error" });
+  }
+});
+
 app.get("/api/scanner/status", (req, res) => res.json(lastAutoScannerStatus));
+
 app.get("/api/performance/stats", async (req, res) => {
-  const trades = await Trade.find().sort({ timestamp: -1 });
-  res.json({ winRate: 0, totalTrades: trades.length, trades });
+  try {
+    const trades = await Trade.find().sort({ timestamp: -1 });
+    res.json({ winRate: 0, totalTrades: trades.length, trades });
+  } catch (err) {
+    res.status(500).json({ error: "DB Error" });
+  }
 });
+
 app.post("/api/performance/enter", async (req, res) => {
-  await Trade.create({ ...req.body, status: "Open" });
-  res.json({ success: true });
+  try {
+    await Trade.create({ ...req.body, status: "Open" });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "DB Error" });
+  }
 });
+
 app.get("/api/scan", async (req, res) => {
   const pairs = Object.keys(EPICS); const results = [];
+  const session = checkSessionStatus();
   for (const pair of pairs) { results.push(await analyzePair(pair, req.query.force === "true")); await delay(1000); }
-  res.json({ timestamp: new Date().toISOString(), session: checkSessionStatus(), results });
+  res.json({ timestamp: new Date().toISOString(), session, results });
 });
 
 async function startServer() {
+  // 1. Connect to Database FIRST
+  const isConnected = await connectToDatabase();
+  
+  if (!isConnected) {
+    console.warn("[CRITICAL] Starting server WITHOUT active MongoDB connection. Database features will fail.");
+  }
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
     app.use(vite.middlewares);
@@ -370,6 +370,15 @@ async function startServer() {
     app.use(express.static(path.join(process.cwd(), "dist")));
     app.get("*", (req, res) => res.sendFile(path.join(process.cwd(), "dist", "index.html")));
   }
-  app.listen(PORT, "0.0.0.0", () => console.log(`Server running on port ${PORT}`));
+
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`[SUCCESS] SMC Scanner Server running on port ${PORT}`);
+    console.log(`[STATUS] MongoDB Status: ${mongoose.connection.readyState === 1 ? "CONNECTED" : "DISCONNECTED"}`);
+    
+    // Start background tasks ONLY if connected or if you want to risk it
+    setInterval(runBackgroundCycle, 120000);
+    setTimeout(runBackgroundCycle, 5000);
+  });
 }
+
 startServer();
