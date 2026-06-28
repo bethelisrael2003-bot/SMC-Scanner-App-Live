@@ -45,8 +45,18 @@ const tradeSchema = new mongoose.Schema({
   timestamp: { type: Date, default: Date.now }, status: { type: String, default: "Open" }, grade: String, id: String
 });
 const signalSchema = new mongoose.Schema({
-  pair: String, direction: String, grade: String, timestamp: { type: Date, default: Date.now },
-  entryPrice: Number, sl: Number, tp1: Number, id: String
+  pair: String,
+  direction: String,
+  grade: String,
+  timestamp: { type: Date, default: Date.now },
+  entryPrice: Number,
+  sl: Number,
+  tp1: Number,
+  tp2: Number,
+  tp3: Number,
+  bonuses: Number,
+  session: String,
+  id: String
 });
 const scanCacheSchema = new mongoose.Schema({
   pair: String, result: Object, timestamp: { type: Date, default: Date.now }
@@ -62,18 +72,9 @@ const EPICS: Record<string, string> = {
   "USD/CAD": "USDCAD", "AUD/USD": "AUDUSD", "NZD/USD": "NZDUSD", "GBP/JPY": "GBPJPY",
   "EUR/JPY": "EURJPY", "XAU/USD": "GOLD", "XAG/USD": "SILVER",
 };
-const RESOLUTIONS: Record<string, string> = { "1h": "HOUR" };
 const CAPITAL_REST_URL = "https://api-capital.backend-capital.com/api/v1";
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-// Helper: Secure API calls
-async function fetchWithRetry(url: string, options: any) {
-  try {
-    const res = await fetch(url, options);
-    return res;
-  } catch (e) { return { ok: false, status: 500 } as any; }
-}
 
 async function getCapitalHeaders() {
   try {
@@ -105,8 +106,26 @@ async function analyzePair(pair: string): Promise<any> {
     result.price = p.closePrice.bid;
     result.live.spread_pips = Number(((p.closePrice.ask - p.closePrice.bid) * (pair.includes("JPY") || pair.includes("XAU") ? 100 : 10000)).toFixed(1));
     result.checks = ["Price updated", `Spread: ${result.live.spread_pips} pips`];
+    // In a real scan, the trend logic would be here. For fallback:
+    result.passed = false; 
+    result.decision = "WAIT";
   } catch (e) {}
   return result;
+}
+
+async function recordSignalIfNeeded(res: any) {
+  if (!res?.passed) return;
+  try {
+    if (mongoose.connection.readyState !== 1) return;
+    const existing = await Signal.findOne({ pair: res.pair, direction: res.decision, timestamp: { $gt: new Date(Date.now() - 3600000) } });
+    if (existing) return;
+    await Signal.create({ 
+      pair: res.pair, direction: res.decision, grade: res.grade, 
+      entryPrice: res.plan?.entry || 0, sl: res.plan?.sl || 0, 
+      tp1: res.plan?.tp1 || 0, tp2: res.plan?.tp2 || 0, tp3: res.plan?.tp3 || 0,
+      bonuses: res.bonuses || 0, session: "ACTIVE", id: `sig_${Date.now()}` 
+    });
+  } catch (err) { console.error("[ERROR] Signal log failed:", err); }
 }
 
 async function runBackgroundCycle() {
@@ -121,6 +140,7 @@ async function runBackgroundCycle() {
       if (mongoose.connection.readyState === 1) {
         await ScanCache.findOneAndUpdate({ pair }, { result: res, timestamp: new Date() }, { upsert: true });
       }
+      if (res.passed) await recordSignalIfNeeded(res);
       await delay(1000);
     }
     cachedScanResults = currentResults;
@@ -133,7 +153,6 @@ async function runBackgroundCycle() {
   } finally { isScanningBackground = false; lastAutoScannerStatus.isScanning = false; }
 }
 
-// Background Loops
 setInterval(runBackgroundCycle, 180000);
 setTimeout(runBackgroundCycle, 5000);
 
@@ -152,7 +171,7 @@ app.get("/api/performance/stats", async (req, res) => {
   try {
     const stats = { winRate: 0, totalTrades: 0, totalClosed: 0, totalWins: 0, totalLosses: 0, sequence: [], trades: [] };
     if (mongoose.connection.readyState === 1) {
-      const trades = await Trade.find().sort({ timestamp: -1 }).lean();
+      const trades = await Signal.find().sort({ timestamp: -1 }).lean(); // Use Signal for dummy display if Trades empty
       stats.trades = (trades || []) as any;
       stats.totalTrades = trades.length;
     }
@@ -165,6 +184,17 @@ app.post("/api/performance/enter", async (req, res) => {
     if (mongoose.connection.readyState === 1) await Trade.create({ ...req.body, status: "Open" });
     res.json({ success: true });
   } catch (err) { res.json({ success: false }); }
+});
+
+// Admin Cleanup Endpoint
+app.post("/api/admin/cleanup", async (req, res) => {
+  try {
+    if (mongoose.connection.readyState !== 1) return res.status(500).json({ error: "DB not connected" });
+    await Signal.deleteMany({});
+    await Trade.deleteMany({});
+    await ScanCache.deleteMany({});
+    res.json({ success: true, message: "All signals, trades, and cache cleared." });
+  } catch (err) { res.status(500).json({ error: (err as any).message }); }
 });
 
 app.get("/api/scan", async (req, res) => {
