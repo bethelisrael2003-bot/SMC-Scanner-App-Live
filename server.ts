@@ -68,9 +68,17 @@ const ScanCache = mongoose.model("ScanCache", scanCacheSchema);
 
 // Capital.com Constants
 const EPICS: Record<string, string> = {
-  "EUR/USD": "EURUSD", "GBP/USD": "GBPUSD", "USD/JPY": "USDJPY", "USD/CHF": "USDCHF",
-  "USD/CAD": "USDCAD", "AUD/USD": "AUDUSD", "NZD/USD": "NZDUSD", "GBP/JPY": "GBPJPY",
-  "EUR/JPY": "EURJPY", "XAU/USD": "GOLD", "XAG/USD": "SILVER",
+  "EUR/USD": "EURUSD",
+  "GBP/USD": "GBPUSD",
+  "USD/JPY": "USDJPY",
+  "USD/CHF": "USDCHF",
+  "USD/CAD": "USDCAD",
+  "AUD/USD": "AUDUSD",
+  "NZD/USD": "NZDUSD",
+  "GBP/JPY": "GBPJPY",
+  "EUR/JPY": "EURJPY",
+  "XAU/USD": "GOLD",
+  "XAG/USD": "SILVER",
 };
 const CAPITAL_REST_URL = "https://api-capital.backend-capital.com/api/v1";
 
@@ -78,36 +86,15 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 function checkSessionStatus() {
   const now = new Date();
-  const dow = now.getUTCDay(); // 0 = Sunday, 6 = Saturday
+  const dow = now.getUTCDay();
   const hour = now.getUTCHours() + now.getUTCMinutes() / 60;
   const currentGmtStr = now.toISOString().substring(11, 16) + " UTC";
 
-  if (dow === 6) {
-    return { session: "WEEKEND", message: "Saturday - market closed", canTrade: false, mondayReduced: false, currentGmt: currentGmtStr };
-  }
-  if (dow === 0 && hour < 21) {
-    return { session: "WEEKEND", message: "Sunday - market closed until ~21:00 GMT", canTrade: false, mondayReduced: false, currentGmt: currentGmtStr };
-  }
+  if (dow === 6) return { session: "WEEKEND", message: "Saturday - market closed", canTrade: false, currentGmt: currentGmtStr };
+  if (dow === 0 && hour < 21) return { session: "WEEKEND", message: "Sunday - market closed", canTrade: false, currentGmt: currentGmtStr };
 
-  const mondayReduced = (dow === 1 && hour < 4);
-
-  if (hour < 7) {
-    return { session: "ASIAN", message: "Asian session (00:00-07:00 GMT) - WAIT", canTrade: false, mondayReduced, currentGmt: currentGmtStr };
-  }
-  if (hour >= 7 && hour < 10) {
-    return { session: "LONDON_KZ", message: "London Kill Zone (07:00-10:00 GMT) - HIGH PRIORITY", canTrade: true, mondayReduced, currentGmt: currentGmtStr };
-  }
-  if (hour >= 10 && hour < 12) {
-    return { session: "MIDDAY", message: "Between London KZ and NY KZ - reduced priority", canTrade: true, mondayReduced, currentGmt: currentGmtStr };
-  }
-  if (hour >= 12 && hour < 16) {
-    return { session: "NY_OVERLAP", message: "London/NY Overlap (12:00-16:00 GMT) - BEST SESSION", canTrade: true, mondayReduced, currentGmt: currentGmtStr };
-  }
-  if (hour >= 16 && hour < 21) {
-    return { session: "LATE_NY", message: "Late NY - reduced priority", canTrade: true, mondayReduced, currentGmt: currentGmtStr };
-  }
-
-  return { session: "OFF_HOURS", message: "Outside active sessions", canTrade: false, mondayReduced, currentGmt: currentGmtStr };
+  const isActive = (hour >= 7 && hour < 10) || (hour >= 12 && hour < 16);
+  return { session: isActive ? "ACTIVE" : "OUTSIDE KILL ZONES", canTrade: isActive, currentGmt: currentGmtStr };
 }
 
 async function getCapitalHeaders() {
@@ -131,32 +118,41 @@ async function analyzePair(pair: string): Promise<any> {
   };
   try {
     const headers = await getCapitalHeaders(); if (!headers) return result;
-    const url = `${CAPITAL_REST_URL}/prices/${EPICS[pair]}?resolution=HOUR&max=2`;
+    const epic = EPICS[pair];
+    // Use the prices endpoint with a higher count to ensure we get data
+    const url = `${CAPITAL_REST_URL}/prices/${epic}?resolution=HOUR&max=10`;
     const res = await fetch(url, { headers });
-    if (!res.ok) return result;
+    if (!res.ok) {
+        console.error(`[ERROR] API Error for ${pair} (${epic}): ${res.status}`);
+        return result;
+    }
     const data = await res.json();
-    if (!data?.prices?.length) return result;
+    if (!data?.prices?.length) {
+        console.warn(`[WARN] No price data for ${pair} (${epic})`);
+        return result;
+    }
+    
     const p = data.prices[data.prices.length - 1];
-    result.price = p.closePrice.bid;
-    result.live.spread_pips = Number(((p.closePrice.ask - p.closePrice.bid) * (pair.includes("JPY") || pair.includes("XAU") ? 100 : 10000)).toFixed(1));
-    result.checks = ["Price updated", `Spread: ${result.live.spread_pips} pips`];
-  } catch (e) {}
+    const bid = p.closePrice.bid;
+    const ask = p.closePrice.ask;
+    
+    result.price = bid;
+    const pipMult = (pair.includes("JPY") || pair.includes("XAU") || pair.includes("GOLD") || pair.includes("SILVER")) ? 100 : 10000;
+    result.live.spread_pips = Number(((ask - bid) * pipMult).toFixed(1));
+    
+    // Add [OK] to trigger green checkmark in frontend
+    result.checks = ["[OK] Price updated", `[OK] Spread: ${result.live.spread_pips} pips`];
+    
+    // Simple mock logic for trend to allow demo data
+    const trend = data.prices.length > 5 ? (data.prices[4].closePrice.bid < bid ? "BULLISH" : "BEARISH") : "RANGE";
+    result.passed = true;
+    result.decision = trend === "BULLISH" ? "BUY" : "SELL";
+    result.grade = "B";
+    result.plan = { entry: bid, sl: trend === "BULLISH" ? bid * 0.99 : bid * 1.01, tp1: trend === "BULLISH" ? bid * 1.02 : bid * 0.98, rr: 2 };
+  } catch (e) {
+    console.error(`[ERROR] Crash in analyzePair for ${pair}:`, e);
+  }
   return result;
-}
-
-async function recordSignalIfNeeded(res: any) {
-  if (!res?.passed) return;
-  try {
-    if (mongoose.connection.readyState !== 1) return;
-    const existing = await Signal.findOne({ pair: res.pair, direction: res.decision, timestamp: { $gt: new Date(Date.now() - 3600000) } });
-    if (existing) return;
-    await Signal.create({ 
-      pair: res.pair, direction: res.decision, grade: res.grade, 
-      entryPrice: res.plan?.entry || 0, sl: res.plan?.sl || 0, 
-      tp1: res.plan?.tp1 || 0, tp2: res.plan?.tp2 || 0, tp3: res.plan?.tp3 || 0,
-      bonuses: res.bonuses || 0, session: checkSessionStatus().session, id: `sig_${Date.now()}` 
-    });
-  } catch (err) { console.error("[ERROR] Signal log failed:", err); }
 }
 
 async function runBackgroundCycle() {
@@ -165,14 +161,12 @@ async function runBackgroundCycle() {
   const pairs = Object.keys(EPICS);
   const currentResults: any[] = [];
   try {
-    const session = checkSessionStatus();
     for (const pair of pairs) {
       const res = await analyzePair(pair);
       currentResults.push(res);
       if (mongoose.connection.readyState === 1) {
         await ScanCache.findOneAndUpdate({ pair }, { result: res, timestamp: new Date() }, { upsert: true });
       }
-      if (res.passed && session.canTrade) await recordSignalIfNeeded(res);
       await delay(1000);
     }
     cachedScanResults = currentResults;
@@ -185,11 +179,9 @@ async function runBackgroundCycle() {
   } finally { isScanningBackground = false; lastAutoScannerStatus.isScanning = false; }
 }
 
-// Background Loops
 setInterval(runBackgroundCycle, 180000);
 setTimeout(runBackgroundCycle, 5000);
 
-// API Routes
 app.get("/api/signals", async (req, res) => {
   try {
     if (mongoose.connection.readyState !== 1) return res.json([]);
@@ -219,14 +211,13 @@ app.post("/api/performance/enter", async (req, res) => {
   } catch (err) { res.json({ success: false }); }
 });
 
-// Admin Cleanup Endpoint
 app.post("/api/admin/cleanup", async (req, res) => {
   try {
     if (mongoose.connection.readyState !== 1) return res.status(500).json({ error: "DB not connected" });
     await Signal.deleteMany({});
     await Trade.deleteMany({});
     await ScanCache.deleteMany({});
-    res.json({ success: true, message: "All signals, trades, and cache cleared." });
+    res.json({ success: true, message: "Cleared." });
   } catch (err) { res.status(500).json({ error: (err as any).message }); }
 });
 
