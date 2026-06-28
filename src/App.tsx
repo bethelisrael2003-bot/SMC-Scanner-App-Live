@@ -27,7 +27,7 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { AnalysisResult, SessionInfo, EconomicEvent, TradePlan } from "./types";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "";
+const API_BASE_URL = "https://smc-scanner-backend.onrender.com";
 
 export default function App() {
   const [scanData, setScanData] = useState<{

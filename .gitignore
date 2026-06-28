@@ -6,3 +6,10 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Android signing
+android/local.properties
+
+# App session data
+capital_session.json
+keystore_pw.txt
