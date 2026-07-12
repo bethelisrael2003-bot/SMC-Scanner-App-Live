@@ -598,12 +598,25 @@ function checkPoiFreshness(candles: any[], poi: any) {
     const c = candles[i];
     if (c.l <= high && c.h >= low) {
       touches++;
-      if (poi.direction === "BUY" && c.c < low) return "DEAD";
-      if (poi.direction === "SELL" && c.c > high) return "DEAD";
-      if (touches > 1) return "DEAD";
+
+      // FIXED: Only mark DEAD on a STRONG displacement candle closing through
+      // the zone. Normal mitigation (wick touch or weak body) is NOT invalidation —
+      // it is your entry trigger. This matches real SMC mechanics.
+      const body = Math.abs(c.c - c.o);
+      const rng = c.h - c.l;
+      const isStrongBody = rng > 0 ? body > 0.5 * rng : false;
+
+      if (poi.direction === "BUY") {
+        // DEAD only if strong BEARISH candle closes below the POI low
+        if (c.c < low && isStrongBody && c.c < c.o) return "DEAD";
+      } else {
+        // DEAD only if strong BULLISH candle closes above the POI high
+        if (c.c > high && isStrongBody && c.c > c.o) return "DEAD";
+      }
     }
   }
 
+  // Multiple touches = USED (mitigated) but still valid. Never auto-kill.
   return touches === 0 ? "FRESH" : "USED";
 }
 
@@ -848,10 +861,9 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
     }
 
     if (hasHighImpactNews) {
-      result.checks.push(`[X] News calendar check: High-impact event today (${newsDetail})`);
-      isFailedSetup = true;
+      result.checks.push(`[!] News advisory: High-impact event today (${newsDetail}) — reduce size 50%`);
     } else {
-      result.checks.push(`[OK] News calendar check: No overlapping high-impact events today`);
+      result.checks.push(`[OK] News calendar: No high-impact events today`);
     }
   } catch (error) {
     result.checks.push(`[!] News calendar check: Temporarily unable to verify economic calendar`);
