@@ -1155,6 +1155,7 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
   result.grade = grade;
 
   // Trade Plan calculations
+  // FIXED: Cap stop at max 1.5x ATR to prevent dangerously wide stops on metals
   const entry = last;
   let sl = 0;
   let tp1 = 0;
@@ -1162,15 +1163,20 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
   let tp3 = 0;
 
   if (direction === "BUY") {
-    sl = Math.min(poiLow, entry - 1.5 * hAtr) - hAtr * 0.1;
-    if (sl >= entry) sl = entry - 1.5 * hAtr;
+    const poiSl = poiLow - hAtr * 0.1;
+    const atrSl = entry - 1.5 * hAtr;
+    // Use POI stop if within 1.5x ATR, otherwise cap at 1.5x ATR
+    sl = Math.abs(entry - poiSl) <= 1.5 * hAtr ? poiSl : atrSl;
+    if (sl >= entry) sl = atrSl;
     tp1 = entry + 2 * Math.abs(entry - sl);
     tp2 = entry + 3 * Math.abs(entry - sl);
     tp3 = pdZone.rHigh;
     if (tp3 <= entry) tp3 = entry + 4 * Math.abs(entry - sl);
   } else {
-    sl = Math.max(poiHigh, entry + 1.5 * hAtr) + hAtr * 0.1;
-    if (sl <= entry) sl = entry + 1.5 * hAtr;
+    const poiSl = poiHigh + hAtr * 0.1;
+    const atrSl = entry + 1.5 * hAtr;
+    sl = Math.abs(poiSl - entry) <= 1.5 * hAtr ? poiSl : atrSl;
+    if (sl <= entry) sl = atrSl;
     tp1 = entry - 2 * Math.abs(sl - entry);
     tp2 = entry - 3 * Math.abs(sl - entry);
     tp3 = pdZone.rLow;
@@ -1503,9 +1509,9 @@ function recordSignalIfNeeded(res: any, session: any) {
   try {
     const signals = loadSignals();
     const now = new Date();
-    const fifteenMinsAgo = now.getTime() - 15 * 60 * 1000;
+    const fifteenMinsAgo = now.getTime() - 120 * 60 * 1000; // 2 hours - prevents duplicate signals on same pair
 
-    // Deduplicate: No double logging of identical signal on the same pair in 15 mins window
+    // Deduplicate: No double logging of identical signal on the same pair in 2 hour window
     const redundant = signals.some((s) =>
       s.pair === pair &&
       s.direction === direction &&
