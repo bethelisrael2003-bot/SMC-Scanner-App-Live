@@ -1602,6 +1602,51 @@ async function runBackgroundCycle() {
             }
           }
 
+          // ========== STALL EXIT (Distance/Time Check) ==========
+          // If price hasn't moved 1R in favor within 2 hours (8x M15), the thesis is wrong.
+          // Exit at market — dead money tied up in a stalling trade.
+          const tradeAgeMs = Date.now() - new Date(trade.timestamp).getTime();
+          const twoHoursMs = 2 * 60 * 60 * 1000;
+          if (tradeAgeMs > twoHoursMs && !trade.breakevenTriggered && slDist > 0) {
+            const moveInFavor = trade.direction === "BUY"
+              ? currentPrice - trade.entryPrice
+              : trade.entryPrice - currentPrice;
+            const oneR = slDist;
+            if (moveInFavor < oneR) {
+              // Trade hasn't reached 1R in 2+ hours → EXIT
+              trade.status = moveInFavor >= 0 ? "Closed - LOSS" : "Closed - LOSS";
+              const exitR = trade.direction === "BUY"
+                ? (trade.entryPrice - currentPrice) / slDist
+                : (currentPrice - trade.entryPrice) / slDist;
+              trade.rrGained = Number(exitR.toFixed(2));
+              trade.closePrice = Number(currentPrice.toFixed(5));
+              trade.closeTimestamp = new Date().toISOString();
+              trade.updatedAt = new Date().toISOString();
+              console.log(`[BACKGROUND ENGINE] STALL EXIT: Trade ${trade.id} (${trade.pair}) didn't reach 1R in 2+ hours. Closed at ${currentPrice} (${trade.rrGained}R)`);
+              continue;
+            }
+          }
+
+          // ========== END-OF-DAY EXIT (Intraday Rule) ==========
+          // Close all positions at 20:00 GMT (9 PM Lagos) — intraday traders go flat.
+          const nowUtc = new Date();
+          const gmtHour = nowUtc.getUTCHours() + nowUtc.getUTCMinutes() / 60;
+          if (gmtHour >= 20.0) {
+            const moveInFavor = trade.direction === "BUY"
+              ? currentPrice - trade.entryPrice
+              : trade.entryPrice - currentPrice;
+            const exitR = trade.direction === "BUY"
+              ? (currentPrice - trade.entryPrice) / slDist
+              : (trade.entryPrice - currentPrice) / slDist;
+            trade.status = moveInFavor >= 0 ? "Closed - WIN" : "Closed - LOSS";
+            trade.rrGained = Number(exitR.toFixed(2));
+            trade.closePrice = Number(currentPrice.toFixed(5));
+            trade.closeTimestamp = new Date().toISOString();
+            trade.updatedAt = new Date().toISOString();
+            console.log(`[BACKGROUND ENGINE] EOD EXIT: Trade ${trade.id} (${trade.pair}) closed at end of day. Price ${currentPrice} (${trade.rrGained}R)`);
+            continue;
+          }
+
           // WIN & LOSS conditions checking
           let resolved = false;
           let outcomeStatus: "Closed - WIN" | "Closed - LOSS" | null = null;
