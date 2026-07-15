@@ -1,6 +1,17 @@
 """
 SMC ENGINE — Core Smart Money Concepts Analysis Functions
 =========================================================
+⚠️  SOURCE OF TRUTH NOTE:
+    The PRODUCTION engine is `server.ts` (TypeScript) in this repo.
+    This Python file is a LOCAL-ANALYSIS copy used when scanning from the
+    Arena.ai workspace. It is synced to match server.ts logic.
+
+    If you change a trading rule, update server.ts FIRST (production),
+    then sync the change here.
+
+    Last sync: 2026-07-15 — RSI (Wilder's), liquidity sweep direction
+========================================================================
+
 Implements every rule from LOCKED_SMC_SYSTEM.txt.
 
 These are the building blocks: swing detection, trend classification,
@@ -435,13 +446,26 @@ def ema(closes, n):
 
 
 def rsi(closes, n=14):
+    """Wilder's RSI — synced to match server.ts (the production source of truth).
+    Uses exponential smoothing, NOT simple averaging."""
     if len(closes) < n + 1:
         return None
     d = np.diff(closes)
-    g = np.where(d > 0, d, 0.0)
-    l = np.where(d < 0, -d, 0.0)
-    ag, al = np.mean(g[-n:]), np.mean(l[-n:])
-    return 100.0 if al == 0 else float(100 - 100 / (1 + ag / al))
+    gains = np.where(d > 0, d, 0.0)
+    losses = np.where(d < 0, -d, 0.0)
+
+    # Wilder's smoothing: seed with simple average, then smooth
+    avg_gain = np.mean(gains[:n])
+    avg_loss = np.mean(losses[:n])
+
+    for i in range(n, len(d)):
+        avg_gain = (avg_gain * (n - 1) + gains[i]) / n
+        avg_loss = (avg_loss * (n - 1) + losses[i]) / n
+
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return float(100 - 100 / (1 + rs))
 
 
 def atr(candles, n=14):

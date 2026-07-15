@@ -171,9 +171,11 @@ def analyze_pair(client, pair):
     h4_sweep_detail = ""
     if h4:
         buy_pools, sell_pools = find_liquidity_pools(h4)
-        pools = buy_pools if direction == "BUY" else sell_pools
+        # SYNCED to match server.ts: for BUY, check sell_pools first (lows swept),
+        # for SELL, check buy_pools first (highs swept) — this is the SMC-correct order
+        pools = sell_pools if direction == "BUY" else buy_pools
         if not pools:
-            pools = sell_pools if direction == "BUY" else buy_pools
+            pools = buy_pools if direction == "BUY" else sell_pools
         for pool in pools:
             swept, candle, detail = detect_sweep(h4, pool, 8)
             if swept:
@@ -231,9 +233,9 @@ def analyze_pair(client, pair):
     # M15 sweep
     m15_swept = False
     m_buy, m_sell = find_liquidity_pools(m15)
-    m_pools = m_buy if direction == "BUY" else m_sell
+    m_pools = m_sell if direction == "BUY" else m_buy
     if not m_pools:
-        m_pools = m_sell if direction == "BUY" else m_buy
+        m_pools = m_buy if direction == "BUY" else m_sell
     for pool in m_pools:
         swept, _, _ = detect_sweep(m15, pool, 6)
         if swept:
