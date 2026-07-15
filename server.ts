@@ -1899,6 +1899,7 @@ app.post("/api/performance/enter", (req, res) => {
 app.post("/api/performance/clear", (req, res) => {
   try {
     saveTrades([]);
+    saveSignals([]);
     res.json({ success: true, message: "Server performance database completely reset." });
   } catch (err) {
     console.error("[API ERROR] Failed to clear performance metrics:", err);
