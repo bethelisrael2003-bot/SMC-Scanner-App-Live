@@ -1155,7 +1155,7 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
   result.grade = grade;
 
   // Trade Plan calculations
-  // FIXED: Cap stop at max 1.5x ATR to prevent dangerously wide stops on metals
+  // FIXED: Cap stop at max 2.0x ATR to prevent dangerously wide stops on metals
   const entry = last;
   let sl = 0;
   let tp1 = 0;
@@ -1164,9 +1164,9 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
 
   if (direction === "BUY") {
     const poiSl = poiLow - hAtr * 0.1;
-    const atrSl = entry - 1.5 * hAtr;
-    // Use POI stop if within 1.5x ATR, otherwise cap at 1.5x ATR
-    sl = Math.abs(entry - poiSl) <= 1.5 * hAtr ? poiSl : atrSl;
+    const atrSl = entry - 2.0 * hAtr;
+    // Use POI stop if within 2.0x ATR, otherwise cap at 2.0x ATR
+    sl = Math.abs(entry - poiSl) <= 2.0 * hAtr ? poiSl : atrSl;
     if (sl >= entry) sl = atrSl;
     tp1 = entry + 2 * Math.abs(entry - sl);
     tp2 = entry + 3 * Math.abs(entry - sl);
@@ -1174,8 +1174,8 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
     if (tp3 <= entry) tp3 = entry + 4 * Math.abs(entry - sl);
   } else {
     const poiSl = poiHigh + hAtr * 0.1;
-    const atrSl = entry + 1.5 * hAtr;
-    sl = Math.abs(poiSl - entry) <= 1.5 * hAtr ? poiSl : atrSl;
+    const atrSl = entry + 2.0 * hAtr;
+    sl = Math.abs(poiSl - entry) <= 2.0 * hAtr ? poiSl : atrSl;
     if (sl <= entry) sl = atrSl;
     tp1 = entry - 2 * Math.abs(sl - entry);
     tp2 = entry - 3 * Math.abs(sl - entry);
@@ -1204,8 +1204,8 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
     result.checks.push(`[OK] RR 1:${rr.toFixed(1)}`);
   }
 
-  if (slAtr > 1.5) {
-    result.checks.push(`[!] SL is wide (${slAtr.toFixed(1)}x ATR > 1.5x)`);
+  if (slAtr > 2.0) {
+    result.checks.push(`[!] SL is wide (${slAtr.toFixed(1)}x ATR > 2.0x)`);
   }
 
   if (!isFailedSetup) {
@@ -1509,9 +1509,9 @@ function recordSignalIfNeeded(res: any, session: any) {
   try {
     const signals = loadSignals();
     const now = new Date();
-    const fifteenMinsAgo = now.getTime() - 120 * 60 * 1000; // 2 hours - prevents duplicate signals on same pair
+    const fifteenMinsAgo = now.getTime() - 360 * 60 * 1000; // 6 hours - prevents duplicate signals on same pair
 
-    // Deduplicate: No double logging of identical signal on the same pair in 2 hour window
+    // Deduplicate: No double logging of identical signal on the same pair in 6 hour window
     const redundant = signals.some((s) =>
       s.pair === pair &&
       s.direction === direction &&
@@ -1552,6 +1552,7 @@ function recordSignalIfNeeded(res: any, session: any) {
 
 // Live background scan engine status
 let isScanningBackground = false;
+let eodExitedDate = ""; // YYYY-MM-DD — prevents re-entry loop after EOD exit
 let lastAutoScannerStatus = {
   lastScanTime: "",
   isScanning: false,
@@ -1603,18 +1604,17 @@ async function runBackgroundCycle() {
           }
 
           // ========== STALL EXIT (Distance/Time Check) ==========
-          // If price hasn't moved 1R in favor within 2 hours (8x M15), the thesis is wrong.
-          // Exit at market — dead money tied up in a stalling trade.
+          // If price hasn't moved 1R in favor within 4 hours, the thesis is wrong.
+          // (Extended from 2h to 4h — 2h was cutting winners short)
           const tradeAgeMs = Date.now() - new Date(trade.timestamp).getTime();
-          const twoHoursMs = 2 * 60 * 60 * 1000;
-          if (tradeAgeMs > twoHoursMs && !trade.breakevenTriggered && slDist > 0) {
+          const stallMs = 4 * 60 * 60 * 1000;
+          if (tradeAgeMs > stallMs && !trade.breakevenTriggered && slDist > 0) {
             const moveInFavor = trade.direction === "BUY"
               ? currentPrice - trade.entryPrice
               : trade.entryPrice - currentPrice;
             const oneR = slDist;
             if (moveInFavor < oneR) {
-              // Trade hasn't reached 1R in 2+ hours → EXIT
-              trade.status = moveInFavor >= 0 ? "Closed - LOSS" : "Closed - LOSS";
+              trade.status = "Closed - LOSS";
               const exitR = trade.direction === "BUY"
                 ? (trade.entryPrice - currentPrice) / slDist
                 : (currentPrice - trade.entryPrice) / slDist;
@@ -1622,16 +1622,19 @@ async function runBackgroundCycle() {
               trade.closePrice = Number(currentPrice.toFixed(5));
               trade.closeTimestamp = new Date().toISOString();
               trade.updatedAt = new Date().toISOString();
-              console.log(`[BACKGROUND ENGINE] STALL EXIT: Trade ${trade.id} (${trade.pair}) didn't reach 1R in 2+ hours. Closed at ${currentPrice} (${trade.rrGained}R)`);
+              console.log(`[BACKGROUND ENGINE] STALL EXIT: Trade ${trade.id} (${trade.pair}) didn't reach 1R in 4+ hours. Closed at ${currentPrice} (${trade.rrGained}R)`);
               continue;
             }
           }
 
           // ========== END-OF-DAY EXIT (Intraday Rule) ==========
           // Close all positions at 20:00 GMT (9 PM Lagos) — intraday traders go flat.
+          // Sets eodExitedDate to prevent the scanner from re-entering after EOD.
           const nowUtc = new Date();
           const gmtHour = nowUtc.getUTCHours() + nowUtc.getUTCMinutes() / 60;
           if (gmtHour >= 20.0) {
+            const todayStr = nowUtc.toISOString().substring(0, 10);
+            eodExitedDate = todayStr; // Lock out new entries for the rest of today
             const moveInFavor = trade.direction === "BUY"
               ? currentPrice - trade.entryPrice
               : trade.entryPrice - currentPrice;
@@ -1703,6 +1706,15 @@ async function runBackgroundCycle() {
         scanLogDetails.push({ pair, status: "SKIPPED", detail: "Session restricts trade entry", grade: "-", price: 0 });
       }
     } else {
+      // EOD LOCKOUT: If EOD exit has fired today, do not open any new trades
+      const todayStr = new Date().toISOString().substring(0, 10);
+      if (eodExitedDate === todayStr) {
+        console.log(`[BACKGROUND ENGINE] EOD lockout active for ${todayStr}. No new entries until tomorrow.`);
+        lastAutoScannerStatus.message = `End-of-day reached. No new entries until next trading day.`;
+        for (const pair of pairs) {
+          scanLogDetails.push({ pair, status: "EOD_LOCKED", detail: "EOD exit already fired today", grade: "-", price: 0 });
+        }
+      } else {
       console.log("[BACKGROUND ENGINE] Scanning forex pairs for automated entry setups...");
       for (const pair of pairs) {
         // Guarantee no double active open trades for the same pair
@@ -1766,6 +1778,7 @@ async function runBackgroundCycle() {
 
       const matched = scanLogDetails.filter(s => s.status === "SIGNAL").length;
       lastAutoScannerStatus.message = `Last background scan executed successfully. Detected ${matched} setups.`;
+      } // end EOD lockout else block
     }
 
     lastAutoScannerStatus.lastScanTime = new Date().toISOString();
