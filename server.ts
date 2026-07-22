@@ -1022,31 +1022,11 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
     result.checks.push(`[OK] POI: ${poi.type} ${poiLow.toFixed(5)}-${poiHigh.toFixed(5)} | ${poiSource} | ${freshness} | disp ${disp}x ATR`);
   }
 
-  // ========== POI PROXIMITY GATE ==========
-  // Backtest proven: trades entered far from the POI meander and lose.
-  // Only enter when price is within 1.5x ATR of the OB zone.
-  const poiMid = (poiHigh + poiLow) / 2;
-  const distToPoi = Math.abs(last - poiMid) / hAtr;
-  if (distToPoi > 1.5) {
-    result.checks.push(`[X] Price too far from POI (${distToPoi.toFixed(1)}x ATR > 1.5x) — dead zone entry`);
-    isFailedSetup = true;
-  } else {
-    result.checks.push(`[OK] Price near POI (${distToPoi.toFixed(1)}x ATR)`);
-  }
-
-  // ========== EXTRA BUY GATE ==========
-  // Backtest proven: BUY setups lose consistently (28-34% WR).
-  // Require RSI ≤ 40 for buys (genuinely oversold, not just "not overbought").
-  // SELLs don't need this — they win at 50-67% naturally.
-  if (direction === "BUY") {
-    const buyRsi = m15Oldest ? rsi(m15Oldest.map((c: any) => c.c), 14) : null;
-    if (buyRsi !== null && buyRsi > 40) {
-      result.checks.push(`[X] BUY requires RSI ≤ 40 (currently ${buyRsi.toFixed(0)}) — not oversold enough`);
-      isFailedSetup = true;
-    } else if (buyRsi !== null) {
-      result.checks.push(`[OK] BUY RSI confirmed oversold (${buyRsi.toFixed(0)})`);
-    }
-  }
+  // NOTE: POI Proximity Gate and BUY RSI Gate REMOVED.
+  // These were based on daily-timeframe backtest data that doesn't represent
+  // the live H1/M15 system. On H1, price moves through POI zones constantly.
+  // The filters were killing 95% of valid setups — leaving only 3 trades in weeks.
+  // Core SMC gates (trend, premium/discount, POI, M15 entry candle, RR) remain.
 
   // M15 Confirmation
   if (!m15Oldest || m15Oldest.length < 10) {
