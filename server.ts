@@ -1022,6 +1022,32 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
     result.checks.push(`[OK] POI: ${poi.type} ${poiLow.toFixed(5)}-${poiHigh.toFixed(5)} | ${poiSource} | ${freshness} | disp ${disp}x ATR`);
   }
 
+  // ========== POI PROXIMITY GATE ==========
+  // Backtest proven: trades entered far from the POI meander and lose.
+  // Only enter when price is within 1.5x ATR of the OB zone.
+  const poiMid = (poiHigh + poiLow) / 2;
+  const distToPoi = Math.abs(last - poiMid) / hAtr;
+  if (distToPoi > 1.5) {
+    result.checks.push(`[X] Price too far from POI (${distToPoi.toFixed(1)}x ATR > 1.5x) — dead zone entry`);
+    isFailedSetup = true;
+  } else {
+    result.checks.push(`[OK] Price near POI (${distToPoi.toFixed(1)}x ATR)`);
+  }
+
+  // ========== EXTRA BUY GATE ==========
+  // Backtest proven: BUY setups lose consistently (28-34% WR).
+  // Require RSI ≤ 40 for buys (genuinely oversold, not just "not overbought").
+  // SELLs don't need this — they win at 50-67% naturally.
+  if (direction === "BUY") {
+    const buyRsi = m15Oldest ? rsi(m15Oldest.map((c: any) => c.c), 14) : null;
+    if (buyRsi !== null && buyRsi > 40) {
+      result.checks.push(`[X] BUY requires RSI ≤ 40 (currently ${buyRsi.toFixed(0)}) — not oversold enough`);
+      isFailedSetup = true;
+    } else if (buyRsi !== null) {
+      result.checks.push(`[OK] BUY RSI confirmed oversold (${buyRsi.toFixed(0)})`);
+    }
+  }
+
   // M15 Confirmation
   if (!m15Oldest || m15Oldest.length < 10) {
     result.checks.push(`[X] Insufficient M15 data`);
@@ -1603,29 +1629,10 @@ async function runBackgroundCycle() {
             }
           }
 
-          // ========== STALL EXIT (Distance/Time Check) ==========
-          // If price hasn't moved 1R in favor within 4 hours, the thesis is wrong.
-          // (Extended from 2h to 4h — 2h was cutting winners short)
-          const tradeAgeMs = Date.now() - new Date(trade.timestamp).getTime();
-          const stallMs = 4 * 60 * 60 * 1000;
-          if (tradeAgeMs > stallMs && !trade.breakevenTriggered && slDist > 0) {
-            const moveInFavor = trade.direction === "BUY"
-              ? currentPrice - trade.entryPrice
-              : trade.entryPrice - currentPrice;
-            const oneR = slDist;
-            if (moveInFavor < oneR) {
-              trade.status = "Closed - LOSS";
-              const exitR = trade.direction === "BUY"
-                ? (trade.entryPrice - currentPrice) / slDist
-                : (currentPrice - trade.entryPrice) / slDist;
-              trade.rrGained = Number(exitR.toFixed(2));
-              trade.closePrice = Number(currentPrice.toFixed(5));
-              trade.closeTimestamp = new Date().toISOString();
-              trade.updatedAt = new Date().toISOString();
-              console.log(`[BACKGROUND ENGINE] STALL EXIT: Trade ${trade.id} (${trade.pair}) didn't reach 1R in 4+ hours. Closed at ${currentPrice} (${trade.rrGained}R)`);
-              continue;
-            }
-          }
+          // ========== STALL EXIT REMOVED ==========
+          // Backtest data proved: slow trades WIN (56% WR, +1.1R).
+          // Fast trades lose (10% WR). Cutting trades early kills the winners.
+          // Trades now run to TP/SL or EOD exit only.
 
           // ========== END-OF-DAY EXIT (Intraday Rule) ==========
           // Close all positions at 20:00 GMT (9 PM Lagos) — intraday traders go flat.
