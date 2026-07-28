@@ -2,6 +2,6 @@
 <resources>
     <string name="app_name">SMC Scanner</string>
     <string name="title_activity_main">SMC Scanner</string>
-    <string name="package_name">com.smc.scanner</string>
-    <string name="custom_url_scheme">com.smc.scanner</string>
+    <string name="package_name">com.omniforge.smcscanner</string>
+    <string name="custom_url_scheme">com.omniforge.smcscanner</string>
 </resources>
