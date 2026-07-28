@@ -5,8 +5,32 @@ import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import mongoose from "mongoose";
 import cors from "cors";
+import { initializeApp, cert } from 'firebase-admin';
+import { getMessaging } from 'firebase-admin/messaging';
 
 dotenv.config();
+
+// Initialize Firebase Admin (once at startup)
+try {
+  const projectId = process.env.FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+
+  if (projectId && clientEmail && privateKey) {
+    initializeApp({
+      credential: cert({
+        projectId: projectId,
+        clientEmail: clientEmail,
+        privateKey: privateKey.replace(/\\n/g, '\n'),
+      }),
+    });
+    console.log("[SUCCESS] Firebase Admin SDK initialized.");
+  } else {
+    console.warn("[WARN] Firebase credentials not completely defined in environment variables. Push notifications will be mocked.");
+  }
+} catch (err) {
+  console.error("[ERROR] Failed to initialize Firebase Admin SDK:", err);
+}
 
 const app = express();
 app.use(cors());
@@ -47,6 +71,9 @@ const RESOLUTIONS: Record<string, string> = {
   "H4": "HOUR_4",
   "D1": "DAY",
 };
+
+// Device tokens registration store
+let deviceTokens: string[] = [];
 
 // Simple In-Memory and Disk-Persisted Cache for Capital.com Session
 let cstToken: string | null = null;
@@ -1506,6 +1533,43 @@ function saveSignals(signals: SignalLog[]) {
   }
 }
 
+async function sendPushNotification(signal: any) {
+  if (deviceTokens.length === 0) {
+    console.log('[PUSH] No registered device tokens. Push notification skipped.');
+    return;
+  }
+
+  const message = {
+    notification: {
+      title: `🔔 ${signal.pair} ${signal.direction} — Grade ${signal.grade}`,
+      body: `Entry: ${signal.entryPrice} | SL: ${signal.sl} | TP1: ${signal.tp1} (1:${signal.rr || 2} RR)\nSession: ${signal.session}`,
+    },
+    data: {
+      pair: signal.pair,
+      direction: signal.direction,
+      type: 'signal',
+    },
+    android: {
+      priority: 'high' as const,
+      notification: {
+        channelId: 'signals',
+        priority: 'max' as const,
+        sound: 'default',
+        vibrate: [200, 100, 200],
+        icon: 'ic_stat_icon',
+      },
+    },
+    tokens: deviceTokens,
+  };
+
+  try {
+    const response = await getMessaging().sendEachForMulticast(message);
+    console.log(`[PUSH] Sent to ${response.successCount} devices`);
+  } catch (err) {
+    console.error('[PUSH] Failed:', err);
+  }
+}
+
 function recordSignalIfNeeded(res: any, session: any) {
   if (!res || !res.passed || !res.plan) return;
   const pair = res.pair;
@@ -1551,6 +1615,18 @@ function recordSignalIfNeeded(res: any, session: any) {
 
     saveSignals(signals);
     console.log(`[SIGNALS ENGINE] Recorded real setup signal: ${pair} ${direction} (Grade ${res.grade})`);
+
+    // Trigger push notification to all devices
+    sendPushNotification({
+      pair: newSignal.pair,
+      direction: newSignal.direction,
+      grade: newSignal.grade,
+      entryPrice: newSignal.entryPrice,
+      sl: newSignal.sl,
+      tp1: newSignal.tp1,
+      rr: res.plan.rr,
+      session: newSignal.session,
+    }).catch(err => console.error('[PUSH] Error sending notification on record:', err));
   } catch (err) {
     console.error("[ERROR] Failed to record signal:", err);
   }
@@ -1793,6 +1869,15 @@ setTimeout(() => {
 }, 5000);
 
 // REST Api Endpoints
+
+app.post("/api/device/register", (req, res) => {
+  const { token } = req.body;
+  if (token && !deviceTokens.includes(token)) {
+    deviceTokens.push(token);
+    console.log(`[PUSH] Registered device token. Total registered devices: ${deviceTokens.length}`);
+  }
+  res.json({ success: true, registered: deviceTokens.length });
+});
 
 // Signals Feed Endpoint
 app.get("/api/signals", (req, res) => {
