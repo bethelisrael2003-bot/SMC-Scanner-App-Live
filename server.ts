@@ -1540,10 +1540,10 @@ function saveSignals(signals: SignalLog[]) {
   }
 }
 
-async function sendPushNotification(signal: any) {
+async function sendPushNotification(signal: any): Promise<{ success: boolean; sent: number; failed: number; error?: string }> {
   if (deviceTokens.length === 0) {
     console.log('[PUSH] No registered device tokens. Push notification skipped.');
-    return;
+    return { success: false, sent: 0, failed: 0, error: 'No registered device tokens' };
   }
 
   const message = {
@@ -1571,9 +1571,11 @@ async function sendPushNotification(signal: any) {
 
   try {
     const response = await getMessaging().sendEachForMulticast(message);
-    console.log(`[PUSH] Sent to ${response.successCount} devices`);
+    console.log(`[PUSH] Sent to ${response.successCount} devices, ${response.failureCount} failed.`);
+    return { success: response.successCount > 0, sent: response.successCount, failed: response.failureCount };
   } catch (err) {
     console.error('[PUSH] Failed:', err);
+    return { success: false, sent: 0, failed: deviceTokens.length, error: (err as Error).message };
   }
 }
 
@@ -1884,6 +1886,45 @@ app.post("/api/device/register", (req, res) => {
     console.log(`[PUSH] Registered device token. Total registered devices: ${deviceTokens.length}`);
   }
   res.json({ success: true, registered: deviceTokens.length });
+});
+
+// Manual Push Notification Test Endpoint
+// Protected by CRON_SECRET (same pattern as /api/cron/trigger).
+// Triggers a dummy push notification so you can verify the pipeline
+// (server → Firebase → phone) without waiting for a live signal.
+app.post("/api/test-push", async (req, res) => {
+  const configuredSecret = process.env.CRON_SECRET;
+  if (configuredSecret) {
+    const providedSecret = req.query.secret || req.headers["x-cron-secret"] || req.body?.secret;
+    if (providedSecret !== configuredSecret) {
+      return res.status(401).json({ success: false, error: "Unauthorized: Invalid or missing secret." });
+    }
+  }
+
+  const dummySignal = {
+    pair: "TEST/USD",
+    direction: "BUY",
+    grade: "A+",
+    entryPrice: 1.08500,
+    sl: 1.08200,
+    tp1: 1.09100,
+    rr: 2.0,
+    session: "TEST PUSH — verify notifications are working",
+  };
+
+  console.log("[PUSH TEST] Manual test push triggered.");
+  const result = await sendPushNotification(dummySignal);
+
+  res.json({
+    success: result.success,
+    message: result.success
+      ? `Test push sent to ${result.sent} device(s).`
+      : result.error || "Push failed — check server logs and ensure devices are registered.",
+    devicesRegistered: deviceTokens.length,
+    sent: result.sent,
+    failed: result.failed,
+    error: result.error || undefined,
+  });
 });
 
 // Signals Feed Endpoint
