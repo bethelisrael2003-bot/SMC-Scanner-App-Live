@@ -1,8 +1,8 @@
 import React, { useEffect, useRef } from 'react';
-import { createChart, ColorType, ISeriesApi, CandlestickData, Time } from 'lightweight-charts';
+import { createChart, ColorType, CandlestickSeries } from 'lightweight-charts';
 
 interface ChartProps {
-  data: CandlestickData[];
+  data: any[];
   pair: string;
   livePrice?: number;
 }
@@ -10,7 +10,7 @@ interface ChartProps {
 export const CandlestickChart: React.FC<ChartProps> = ({ data, pair, livePrice }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<any>(null);
-  const seriesRef = useRef<ISeriesApi<'Candlestick'>>(null);
+  const seriesRef = useRef<any>(null);
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -34,7 +34,8 @@ export const CandlestickChart: React.FC<ChartProps> = ({ data, pair, livePrice }
         },
       });
 
-      const series = chart.addCandlestickSeries({
+      // v5 API: use addSeries with CandlestickSeries
+      const series = chart.addSeries(CandlestickSeries, {
         upColor: '#10b981',
         downColor: '#ef4444',
         borderVisible: false,
@@ -43,12 +44,12 @@ export const CandlestickChart: React.FC<ChartProps> = ({ data, pair, livePrice }
       });
 
       if (Array.isArray(data) && data.length > 0) {
-        // Ensure data is sorted by time and no duplicates
-        const uniqueData = Array.from(new Map(data.map(item => [item.time, item])).values())
-          .sort((a, b) => (a.time as number) - (b.time as number));
-        series.setData(uniqueData as CandlestickData<Time>[]);
+        const uniqueData = Array.from(new Map(data.map((item: any) => [item.time, item])).values())
+          .sort((a: any, b: any) => (a.time as number) - (b.time as number));
+        series.setData(uniqueData);
+        chart.timeScale().fitContent();
       }
-      
+
       chartRef.current = chart;
       seriesRef.current = series;
     } catch (err) {
@@ -75,9 +76,10 @@ export const CandlestickChart: React.FC<ChartProps> = ({ data, pair, livePrice }
   useEffect(() => {
     try {
       if (seriesRef.current && Array.isArray(data) && data.length > 0) {
-        const uniqueData = Array.from(new Map(data.map(item => [item.time, item])).values())
-          .sort((a, b) => (a.time as number) - (b.time as number));
-        seriesRef.current.setData(uniqueData as CandlestickData<Time>[]);
+        const uniqueData = Array.from(new Map(data.map((item: any) => [item.time, item])).values())
+          .sort((a: any, b: any) => (a.time as number) - (b.time as number));
+        seriesRef.current.setData(uniqueData);
+        if (chartRef.current) chartRef.current.timeScale().fitContent();
       }
     } catch (err) {
       console.error("Error updating chart data:", err);
@@ -89,12 +91,12 @@ export const CandlestickChart: React.FC<ChartProps> = ({ data, pair, livePrice }
       if (seriesRef.current && livePrice && Array.isArray(data) && data.length > 0) {
         const lastCandle = data[data.length - 1];
         if (lastCandle) {
-            seriesRef.current.update({
-              ...lastCandle,
-              close: livePrice,
-              high: Math.max(lastCandle.high, livePrice),
-              low: Math.min(lastCandle.low, livePrice),
-            } as CandlestickData<Time>);
+          seriesRef.current.update({
+            ...lastCandle,
+            close: livePrice,
+            high: Math.max(lastCandle.high, livePrice),
+            low: Math.min(lastCandle.low, livePrice),
+          });
         }
       }
     } catch (err) {
@@ -104,14 +106,14 @@ export const CandlestickChart: React.FC<ChartProps> = ({ data, pair, livePrice }
 
   return (
     <div className="w-full bg-zinc-900/40 rounded-xl border border-zinc-800/80 overflow-hidden mt-4">
-        <div className="px-4 py-2 border-b border-zinc-800/60 flex items-center justify-between">
-            <span className="text-xs font-mono text-zinc-400 uppercase tracking-widest">{pair} Live Chart</span>
-            <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span className="text-[10px] font-mono text-emerald-400 font-bold">LIVE</span>
-            </div>
+      <div className="px-4 py-2 border-b border-zinc-800/60 flex items-center justify-between">
+        <span className="text-xs font-mono text-zinc-400 uppercase tracking-widest">{pair} Live Chart</span>
+        <div className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span className="text-[10px] font-mono text-emerald-400 font-bold">LIVE</span>
         </div>
-        <div ref={chartContainerRef} className="w-full" />
+      </div>
+      <div ref={chartContainerRef} className="w-full" style={{ minHeight: '300px' }} />
     </div>
   );
 };
