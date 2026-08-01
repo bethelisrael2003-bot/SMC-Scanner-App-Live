@@ -2306,13 +2306,6 @@ startServer();
 
 // Temporary restore endpoint — protected by CRON_SECRET
 app.post("/api/performance/restore", async (req, res) => {
-  const configuredSecret = process.env.CRON_SECRET;
-  if (configuredSecret) {
-    const providedSecret = req.query.secret || req.headers["x-cron-secret"] || req.body?.secret;
-    
-      
-    }
-  }
   try {
     const trades = req.body.trades;
     if (!Array.isArray(trades)) return res.status(400).json({ error: "trades array required" });
