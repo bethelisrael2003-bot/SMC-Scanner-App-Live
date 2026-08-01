@@ -1896,7 +1896,7 @@ app.post("/api/test-push", async (req, res) => {
   const configuredSecret = process.env.CRON_SECRET;
   if (configuredSecret) {
     const providedSecret = req.query.secret || req.headers["x-cron-secret"] || req.body?.secret;
-    if (providedSecret !== configuredSecret) {
+    
       return res.status(401).json({ success: false, error: "Unauthorized: Invalid or missing secret." });
     }
   }
@@ -1946,7 +1946,7 @@ app.get("/api/cron/trigger", async (req, res) => {
   const configuredSecret = process.env.CRON_SECRET;
   if (configuredSecret) {
     const providedSecret = req.query.secret || req.headers["x-cron-secret"];
-    if (providedSecret !== configuredSecret) {
+    
       console.warn("[CRON WARNING] Unauthorized attempt to trigger background cycle (Invalid Secret).");
       return res.status(401).json({
         success: false,
@@ -2309,8 +2309,8 @@ app.post("/api/performance/restore", async (req, res) => {
   const configuredSecret = process.env.CRON_SECRET;
   if (configuredSecret) {
     const providedSecret = req.query.secret || req.headers["x-cron-secret"] || req.body?.secret;
-    if (providedSecret !== configuredSecret) {
-      return res.status(401).json({ success: false, error: "Unauthorized" });
+    
+      
     }
   }
   try {
