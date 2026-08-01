@@ -2303,3 +2303,23 @@ async function startServer() {
 }
 
 startServer();
+
+// Temporary restore endpoint — protected by CRON_SECRET
+app.post("/api/performance/restore", async (req, res) => {
+  const configuredSecret = process.env.CRON_SECRET;
+  if (configuredSecret) {
+    const providedSecret = req.query.secret || req.headers["x-cron-secret"] || req.body?.secret;
+    if (providedSecret !== configuredSecret) {
+      return res.status(401).json({ success: false, error: "Unauthorized" });
+    }
+  }
+  try {
+    const trades = req.body.trades;
+    if (!Array.isArray(trades)) return res.status(400).json({ error: "trades array required" });
+    saveTrades(trades);
+    console.log(`[RESTORE] Restored ${trades.length} trades to database.`);
+    res.json({ success: true, restored: trades.length });
+  } catch (err) {
+    res.status(500).json({ error: "Restore failed" });
+  }
+});
