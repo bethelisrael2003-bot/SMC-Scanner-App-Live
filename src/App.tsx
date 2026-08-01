@@ -13,56 +13,13 @@ import { PerformanceDetail } from "./components/PerformanceDetail";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "https://smc-scanner-backend.onrender.com";
 
-import { PushNotifications } from '@capacitor/push-notifications';
-
-async function setupPush() {
-  try {
-    let permStatus = await PushNotifications.checkPermissions();
-    if (permStatus.receive === 'prompt') {
-      permStatus = await PushNotifications.requestPermissions();
-    }
-    if (permStatus.receive !== 'granted') {
-      console.log('Push permissions not granted');
-      return;
-    }
-
-    await PushNotifications.register();
-
-    // Listen for registration token
-    PushNotifications.addListener('registration', (token) => {
-      console.log('Push token registered:', token.value);
-      // Send this token to the server so it knows where to push
-      const backendUrl = import.meta.env.VITE_API_URL || "https://smc-scanner-backend.onrender.com";
-      fetch(`${backendUrl}/api/device/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: token.value })
-      })
-      .then(res => res.json())
-      .then(data => console.log('Device registered on server:', data))
-      .catch(err => console.error('Failed to register device on server:', err));
-    });
-
-    // Listen for registration error
-    PushNotifications.addListener('registrationError', (error) => {
-      console.error('Push registration error:', error);
-    });
-
-    // Listen for incoming notifications
-    PushNotifications.addListener('pushNotificationReceived', (notification) => {
-      console.log('Notification received:', notification);
-    });
-  } catch (err) {
-    console.error('Error in setupPush:', err);
-  }
-}
+// NOTE: Push notifications temporarily disabled to fix crash.
+// Will be re-enabled after native Firebase setup is verified.
+// import { PushNotifications } from '@capacitor/push-notifications';
 
 export default function App() {
   const s = useScannerState();
 
-  useEffect(() => {
-    setupPush();
-  }, []);
   const [activeTab, setActiveTab] = useState<"watchlist" | "signals" | "active_trades" | "news" | "rules" | "performance">("watchlist");
   const [copiedText, setCopiedText] = useState<string | null>(null);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
