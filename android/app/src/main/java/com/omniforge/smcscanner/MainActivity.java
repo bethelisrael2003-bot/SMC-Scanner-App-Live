@@ -1,4 +1,4 @@
-package com.smc.scanner;
+package com.omniforge.smcscanner;
 
 import com.getcapacitor.BridgeActivity;
 
