@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || "";
+const API_BASE_URL = import.meta.env.VITE_API_URL || "https://smc-scanner-backend.onrender.com";
 import { TrendingUp, CheckCircle2, XCircle, AlertTriangle, HelpCircle, Sparkles, DollarSign, Copy, Activity, Search, AlertCircle } from "lucide-react";
 import type { Dispatch, SetStateAction } from "react";
 import type React from "react";

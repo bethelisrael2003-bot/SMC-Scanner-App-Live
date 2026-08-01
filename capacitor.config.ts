@@ -5,8 +5,7 @@ const config: CapacitorConfig = {
   appName: 'SMC Scanner',
   webDir: 'dist',
   server: {
-    androidScheme: 'https',
-    url: 'https://smc-scanner-backend.onrender.com'
+    androidScheme: 'https'
   },
   plugins: {
     PushNotifications: {
