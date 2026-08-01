@@ -10,26 +10,33 @@ import { getMessaging } from 'firebase-admin/messaging';
 
 dotenv.config();
 
-// Initialize Firebase Admin (once at startup)
+// Initialize Firebase Admin from base64-encoded service account key
 try {
-  const projectId = process.env.FIREBASE_PROJECT_ID;
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+  const base64Key = process.env.FIREBASE_ADMIN_KEY_BASE64;
 
-  if (projectId && clientEmail && privateKey) {
-    initializeApp({
-      credential: cert({
-        projectId: projectId,
-        clientEmail: clientEmail,
-        privateKey: privateKey.replace(/\\n/g, '\n'),
-      }),
-    });
-    console.log("[SUCCESS] Firebase Admin SDK initialized.");
+  if (base64Key) {
+    const serviceAccount = JSON.parse(
+      Buffer.from(base64Key, "base64").toString("utf8")
+    );
+
+    if (serviceAccount.project_id && serviceAccount.client_email && serviceAccount.private_key) {
+      initializeApp({
+        credential: cert({
+          projectId: serviceAccount.project_id,
+          clientEmail: serviceAccount.client_email,
+          privateKey: serviceAccount.private_key,
+        }),
+      });
+      console.log("[SUCCESS] Firebase Admin SDK initialized.");
+    } else {
+      console.warn("[WARN] FIREBASE_ADMIN_KEY_BASE64 decoded but missing required fields (project_id, client_email, private_key). Push notifications will be mocked.");
+    }
   } else {
-    console.warn("[WARN] Firebase credentials not completely defined in environment variables. Push notifications will be mocked.");
+    console.warn("[WARN] FIREBASE_ADMIN_KEY_BASE64 not set in environment. Push notifications will be mocked.");
   }
 } catch (err) {
   console.error("[ERROR] Failed to initialize Firebase Admin SDK:", err);
+  console.error("[ERROR] Ensure FIREBASE_ADMIN_KEY_BASE64 is a valid base64-encoded service account JSON.");
 }
 
 const app = express();
