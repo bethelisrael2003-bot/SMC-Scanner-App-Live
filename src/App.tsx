@@ -13,12 +13,44 @@ import { PerformanceDetail } from "./components/PerformanceDetail";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "https://smc-scanner-backend.onrender.com";
 
-// NOTE: Push notifications temporarily disabled to fix crash.
-// Will be re-enabled after native Firebase setup is verified.
-// import { PushNotifications } from '@capacitor/push-notifications';
+import { PushNotifications } from '@capacitor/push-notifications';
+
+async function setupPush() {
+  try {
+    let permStatus = await PushNotifications.checkPermissions();
+    if (permStatus.receive === 'prompt') {
+      permStatus = await PushNotifications.requestPermissions();
+    }
+    if (permStatus.receive !== 'granted') {
+      console.log('Push permissions not granted');
+      return;
+    }
+    await PushNotifications.register();
+    PushNotifications.addListener('registration', (token) => {
+      console.log('Push token registered:', token.value);
+      fetch(`${API_BASE_URL}/api/device/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: token.value })
+      }).catch(err => console.error('Device register failed:', err));
+    });
+    PushNotifications.addListener('registrationError', (error) => {
+      console.error('Push registration error:', error);
+    });
+    PushNotifications.addListener('pushNotificationReceived', (notification) => {
+      console.log('Notification received:', notification);
+    });
+  } catch (err) {
+    console.error('Error in setupPush:', err);
+  }
+}
 
 export default function App() {
   const s = useScannerState();
+
+  useEffect(() => {
+    setupPush();
+  }, []);
 
   const [activeTab, setActiveTab] = useState<"watchlist" | "signals" | "active_trades" | "news" | "rules" | "performance">("watchlist");
   const [copiedText, setCopiedText] = useState<string | null>(null);
