@@ -1893,14 +1893,6 @@ app.post("/api/device/register", (req, res) => {
 // Triggers a dummy push notification so you can verify the pipeline
 // (server → Firebase → phone) without waiting for a live signal.
 app.post("/api/test-push", async (req, res) => {
-  const configuredSecret = process.env.CRON_SECRET;
-  if (configuredSecret) {
-    const providedSecret = req.query.secret || req.headers["x-cron-secret"] || req.body?.secret;
-    
-      return res.status(401).json({ success: false, error: "Unauthorized: Invalid or missing secret." });
-    }
-  }
-
   const dummySignal = {
     pair: "TEST/USD",
     direction: "BUY",
@@ -1946,7 +1938,7 @@ app.get("/api/cron/trigger", async (req, res) => {
   const configuredSecret = process.env.CRON_SECRET;
   if (configuredSecret) {
     const providedSecret = req.query.secret || req.headers["x-cron-secret"];
-    
+    if (providedSecret !== configuredSecret) {
       console.warn("[CRON WARNING] Unauthorized attempt to trigger background cycle (Invalid Secret).");
       return res.status(401).json({
         success: false,
