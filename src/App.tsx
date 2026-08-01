@@ -334,7 +334,7 @@ export default function App() {
         <div className="flex-1 min-w-0 space-y-4">
           {/* Pair detail (always visible at top on watchlist tab) */}
           {activeTab === "watchlist" && activeResult && (
-            <DeepDivePanel activeResult={activeResult} scanData={s.scanData} chartData={s.chartData} chartTimeframe={s.chartTimeframe} setChartTimeframe={s.setChartTimeframe} chartLoading={s.chartLoading} copiedText={null} handleCopy={() => {}} activeTrades={s.activeTrades} setActiveTrades={s.setActiveTrades} onFetchPerformance={s.handleFetchPerformance} />
+            <DeepDivePanel activeResult={activeResult} scanData={s.scanData} chartData={s.chartData} chartTimeframe={s.chartTimeframe} setChartTimeframe={s.setChartTimeframe} chartLoading={s.chartLoading} copiedText={null} handleCopy={() => {}} />
           )}
           {/* Tab content */}
           {activeTab === "watchlist" && <WatchlistTab scanData={s.scanData} loading={s.loading} selectedPair={s.selectedPair} setSelectedPair={s.setSelectedPair} />}
