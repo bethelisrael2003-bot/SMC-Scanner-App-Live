@@ -93,26 +93,75 @@ function SignalsTab({ signals, loading }: { signals: any[]; loading: boolean }) 
 function WatchlistTab({ scanData, loading, selectedPair, setSelectedPair }: { scanData: any; loading: boolean; selectedPair: string; setSelectedPair: (p: string) => void }) {
   const results = scanData?.results || [];
   if (loading && results.length === 0) return <div className="text-center py-12 font-mono text-xs" style={{ color: "var(--text-muted)" }}>Loading scan data...</div>;
+  
+  // Sort: BUY/SELL first, then by most gates passed
+  const sorted = [...results].sort((a: any, b: any) => {
+    if (a.decision !== "WAIT" && b.decision === "WAIT") return -1;
+    if (a.decision === "WAIT" && b.decision !== "WAIT") return 1;
+    const aPass = (a.checks || []).filter((c: string) => c.includes("[OK]")).length;
+    const bPass = (b.checks || []).filter((c: string) => c.includes("[OK]")).length;
+    return bPass - aPass;
+  });
+
   return (
     <div className="space-y-2">
-      {results.map((r: any, idx: number) => (
-        <div key={r.pair} onClick={() => setSelectedPair(r.pair)} className="animate-fade-up rounded-lg p-3 cursor-pointer transition-all" style={{ background: selectedPair === r.pair ? "var(--bg-card-hover)" : "var(--bg-card)", border: `1px solid ${selectedPair === r.pair ? "rgba(0,212,255,0.3)" : "var(--border-dim)"}`, animationDelay: `${idx * 0.04}s` }} onMouseEnter={e => (e.currentTarget.style.background = "var(--bg-card-hover)")} onMouseLeave={e => (e.currentTarget.style.background = selectedPair === r.pair ? "var(--bg-card-hover)" : "var(--bg-card)")}>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <span className="font-mono text-sm font-bold" style={{ color: "var(--text-primary)" }}>{r.pair}</span>
-              {r.grade && r.grade !== "-" && <span className="font-mono text-[9px] px-1.5 py-0.5 rounded" style={{ background: "rgba(0,212,255,0.1)", color: "#00d4ff" }}>{r.grade}</span>}
+      {sorted.map((r: any, idx: number) => {
+        const plan = r.plan;
+        const checks = r.checks || [];
+        const passed = checks.filter((c: string) => c.includes("[OK]")).length;
+        const failed = checks.filter((c: string) => c.includes("[X]"));
+        const mainBlock = failed[0]?.replace(/\[X\]\s*/, "") || "All gates passed";
+        const isActionable = r.decision === "BUY" || r.decision === "SELL";
+        
+        return (
+          <div key={r.pair} onClick={() => setSelectedPair(r.pair)} className="animate-fade-up rounded-lg p-3 cursor-pointer transition-all" style={{ 
+            background: selectedPair === r.pair ? "var(--bg-card-hover)" : "var(--bg-card)", 
+            border: `1px solid ${isActionable ? (r.decision === "BUY" ? "rgba(0,255,136,0.3)" : "rgba(255,51,102,0.3)") : selectedPair === r.pair ? "rgba(0,212,255,0.3)" : "var(--border-dim)"}`, 
+            animationDelay: `${idx * 0.04}s` 
+          }}>
+            {/* Row 1: Pair + Decision */}
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-sm font-bold" style={{ color: "var(--text-primary)" }}>{r.pair}</span>
+                {r.grade && r.grade !== "-" && <span className="font-mono text-[9px] px-1.5 py-0.5 rounded" style={{ background: "rgba(0,212,255,0.1)", color: "#00d4ff" }}>{r.grade}</span>}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs" style={{ color: "var(--text-secondary)" }}>{r.price ? fmtPrice(r.pair, r.price) : "--"}</span>
+                <span className="font-mono text-xs font-bold px-2 py-0.5 rounded" style={{ 
+                  background: r.decision === "BUY" ? "rgba(0,255,136,0.15)" : r.decision === "SELL" ? "rgba(255,51,102,0.15)" : "rgba(255,255,255,0.05)", 
+                  color: r.decision === "BUY" ? "#00ff88" : r.decision === "SELL" ? "#ff3366" : "var(--text-muted)" 
+                }}>{r.decision}</span>
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              <span className="font-mono text-xs" style={{ color: "var(--text-secondary)" }}>{r.price ? fmtPrice(r.pair, r.price) : "--"}</span>
-              <span className="font-mono text-xs" style={{ color: "var(--text-muted)" }}>{r.live?.spread_pips ?? "--"}p</span>
-              <span className="font-mono text-xs font-bold px-2 py-0.5 rounded" style={{ background: r.decision === "BUY" ? "rgba(0,255,136,0.12)" : r.decision === "SELL" ? "rgba(255,51,102,0.12)" : "rgba(255,255,255,0.05)", color: r.decision === "BUY" ? "#00ff88" : r.decision === "SELL" ? "#ff3366" : "var(--text-muted)" }}>{r.decision}</span>
+
+            {/* Row 2: Trade plan levels (always show if available) */}
+            {plan && (
+              <div className="grid grid-cols-4 gap-1.5 mb-2">
+                {[{ l: "ENTRY", v: plan.entry, c: "var(--text-secondary)" }, { l: "SL", v: plan.sl, c: "#ff3366" }, { l: "TP1", v: plan.tp1, c: "#00ff88" }, { l: "TP2", v: plan.tp2, c: "#00d4ff" }].map(({ l, v, c }) => (
+                  <div key={l} className="text-center py-1 rounded" style={{ background: "rgba(255,255,255,0.02)" }}>
+                    <div className="font-mono text-[8px]" style={{ color: "var(--text-muted)" }}>{l}</div>
+                    <div className="font-mono text-[10px] font-semibold" style={{ color: c }}>{v != null ? fmtPrice(r.pair, v) : "--"}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Row 3: Trend + Zone + Gate readiness */}
+            <div className="flex items-center gap-3 text-[9px] font-mono">
+              {r.h1_trend && <span style={{ color: r.h1_trend === "BULLISH" ? "#00ff88" : r.h1_trend === "BEARISH" ? "#ff3366" : "var(--text-muted)" }}>H1: {r.h1_trend}</span>}
+              {r.zone && r.zone !== "COMPRESSED" && <span style={{ color: r.zone === "DISCOUNT" ? "#00ff88" : r.zone === "PREMIUM" ? "#ff3366" : "var(--text-muted)" }}>Zone: {r.zone}</span>}
+              <span style={{ color: passed >= 5 ? "#00ff88" : passed >= 3 ? "#ffaa00" : "var(--text-muted)" }}>Gates: {passed}/{checks.length}</span>
             </div>
+
+            {/* Row 4: What's blocking (only if WAIT) */}
+            {!isActionable && failed.length > 0 && (
+              <div className="font-mono text-[9px] mt-1.5 pt-1.5" style={{ color: "var(--text-muted)", borderTop: "1px solid var(--border-dim)" }}>
+                <span style={{ color: "#ff3366" }}>●</span> {mainBlock.slice(0, 70)}
+              </div>
+            )}
           </div>
-          {(r.checks || []).slice(0, 2).map((c: string, i: number) => (
-            <div key={i} className="font-mono text-[9px] mt-1" style={{ color: c.includes("[X]") ? "var(--text-muted)" : c.includes("[OK]") ? "#00ff88" : "var(--text-muted)" }}>{c.replace(/\[OK\]|\[X\]|\[!\]/g, "").trim()}</div>
-          ))}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
