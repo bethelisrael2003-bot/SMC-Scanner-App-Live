@@ -221,11 +221,25 @@ function PerformanceTab({ stats, loading, onRefresh }: { stats: any; loading: bo
         </div>
       )}
       {(stats?.trades || []).map((t: any, i: number) => (
-        <div key={t.id || i} className="flex items-center gap-4 px-4 py-3 rounded-lg" style={{ background: "var(--bg-card)", border: "1px solid var(--border-dim)" }}>
+        <div key={t.id || i} className="flex items-center gap-3 px-4 py-3 rounded-lg" style={{ background: "var(--bg-card)", border: "1px solid var(--border-dim)" }}>
           <span className="font-mono text-sm font-bold" style={{ color: "var(--text-primary)" }}>{t.pair}</span>
           <span className="font-mono text-[10px] px-2 py-0.5 rounded" style={{ background: t.direction === "BUY" ? "rgba(0,255,136,0.1)" : "rgba(255,51,102,0.1)", color: t.direction === "BUY" ? "#00ff88" : "#ff3366" }}>{t.direction}</span>
+          <span className="font-mono text-[9px] px-1.5 py-0.5 rounded" style={{ background: "rgba(0,212,255,0.08)", color: "#00d4ff" }}>{t.grade}</span>
+          {t.breakevenTriggered && (
+            <span className="font-mono text-[9px] px-1.5 py-0.5 rounded flex items-center gap-1" style={{ background: "rgba(139,92,246,0.12)", color: "#8b5cf6", border: "1px solid rgba(139,92,246,0.25)" }}>🔒 BE</span>
+          )}
+          <span className="font-mono text-[10px]" style={{ color: "var(--text-muted)" }}>Entry: {t.entryPrice}</span>
+          {t.sl && <span className="font-mono text-[10px]" style={{ color: t.breakevenTriggered ? "#8b5cf6" : "#ff3366" }}>SL: {t.sl}{t.breakevenTriggered ? " (BE)" : ""}</span>}
           <span className="flex-1" />
-          {t.status === "Open" ? <span className="font-mono text-xs px-2 py-0.5 rounded" style={{ background: "rgba(255,170,0,0.1)", color: "#ffaa00" }}>LIVE</span> : <span className="font-mono text-xs font-bold" style={{ color: t.status === "Closed - WIN" ? "#00ff88" : "#ff3366" }}>{t.status === "Closed - WIN" ? "🏆" : "❌"} {t.rrGained >= 0 ? "+" : ""}{t.rrGained?.toFixed(2)}R</span>}
+          {t.status === "Open" ? (
+            <span className="font-mono text-xs px-2 py-0.5 rounded flex items-center gap-1.5" style={{ background: "rgba(255,170,0,0.1)", color: "#ffaa00" }}>
+              <span className="animate-pulse-dot w-1.5 h-1.5 rounded-full inline-block" style={{ background: "#ffaa00" }} />LIVE
+            </span>
+          ) : (
+            <span className="font-mono text-xs font-bold" style={{ color: t.status === "Closed - WIN" ? "#00ff88" : "#ff3366" }}>
+              {t.status === "Closed - WIN" ? "🏆" : "❌"} {t.rrGained >= 0 ? "+" : ""}{t.rrGained?.toFixed(2)}R
+            </span>
+          )}
         </div>
       ))}
     </div>
