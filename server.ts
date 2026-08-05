@@ -1656,6 +1656,8 @@ function recordSignalIfNeeded(res: any, session: any) {
 
 // In-memory log for reviewing ATR decisions (Q3) — last 200 entries
 let volatilityLog: any[] = [];
+// In-memory log for reviewing BE adjustments (Part 2) — last 200 entries
+let breakevenLog: any[] = [];
 
 async function checkVolatilityCooldown(pair: string): Promise<{
   shouldClose: boolean;
@@ -1775,16 +1777,32 @@ async function runBackgroundCycle() {
           console.log(`[BACKGROUND ENGINE] Trade ${trade.id} (${trade.pair}): Entry = ${trade.entryPrice}, Live = ${currentPrice}, SL = ${trade.sl}, TP1 = ${trade.tp1}`);
 
           // Breakeven logic guard: If price hits a 1:1 R:R distance, set virtual SL to Entry Price
+          // Part 2: Confirmed active, correct, and independent of manual tagging.
+          // Applies to ALL system-generated trades (status === "Open") automatically.
           if (!trade.breakevenTriggered && slDist > 0) {
             const hitBreakeven = trade.direction === "BUY"
               ? currentPrice >= trade.entryPrice + slDist
               : currentPrice <= trade.entryPrice - slDist;
 
             if (hitBreakeven) {
+              const originalSl = trade.sl;
               trade.sl = trade.entryPrice;
               trade.breakevenTriggered = true;
               trade.updatedAt = new Date().toISOString();
-              console.log(`[BACKGROUND ENGINE] Trade ${trade.id} reached 1:1 R:R. Virtual Stop Loss updated to Entry (${trade.entryPrice})`);
+              console.log(`[BE] Trade ${trade.id} (${trade.pair}) reached 1:1 R:R. SL moved from ${originalSl} to entry ${trade.entryPrice}. Current price: ${currentPrice}`);
+              // Log to queryable BE log
+              breakevenLog.push({
+                timestamp: new Date().toISOString(),
+                tradeId: trade.id,
+                pair: trade.pair,
+                direction: trade.direction,
+                entryPrice: trade.entryPrice,
+                originalSl,
+                newSl: trade.entryPrice,
+                triggerPrice: currentPrice,
+                rrAtTrigger: 1.0,
+              });
+              if (breakevenLog.length > 200) breakevenLog = breakevenLog.slice(-200);
             }
           }
 
@@ -2420,6 +2438,19 @@ app.get("/api/volatility-log", (req, res) => {
   res.json({
     threshold: EOD_VOLATILITY_THRESHOLD,
     totalLogged: volatilityLog.length,
+    showing: logs.length,
+    logs: logs.reverse(),
+  });
+});
+
+// Breakeven adjustment log endpoint (Part 2) — review BE triggers
+app.get("/api/breakeven-log", (req, res) => {
+  const pair = req.query.pair as string;
+  const limit = parseInt(req.query.limit as string) || 50;
+  let logs = pair ? breakevenLog.filter((l: any) => l.pair === pair) : breakevenLog;
+  logs = logs.slice(-limit);
+  res.json({
+    totalLogged: breakevenLog.length,
     showing: logs.length,
     logs: logs.reverse(),
   });
