@@ -45,6 +45,7 @@ app.use(express.json());
 
 const PORT = Number(process.env.PORT) || 3000;
 const MONGODB_URI = process.env.MONGODB_URI || "";
+const EOD_VOLATILITY_THRESHOLD = Number(process.env.EOD_VOLATILITY_THRESHOLD) || 0.65;
 
 // Capital.com Configuration
 const CAPITAL_API_KEY = process.env.CAPITAL_API_KEY || "e0o59JYjc0VLlQay";
@@ -1642,6 +1643,55 @@ function recordSignalIfNeeded(res: any, session: any) {
 }
 
 // Live background scan engine status
+// ── Volatility-based cooldown check (Part 1) ──────────────────────────────────
+// Replaces the blind "close everything at 20:00 GMT" rule.
+// Instead: fetch H1 candles, calculate current ATR vs baseline.
+// If the pair is still volatile (ATR ratio >= threshold), keep the trade open.
+// If the pair has cooled down (ATR ratio < threshold), close it.
+async function checkVolatilityCooldown(pair: string): Promise<{
+  shouldClose: boolean;
+  atrCurrent: number;
+  atrBaseline: number;
+  ratio: number;
+  reason: string;
+}> {
+  try {
+    const candles = await getCandles(pair, "1h", 100);
+    if (!candles || candles.length < 30) {
+      return { shouldClose: true, atrCurrent: 0, atrBaseline: 0, ratio: 0, reason: "No candle data — fallback to close" };
+    }
+    // Reverse to oldest-first for ATR calculation
+    const oldest = [...candles].reverse();
+    const currentAtr = atr(oldest, 14);
+    if (!currentAtr) {
+      return { shouldClose: true, atrCurrent: 0, atrBaseline: 0, ratio: 0, reason: "ATR calculation failed — fallback to close" };
+    }
+    // Baseline: average of all rolling 14-period ATRs across the 100-candle window
+    const atrValues: number[] = [];
+    for (let i = 14; i < oldest.length; i++) {
+      const slice = oldest.slice(0, i + 1);
+      const a = atr(slice, 14);
+      if (a) atrValues.push(a);
+    }
+    const baselineAtr = atrValues.length > 0
+      ? atrValues.reduce((s, v) => s + v, 0) / atrValues.length
+      : currentAtr;
+    const ratio = baselineAtr > 0 ? currentAtr / baselineAtr : 1;
+    const shouldClose = ratio < EOD_VOLATILITY_THRESHOLD;
+    console.log(`[VOLATILITY] ${pair}: current_ATR=${currentAtr.toFixed(6)} baseline_ATR=${baselineAtr.toFixed(6)} ratio=${ratio.toFixed(2)} threshold=${EOD_VOLATILITY_THRESHOLD} → ${shouldClose ? "QUIET (close)" : "ACTIVE (keep)"}`);
+    return {
+      shouldClose,
+      atrCurrent: currentAtr,
+      atrBaseline: baselineAtr,
+      ratio,
+      reason: shouldClose ? `Pair quiet (ATR ratio ${ratio.toFixed(2)} < ${EOD_VOLATILITY_THRESHOLD})` : `Pair active (ATR ratio ${ratio.toFixed(2)} >= ${EOD_VOLATILITY_THRESHOLD})`,
+    };
+  } catch (err) {
+    console.error(`[VOLATILITY] Error checking ${pair}:`, err);
+    return { shouldClose: true, atrCurrent: 0, atrBaseline: 0, ratio: 0, reason: "Error fetching data — fallback to close" };
+  }
+}
+
 let isScanningBackground = false;
 let eodExitedDate = ""; // YYYY-MM-DD — prevents re-entry loop after EOD exit
 let lastAutoScannerStatus = {
@@ -1699,27 +1749,35 @@ async function runBackgroundCycle() {
           // Fast trades lose (10% WR). Cutting trades early kills the winners.
           // Trades now run to TP/SL or EOD exit only.
 
-          // ========== END-OF-DAY EXIT (Intraday Rule) ==========
-          // Close all positions at 20:00 GMT (9 PM Lagos) — intraday traders go flat.
-          // Sets eodExitedDate to prevent the scanner from re-entering after EOD.
+          // ========== VOLATILITY-BASED COOLDOWN (Part 1) ==========
+          // Replaces blind "close everything at 20:00 GMT" rule.
+          // After 20:00 GMT, check if the PAIR is still active.
+          // Active pairs (gold, silver, volatile FX) keep running.
+          // Quiet pairs get closed. Uniform — no hardcoded exceptions.
           const nowUtc = new Date();
           const gmtHour = nowUtc.getUTCHours() + nowUtc.getUTCMinutes() / 60;
           if (gmtHour >= 20.0) {
-            const todayStr = nowUtc.toISOString().substring(0, 10);
-            eodExitedDate = todayStr; // Lock out new entries for the rest of today
-            const moveInFavor = trade.direction === "BUY"
-              ? currentPrice - trade.entryPrice
-              : trade.entryPrice - currentPrice;
-            const exitR = trade.direction === "BUY"
-              ? (currentPrice - trade.entryPrice) / slDist
-              : (trade.entryPrice - currentPrice) / slDist;
-            trade.status = moveInFavor >= 0 ? "Closed - WIN" : "Closed - LOSS";
-            trade.rrGained = Number(exitR.toFixed(2));
-            trade.closePrice = Number(currentPrice.toFixed(5));
-            trade.closeTimestamp = new Date().toISOString();
-            trade.updatedAt = new Date().toISOString();
-            console.log(`[BACKGROUND ENGINE] EOD EXIT: Trade ${trade.id} (${trade.pair}) closed at end of day. Price ${currentPrice} (${trade.rrGained}R)`);
-            continue;
+            const volCheck = await checkVolatilityCooldown(trade.pair);
+            if (volCheck.shouldClose) {
+              const todayStr = nowUtc.toISOString().substring(0, 10);
+              eodExitedDate = todayStr; // Lock out new entries for quiet pairs
+              const moveInFavor = trade.direction === "BUY"
+                ? currentPrice - trade.entryPrice
+                : trade.entryPrice - currentPrice;
+              const exitR = trade.direction === "BUY"
+                ? (currentPrice - trade.entryPrice) / slDist
+                : (trade.entryPrice - currentPrice) / slDist;
+              trade.status = moveInFavor >= 0 ? "Closed - WIN" : "Closed - LOSS";
+              trade.rrGained = Number(exitR.toFixed(2));
+              trade.closePrice = Number(currentPrice.toFixed(5));
+              trade.closeTimestamp = new Date().toISOString();
+              trade.updatedAt = new Date().toISOString();
+              console.log(`[BACKGROUND ENGINE] COOLDOWN CLOSE: Trade ${trade.id} (${trade.pair}) — ${volCheck.reason}. Price ${currentPrice} (${trade.rrGained}R)`);
+              continue;
+            } else {
+              console.log(`[BACKGROUND ENGINE] COOLDOWN SKIP: Trade ${trade.id} (${trade.pair}) — ${volCheck.reason}. Trade continues.`);
+              // Don't close — pair is still active. Skip to normal SL/TP check.
+            }
           }
 
           // WIN & LOSS conditions checking
