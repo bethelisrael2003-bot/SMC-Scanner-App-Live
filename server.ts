@@ -1645,9 +1645,18 @@ function recordSignalIfNeeded(res: any, session: any) {
 // Live background scan engine status
 // ── Volatility-based cooldown check (Part 1) ──────────────────────────────────
 // Replaces the blind "close everything at 20:00 GMT" rule.
-// Instead: fetch H1 candles, calculate current ATR vs baseline.
+// Instead: fetch H1 candles, calculate current ATR vs same-hour baseline.
 // If the pair is still volatile (ATR ratio >= threshold), keep the trade open.
 // If the pair has cooled down (ATR ratio < threshold), close it.
+//
+// BASELINE FIX (Q2): Uses same-hour historical ATR (±1hr window) as baseline,
+// NOT all-day average. A pair naturally has lower ATR at 20:00 than 13:00 —
+// comparing evening to all-day would make it look artificially "quiet."
+// Comparing evening to evening is the fair comparison.
+
+// In-memory log for reviewing ATR decisions (Q3) — last 200 entries
+let volatilityLog: any[] = [];
+
 async function checkVolatilityCooldown(pair: string): Promise<{
   shouldClose: boolean;
   atrCurrent: number;
@@ -1660,31 +1669,66 @@ async function checkVolatilityCooldown(pair: string): Promise<{
     if (!candles || candles.length < 30) {
       return { shouldClose: true, atrCurrent: 0, atrBaseline: 0, ratio: 0, reason: "No candle data — fallback to close" };
     }
-    // Reverse to oldest-first for ATR calculation
+    // Reverse to oldest-first
     const oldest = [...candles].reverse();
-    const currentAtr = atr(oldest, 14);
+    
+    // Current ATR: last 14 candles (need 15+ for calculation)
+    const currentAtr = atr(oldest.slice(-30), 14);
     if (!currentAtr) {
       return { shouldClose: true, atrCurrent: 0, atrBaseline: 0, ratio: 0, reason: "ATR calculation failed — fallback to close" };
     }
-    // Baseline: average of all rolling 14-period ATRs across the 100-candle window
-    const atrValues: number[] = [];
-    for (let i = 14; i < oldest.length; i++) {
-      const slice = oldest.slice(0, i + 1);
-      const a = atr(slice, 14);
-      if (a) atrValues.push(a);
+    
+    // BASELINE: Same-hour historical (±1hr window around current UTC hour)
+    const currentUtcHour = new Date().getUTCHours();
+    const hourWindow = [currentUtcHour - 1, currentUtcHour, currentUtcHour + 1].filter(h => h >= 0 && h <= 23);
+    
+    // Extract hour from candle timestamps and filter to same-hour candles
+    const sameHourCandles = oldest.filter((c: any) => {
+      try {
+        const t = c.t || "";
+        const h = parseInt(t.substring(11, 13));
+        return hourWindow.includes(h);
+      } catch { return false; }
+    });
+    
+    // Calculate average range (H-L) for same-hour candles as baseline
+    let baselineAtr: number;
+    if (sameHourCandles.length >= 3) {
+      const ranges = sameHourCandles.map((c: any) => c.h - c.l);
+      baselineAtr = ranges.reduce((s: number, v: number) => s + v, 0) / ranges.length;
+    } else {
+      // Fallback: use all-day average if not enough same-hour data
+      const allRanges = oldest.map((c: any) => c.h - c.l);
+      baselineAtr = allRanges.reduce((s: number, v: number) => s + v, 0) / allRanges.length;
     }
-    const baselineAtr = atrValues.length > 0
-      ? atrValues.reduce((s, v) => s + v, 0) / atrValues.length
-      : currentAtr;
+    
     const ratio = baselineAtr > 0 ? currentAtr / baselineAtr : 1;
     const shouldClose = ratio < EOD_VOLATILITY_THRESHOLD;
-    console.log(`[VOLATILITY] ${pair}: current_ATR=${currentAtr.toFixed(6)} baseline_ATR=${baselineAtr.toFixed(6)} ratio=${ratio.toFixed(2)} threshold=${EOD_VOLATILITY_THRESHOLD} → ${shouldClose ? "QUIET (close)" : "ACTIVE (keep)"}`);
+    
+    // Log decision (Q3)
+    const logEntry = {
+      timestamp: new Date().toISOString(),
+      pair,
+      atrCurrent: Number(currentAtr.toFixed(6)),
+      atrBaseline: Number(baselineAtr.toFixed(6)),
+      ratio: Number(ratio.toFixed(2)),
+      threshold: EOD_VOLATILITY_THRESHOLD,
+      decision: shouldClose ? "CLOSE" : "KEEP",
+      sameHourSamples: sameHourCandles.length,
+    };
+    volatilityLog.push(logEntry);
+    if (volatilityLog.length > 200) volatilityLog = volatilityLog.slice(-200);
+    
+    console.log(`[VOLATILITY] ${pair}: ATR=${currentAtr.toFixed(6)} baseline=${baselineAtr.toFixed(6)} (same-hr, ${sameHourCandles.length} samples) ratio=${ratio.toFixed(2)} → ${shouldClose ? "QUIET (close)" : "ACTIVE (keep)"}`);
+    
     return {
       shouldClose,
       atrCurrent: currentAtr,
       atrBaseline: baselineAtr,
       ratio,
-      reason: shouldClose ? `Pair quiet (ATR ratio ${ratio.toFixed(2)} < ${EOD_VOLATILITY_THRESHOLD})` : `Pair active (ATR ratio ${ratio.toFixed(2)} >= ${EOD_VOLATILITY_THRESHOLD})`,
+      reason: shouldClose 
+        ? `Pair quiet (ratio ${ratio.toFixed(2)} < ${EOD_VOLATILITY_THRESHOLD}, ${sameHourCandles.length} same-hr samples)` 
+        : `Pair active (ratio ${ratio.toFixed(2)} >= ${EOD_VOLATILITY_THRESHOLD}, ${sameHourCandles.length} same-hr samples)`,
     };
   } catch (err) {
     console.error(`[VOLATILITY] Error checking ${pair}:`, err);
@@ -2365,4 +2409,18 @@ app.post("/api/performance/restore", async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: "Restore failed" });
   }
+});
+
+// Volatility decision log endpoint (Q3) — review ATR decisions over time
+app.get("/api/volatility-log", (req, res) => {
+  const pair = req.query.pair as string;
+  const limit = parseInt(req.query.limit as string) || 50;
+  let logs = pair ? volatilityLog.filter((l: any) => l.pair === pair) : volatilityLog;
+  logs = logs.slice(-limit);
+  res.json({
+    threshold: EOD_VOLATILITY_THRESHOLD,
+    totalLogged: volatilityLog.length,
+    showing: logs.length,
+    logs: logs.reverse(),
+  });
 });
