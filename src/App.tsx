@@ -59,14 +59,22 @@ function SignalsTab({ signals, loading }: { signals: any[]; loading: boolean }) 
   if (!signals || signals.length === 0) return <div className="text-center py-12"><div className="font-mono text-xs mb-2" style={{ color: "var(--text-muted)" }}>No signals yet</div><p className="text-[11px] max-w-xs mx-auto" style={{ color: "var(--text-muted)" }}>Signals will appear here when the scanner detects A-grade setups during Kill Zones.</p></div>;
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      {signals.map((sig, idx) => (
-        <div key={sig.id || idx} className="animate-fade-up bracket-border rounded-lg p-4" style={{ background: "var(--bg-card)", border: `1px solid ${sig.direction === "BUY" ? "rgba(0,255,136,0.12)" : "rgba(255,51,102,0.12)"}`, animationDelay: `${idx * 0.05}s` }}>
+      {signals.map((sig, idx) => {
+        const expired = sig.expired;
+        return (
+        <div key={sig.id || idx} className="animate-fade-up bracket-border rounded-lg p-4" style={{ 
+          background: "var(--bg-card)", 
+          border: `1px solid ${expired ? "var(--border-dim)" : sig.direction === "BUY" ? "rgba(0,255,136,0.12)" : "rgba(255,51,102,0.12)"}`, 
+          opacity: expired ? 0.5 : 1,
+          animationDelay: `${idx * 0.05}s` 
+        }}>
           <div className="flex items-start justify-between mb-3">
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-mono text-lg font-bold" style={{ color: "var(--text-primary)" }}>{sig.pair}</span>
                 <span className="font-mono text-xs font-bold px-2 py-0.5 rounded" style={{ background: sig.direction === "BUY" ? "rgba(0,255,136,0.15)" : "rgba(255,51,102,0.15)", color: sig.direction === "BUY" ? "#00ff88" : "#ff3366" }}>{sig.direction}</span>
                 {sig.grade && <span className="font-mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: "rgba(0,212,255,0.1)", color: "#00d4ff" }}>Grade {sig.grade}</span>}
+                {expired && <span className="font-mono text-[9px] px-1.5 py-0.5 rounded" style={{ background: "rgba(255,170,0,0.1)", color: "#ffaa00", border: "1px solid rgba(255,170,0,0.2)" }}>⏰ EXPIRED</span>}
               </div>
               <div className="font-mono text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>{sig.timestamp ? new Date(sig.timestamp).toLocaleString() : ""} · {sig.session || ""}</div>
             </div>
@@ -84,7 +92,8 @@ function SignalsTab({ signals, loading }: { signals: any[]; loading: boolean }) 
             <span className="font-mono text-[9px] px-2 py-0.5 rounded" style={{ background: "rgba(0,255,136,0.08)", color: "#00ff88" }}>{sig.session || "ACTIVE"}</span>
           </div>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -136,7 +145,7 @@ function WatchlistTab({ scanData, loading, selectedPair, setSelectedPair }: { sc
 
             {/* Row 2: Trade plan levels (always show if available) */}
             {plan && (
-              <div className="grid grid-cols-4 gap-1.5 mb-2">
+              <div className="grid grid-cols-4 gap-1.5 mb-2" style={{ overflow: "hidden" }}>
                 {[{ l: "ENTRY", v: plan.entry, c: "var(--text-secondary)" }, { l: "SL", v: plan.sl, c: "#ff3366" }, { l: "TP1", v: plan.tp1, c: "#00ff88" }, { l: "TP2", v: plan.tp2, c: "#00d4ff" }].map(({ l, v, c }) => (
                   <div key={l} className="text-center py-1 rounded" style={{ background: "rgba(255,255,255,0.02)" }}>
                     <div className="font-mono text-[8px]" style={{ color: "var(--text-muted)" }}>{l}</div>

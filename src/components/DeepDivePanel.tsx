@@ -127,7 +127,7 @@ export function DeepDivePanel({ activeResult, scanData, chartData, chartTimefram
               <button onClick={() => handleCopy(`${activeResult.pair} ${dec}\nEntry: ${activeResult.plan.entry}\nSL: ${activeResult.plan.sl}\nTP1: ${activeResult.plan.tp1}\nTP2: ${activeResult.plan.tp2}`, "Trade Plan")} className="font-mono text-[9px] px-2 py-0.5 rounded cursor-pointer" style={{ color: "var(--text-muted)", border: "1px solid var(--border-dim)" }}><Copy className="w-3 h-3 inline" /> Copy</button>
             )}
           </div>
-          <div className="grid grid-cols-5 gap-2">
+          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
             {[{ l: "ENTRY", v: activeResult.plan.entry, c: "var(--text-primary)" }, { l: "SL", v: activeResult.plan.sl, c: "#ff3366" }, { l: "TP1", v: activeResult.plan.tp1, c: "#00ff88" }, { l: "TP2", v: activeResult.plan.tp2, c: "#00d4ff" }, { l: "TP3", v: activeResult.plan.tp3, c: "#8b5cf6" }].map(({ l, v, c }) => (
               <div key={l} className="text-center p-1.5 rounded" style={{ background: "var(--bg-card)" }}>
                 <div className="font-mono text-[9px]" style={{ color: "var(--text-muted)" }}>{l}</div>

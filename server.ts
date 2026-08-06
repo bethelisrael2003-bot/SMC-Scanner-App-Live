@@ -46,6 +46,9 @@ app.use(express.json());
 const PORT = Number(process.env.PORT) || 3000;
 const MONGODB_URI = process.env.MONGODB_URI || "";
 const EOD_VOLATILITY_THRESHOLD = Number(process.env.EOD_VOLATILITY_THRESHOLD) || 0.65;
+const STALENESS_HOURS = Number(process.env.STALENESS_HOURS) || 6;
+const STALENESS_MIN_R = Number(process.env.STALENESS_MIN_R) || 0.5;
+const SIGNAL_EXPIRY_HOURS = Number(process.env.SIGNAL_EXPIRY_HOURS) || 4;
 
 // Capital.com Configuration
 const CAPITAL_API_KEY = process.env.CAPITAL_API_KEY || "e0o59JYjc0VLlQay";
@@ -1428,6 +1431,7 @@ const signalSchema = new mongoose.Schema({
   direction: String,
   grade: String,
   timestamp: { type: String, index: true },
+  expiresAt: String,
   entryPrice: Number,
   sl: Number,
   tp1: Number,
@@ -1475,6 +1479,7 @@ interface SignalLog {
   direction: "BUY" | "SELL";
   grade: string;
   timestamp: string;
+  expiresAt?: string;
   entryPrice: number;
   sl: number;
   tp1: number;
@@ -1606,6 +1611,7 @@ function recordSignalIfNeeded(res: any, session: any) {
       direction: direction as "BUY" | "SELL",
       grade: res.grade,
       timestamp: now.toISOString(),
+      expiresAt: new Date(now.getTime() + SIGNAL_EXPIRY_HOURS * 60 * 60 * 1000).toISOString(),
       entryPrice: res.plan.entry,
       sl: res.plan.sl,
       tp1: res.plan.tp1,
@@ -1658,6 +1664,8 @@ function recordSignalIfNeeded(res: any, session: any) {
 let volatilityLog: any[] = [];
 // In-memory log for reviewing BE adjustments (Part 2) — last 200 entries
 let breakevenLog: any[] = [];
+// In-memory log for reviewing staleness decisions (Part 3) — last 200 entries
+let stalenessLog: any[] = [];
 
 async function checkVolatilityCooldown(pair: string): Promise<{
   shouldClose: boolean;
@@ -1775,6 +1783,42 @@ async function runBackgroundCycle() {
           const slDist = Math.abs(trade.entryPrice - trade.initialSl);
 
           console.log(`[BACKGROUND ENGINE] Trade ${trade.id} (${trade.pair}): Entry = ${trade.entryPrice}, Live = ${currentPrice}, SL = ${trade.sl}, TP1 = ${trade.tp1}`);
+
+          // ========== TRADE STALENESS CHECK (Part 3) ==========
+          // If a trade hasn't made meaningful progress (≥ STALENESS_MIN_R) within
+          // STALENESS_HOURS, the setup thesis is likely wrong. Close it.
+          // Runs BEFORE BE check — no point adjusting SL on a stale trade.
+          // Does NOT conflict with Part 1 volatility: staleness checks trade progress,
+          // volatility checks market activity. Different questions, different timing.
+          const tradeAgeMs = Date.now() - new Date(trade.timestamp).getTime();
+          const tradeAgeHours = tradeAgeMs / (60 * 60 * 1000);
+          if (tradeAgeHours >= STALENESS_HOURS && !trade.breakevenTriggered && slDist > 0) {
+            const moveInFavor = trade.direction === "BUY"
+              ? currentPrice - trade.entryPrice
+              : trade.entryPrice - currentPrice;
+            const progressR = moveInFavor / slDist;
+            if (progressR < STALENESS_MIN_R) {
+              const exitR = trade.direction === "BUY"
+                ? (currentPrice - trade.entryPrice) / slDist
+                : (trade.entryPrice - currentPrice) / slDist;
+              trade.status = "Closed - LOSS";
+              trade.rrGained = Number(exitR.toFixed(2));
+              trade.closePrice = Number(currentPrice.toFixed(5));
+              trade.closeTimestamp = new Date().toISOString();
+              trade.updatedAt = new Date().toISOString();
+              console.log(`[STALENESS] Trade ${trade.id} (${trade.pair}) stale after ${tradeAgeHours.toFixed(1)}h. Progress ${progressR.toFixed(2)}R < ${STALENESS_MIN_R}R min. Closed at ${currentPrice} (${trade.rrGained}R)`);
+              stalenessLog.push({
+                timestamp: new Date().toISOString(),
+                tradeId: trade.id, pair: trade.pair, direction: trade.direction,
+                ageHours: Number(tradeAgeHours.toFixed(1)),
+                progressR: Number(progressR.toFixed(2)),
+                minRequiredR: STALENESS_MIN_R,
+                decision: "CLOSED (stale)",
+              });
+              if (stalenessLog.length > 200) stalenessLog = stalenessLog.slice(-200);
+              continue;
+            }
+          }
 
           // Breakeven logic guard: If price hits a 1:1 R:R distance, set virtual SL to Entry Price
           // Part 2: Confirmed active, correct, and independent of manual tagging.
@@ -2043,7 +2087,13 @@ app.post("/api/test-push", async (req, res) => {
 app.get("/api/signals", (req, res) => {
   try {
     const signals = loadSignals();
-    res.json([...signals].reverse()); // Return newest signals first
+    const now = Date.now();
+    // Tag each signal with expired status
+    const tagged = signals.reverse().map((s: any) => {
+      const expiresAt = s.expiresAt ? new Date(s.expiresAt).getTime() : now + 1;
+      return { ...s, expired: now > expiresAt };
+    });
+    res.json(tagged);
   } catch (error) {
     console.error("[API ERROR] Failed to fetch signals database:", error);
     res.status(500).json({ error: "Could not retrieve signals database." });
@@ -2451,6 +2501,20 @@ app.get("/api/breakeven-log", (req, res) => {
   logs = logs.slice(-limit);
   res.json({
     totalLogged: breakevenLog.length,
+    showing: logs.length,
+    logs: logs.reverse(),
+  });
+});
+
+// Staleness decision log endpoint (Part 3)
+app.get("/api/staleness-log", (req, res) => {
+  const pair = req.query.pair as string;
+  const limit = parseInt(req.query.limit as string) || 50;
+  let logs = pair ? stalenessLog.filter((l: any) => l.pair === pair) : stalenessLog;
+  logs = logs.slice(-limit);
+  res.json({
+    config: { stalenessHours: STALENESS_HOURS, minProgressR: STALENESS_MIN_R },
+    totalLogged: stalenessLog.length,
     showing: logs.length,
     logs: logs.reverse(),
   });
