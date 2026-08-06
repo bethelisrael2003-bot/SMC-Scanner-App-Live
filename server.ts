@@ -2519,3 +2519,70 @@ app.get("/api/staleness-log", (req, res) => {
     logs: logs.reverse(),
   });
 });
+
+// Combined health-check dashboard — all logs + config in one call
+app.get("/api/health", (req, res) => {
+  const limit = parseInt(req.query.limit as string) || 10;
+  const now = Date.now();
+
+  // Signal expiry summary
+  const allSignals = loadSignals();
+  const activeSignals = allSignals.filter((s: any) => {
+    const exp = s.expiresAt ? new Date(s.expiresAt).getTime() : 0;
+    return now < exp;
+  });
+  const expiredSignals = allSignals.length - activeSignals.length;
+
+  // Open trades summary
+  const allTrades = loadTrades();
+  const openTrades = allTrades.filter((t: any) => t.status === "Open");
+
+  res.json({
+    timestamp: new Date().toISOString(),
+    session: checkSessionStatus().session,
+
+    config: {
+      volatilityThreshold: EOD_VOLATILITY_THRESHOLD,
+      stalenessHours: STALENESS_HOURS,
+      stalenessMinR: STALENESS_MIN_R,
+      signalExpiryHours: SIGNAL_EXPIRY_HOURS,
+    },
+
+    signals: {
+      total: allSignals.length,
+      active: activeSignals.length,
+      expired: expiredSignals,
+      recent: allSignals.slice(-limit).reverse().map((s: any) => ({
+        pair: s.pair, direction: s.direction, grade: s.grade,
+        timestamp: s.timestamp,
+        expired: s.expiresAt ? now > new Date(s.expiresAt).getTime() : false,
+      })),
+    },
+
+    trades: {
+      total: allTrades.length,
+      open: openTrades.length,
+      openDetails: openTrades.map((t: any) => ({
+        pair: t.pair, direction: t.direction, grade: t.grade,
+        entry: t.entryPrice, sl: t.sl, tp1: t.tp1,
+        breakevenTriggered: t.breakevenTriggered || false,
+        ageHours: ((now - new Date(t.timestamp).getTime()) / (60 * 60 * 1000)).toFixed(1),
+      })),
+    },
+
+    volatilityLog: {
+      totalLogged: volatilityLog.length,
+      recent: volatilityLog.slice(-limit).reverse(),
+    },
+
+    breakevenLog: {
+      totalLogged: breakevenLog.length,
+      recent: breakevenLog.slice(-limit).reverse(),
+    },
+
+    stalenessLog: {
+      totalLogged: stalenessLog.length,
+      recent: stalenessLog.slice(-limit).reverse(),
+    },
+  });
+});
