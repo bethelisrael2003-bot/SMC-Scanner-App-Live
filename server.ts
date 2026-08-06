@@ -46,8 +46,8 @@ app.use(express.json());
 const PORT = Number(process.env.PORT) || 3000;
 const MONGODB_URI = process.env.MONGODB_URI || "";
 const EOD_VOLATILITY_THRESHOLD = Number(process.env.EOD_VOLATILITY_THRESHOLD) || 0.65;
-const STALENESS_HOURS = Number(process.env.STALENESS_HOURS) || 6;
-const STALENESS_MIN_R = Number(process.env.STALENESS_MIN_R) || 0.5;
+const STALENESS_HOURS = Number(process.env.STALENESS_HOURS) || 12;
+const STALENESS_MIN_R = Number(process.env.STALENESS_MIN_R) || 0.0;
 const SIGNAL_EXPIRY_HOURS = Number(process.env.SIGNAL_EXPIRY_HOURS) || 4;
 
 // Capital.com Configuration
