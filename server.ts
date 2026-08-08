@@ -1198,34 +1198,56 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
   else if (bonuses >= 1) grade = "B";
   result.grade = grade;
 
-  // Trade Plan calculations
-  // FIXED: Cap stop at max 2.0x ATR to prevent dangerously wide stops on metals
+  // ════════════════════════════════════════════════════════════════
+  // TRADE PLAN — Structure-based (Part 4: Aggressive Setup)
+  // ════════════════════════════════════════════════════════════════
+  // Mentor's style: tight SL beyond consolidation candle, fast TP.
+  // Only enters when momentum-pause pattern is detected.
+  // Falls back to WAIT if no pattern found — doesn't enter on confluence alone.
   const entry = last;
   let sl = 0;
   let tp1 = 0;
   let tp2 = 0;
   let tp3 = 0;
+  let setupType = "ATR";
 
-  if (direction === "BUY") {
-    const poiSl = poiLow - hAtr * 0.1;
-    const atrSl = entry - 2.0 * hAtr;
-    // Use POI stop if within 2.0x ATR, otherwise cap at 2.0x ATR
-    sl = Math.abs(entry - poiSl) <= 2.0 * hAtr ? poiSl : atrSl;
-    if (sl >= entry) sl = atrSl;
-    tp1 = entry + 2 * Math.abs(entry - sl);
-    tp2 = entry + 3 * Math.abs(entry - sl);
-    tp3 = pdZone.rHigh;
-    if (tp3 <= entry) tp3 = entry + 4 * Math.abs(entry - sl);
+  // Check for momentum-pause pattern
+  const pattern = findMomentumPausePattern(h1Oldest, direction, hAtr);
+
+  if (pattern) {
+    // AGGRESSIVE setup: structure-based SL beyond consolidation candle
+    setupType = "Aggressive";
+    const buffer = hAtr * 0.15; // Small buffer beyond consolidation (not full ATR)
+
+    if (direction === "BUY") {
+      sl = pattern.consolLow - buffer;
+      const slDist = Math.abs(entry - sl);
+      // Safety: if SL is too tight (< 0.3x ATR), widen slightly
+      if (slDist < 0.3 * hAtr) sl = entry - 0.3 * hAtr;
+      tp1 = entry + 1.5 * Math.abs(entry - sl);  // 1:1.5 RR for fast resolution
+      tp2 = entry + 2.5 * Math.abs(entry - sl);
+      tp3 = pdZone.rHigh;
+      if (tp3 <= entry) tp3 = entry + 3 * Math.abs(entry - sl);
+    } else {
+      sl = pattern.consolHigh + buffer;
+      const slDist = Math.abs(sl - entry);
+      if (slDist < 0.3 * hAtr) sl = entry + 0.3 * hAtr;
+      tp1 = entry - 1.5 * Math.abs(sl - entry);
+      tp2 = entry - 2.5 * Math.abs(sl - entry);
+      tp3 = pdZone.rLow;
+      if (tp3 >= entry) tp3 = entry - 3 * Math.abs(sl - entry);
+    }
+
+    result.checks.push(`[OK] AGGRESSIVE: Momentum-pause pattern detected`);
+    result.checks.push(`[OK] SL: beyond consolidation ${pattern.consolLow.toFixed(5)}-${pattern.consolHigh.toFixed(5)} + buffer`);
+    result.bonus_list.push("⚡ Aggressive Setup (momentum-pause)");
   } else {
-    const poiSl = poiHigh + hAtr * 0.1;
-    const atrSl = entry + 2.0 * hAtr;
-    sl = Math.abs(poiSl - entry) <= 2.0 * hAtr ? poiSl : atrSl;
-    if (sl <= entry) sl = atrSl;
-    tp1 = entry - 2 * Math.abs(sl - entry);
-    tp2 = entry - 3 * Math.abs(sl - entry);
-    tp3 = pdZone.rLow;
-    if (tp3 >= entry) tp3 = entry - 4 * Math.abs(sl - entry);
+    // No momentum-pause pattern → WAIT. Don't enter on confluence alone.
+    result.checks.push(`[X] No momentum-pause pattern detected — WAIT for aggressive setup`);
+    isFailedSetup = true;
   }
+
+  result.setupType = setupType;
 
   const slDist = Math.abs(entry - sl);
   const rr = slDist !== 0 ? Math.abs(tp1 - entry) / slDist : 0;
@@ -1241,11 +1263,20 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
     sl_atr: Number(slAtr.toFixed(2)),
   };
 
-  if (rr < 2.0) {
-    result.checks.push(`[X] RR 1:${rr.toFixed(1)} < 1:2 minimum required`);
-    isFailedSetup = true;
+  if (setupType === "Aggressive") {
+    if (rr < 1.5) {
+      result.checks.push(`[X] RR 1:${rr.toFixed(1)} < 1:1.5 minimum (Aggressive)`);
+      isFailedSetup = true;
+    } else {
+      result.checks.push(`[OK] RR 1:${rr.toFixed(1)} (Aggressive)`);
+    }
   } else {
-    result.checks.push(`[OK] RR 1:${rr.toFixed(1)}`);
+    if (rr < 2.0) {
+      result.checks.push(`[X] RR 1:${rr.toFixed(1)} < 1:2 minimum required`);
+      isFailedSetup = true;
+    } else {
+      result.checks.push(`[OK] RR 1:${rr.toFixed(1)}`);
+    }
   }
 
   if (slAtr > 2.0) {
@@ -1261,6 +1292,46 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
   }
 
   return cacheAndReturn(result);
+}
+
+// ── Momentum-Pause Pattern Detection (Part 4: Aggressive Setup) ──────────────
+// Finds: strong directional move → brief consolidation → retest entry
+// This is the mentor's style: enter on the pause after momentum, not mid-move.
+function findMomentumPausePattern(candles: any[], direction: "BUY" | "SELL", hAtr: number) {
+  if (!candles || candles.length < 25) return null;
+
+  const lookback = Math.min(20, candles.length - 5);
+  const recent = candles.slice(-lookback - 5);
+  const avgBody = recent.reduce((s, c) => s + Math.abs(c.c - c.o), 0) / recent.length;
+
+  // Scan backwards for momentum + consolidation
+  for (let i = recent.length - 3; i >= 3; i--) {
+    const mc = recent[i];
+    const mcBody = Math.abs(mc.c - mc.o);
+    const mcRange = mc.h - mc.l;
+    if (mcRange === 0) continue;
+
+    // Momentum candle check
+    const bodyRatio = mcBody / mcRange;
+    if (bodyRatio < 0.60) continue;
+    if (mcBody < avgBody * 1.5) continue;
+    if (direction === "BUY" && mc.c <= mc.o) continue;
+    if (direction === "SELL" && mc.c >= mc.o) continue;
+
+    // Look for consolidation in next 1-3 candles
+    for (let j = i + 1; j < Math.min(i + 4, recent.length); j++) {
+      const cc = recent[j];
+      const ccRange = cc.h - cc.l;
+      if (mcRange > 0 && ccRange < mcRange * 0.50 && ccRange > 0) {
+        // Found momentum + pause
+        const consolHigh = cc.h;
+        const consolLow = cc.l;
+        const consolMid = (consolHigh + consolLow) / 2;
+        return { consolHigh, consolLow, consolMid, momentumCandle: mc, consolCandle: cc };
+      }
+    }
+  }
+  return null;
 }
 
 // Check Correlation Conflicts
@@ -1410,6 +1481,7 @@ const tradeSchema = new mongoose.Schema({
   pair: String,
   direction: String,
   grade: String,
+  setupType: { type: String, default: "ATR" },
   timestamp: String,
   entryPrice: Number,
   sl: Number,
@@ -1458,6 +1530,7 @@ interface VirtualTrade {
   pair: string;
   direction: "BUY" | "SELL";
   grade: string;
+  setupType: string;
   timestamp: string;
   entryPrice: number;
   sl: number;
@@ -1984,6 +2057,7 @@ async function runBackgroundCycle() {
                   pair,
                   direction: res.direction as "BUY" | "SELL",
                   grade: res.grade,
+                  setupType: res.setupType || "ATR",
                   timestamp: new Date().toISOString(),
                   entryPrice: res.plan.entry,
                   sl: res.plan.sl,
@@ -2168,6 +2242,7 @@ app.post("/api/performance/enter", (req, res) => {
       pair,
       direction,
       grade: grade || "B",
+      setupType: "ATR",
       timestamp: new Date().toISOString(),
       entryPrice: Number(entryPrice),
       sl: Number(sl),

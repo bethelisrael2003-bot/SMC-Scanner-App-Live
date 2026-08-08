@@ -238,6 +238,7 @@ function PerformanceTab({ stats, loading, onRefresh }: { stats: any; loading: bo
               <span className="font-mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: t.direction === "BUY" ? "rgba(0,255,136,0.1)" : "rgba(255,51,102,0.1)", color: t.direction === "BUY" ? "#00ff88" : "#ff3366" }}>{t.direction}</span>
               <span className="font-mono text-[9px] px-1.5 py-0.5 rounded" style={{ background: "rgba(0,212,255,0.08)", color: "#00d4ff" }}>{t.grade}</span>
               {t.breakevenTriggered && <span className="font-mono text-[9px] px-1.5 py-0.5 rounded flex items-center gap-1" style={{ background: "rgba(139,92,246,0.15)", color: "#8b5cf6", border: "1px solid rgba(139,92,246,0.3)" }}>🔒 BE</span>}
+              {t.setupType === "Aggressive" && <span className="font-mono text-[9px] px-1.5 py-0.5 rounded flex items-center gap-1" style={{ background: "rgba(255,170,0,0.15)", color: "#ffaa00", border: "1px solid rgba(255,170,0,0.3)" }}>⚡ AGG</span>}
             </div>
             {t.status === "Open" ? (
               <span className="font-mono text-xs px-2 py-0.5 rounded flex items-center gap-1.5 shrink-0" style={{ background: "rgba(255,170,0,0.1)", color: "#ffaa00" }}>
