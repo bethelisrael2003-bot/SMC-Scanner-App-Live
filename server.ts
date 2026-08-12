@@ -2067,7 +2067,7 @@ async function runBackgroundCycle() {
             // Use a simple proxy: if entry moved > 0.3% it's a different price zone
             const entryPctMove = lastEntry > 0 ? entryDistance / lastEntry : 0;
             if (entryPctMove < 0.003) { // < 0.3% = same setup
-              scanLogDetails.push({ pair, status: "COOLDOWN", detail: `Same setup re-trigger blocked (entry moved ${entryPctMove*100:.2f}%)`, grade: "-", price: 0 });
+              scanLogDetails.push({ pair, status: "COOLDOWN", detail: `Same setup re-trigger blocked (entry moved ${(entryPctMove*100).toFixed(2)}%)`, grade: "-", price: 0 });
               await new Promise((resolve) => setTimeout(resolve, 500));
               continue;
             }
