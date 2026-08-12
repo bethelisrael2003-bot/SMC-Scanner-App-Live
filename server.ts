@@ -2035,6 +2035,24 @@ async function runBackgroundCycle() {
           continue;
         }
 
+        // POST-CLOSE COOLDOWN: Don't re-enter a pair that had a trade close recently.
+        // This prevents the duplicate-entry bug where the same setup re-triggers
+        // every 60 seconds after the previous trade hits SL.
+        const REENTRY_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 hours
+        const allTradesForPair = activeTrades.filter((t) => t.pair === pair);
+        const lastClosed = allTradesForPair
+          .filter((t) => t.status !== "Open")
+          .sort((a, b) => new Date(b.closeTimestamp || b.timestamp || 0).getTime() - new Date(a.closeTimestamp || a.timestamp || 0).getTime())[0];
+        if (lastClosed) {
+          const closedTime = new Date(lastClosed.closeTimestamp || lastClosed.timestamp || 0).getTime();
+          if (Date.now() - closedTime < REENTRY_COOLDOWN_MS) {
+            const hoursLeft = ((REENTRY_COOLDOWN_MS - (Date.now() - closedTime)) / (60 * 60 * 1000)).toFixed(1);
+            scanLogDetails.push({ pair, status: "COOLDOWN", detail: `Re-entry cooldown (${hoursLeft}h left)`, grade: "-", price: 0 });
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            continue;
+          }
+        }
+
         try {
           const res = await analyzePair(pair, true);
           if (res) {
