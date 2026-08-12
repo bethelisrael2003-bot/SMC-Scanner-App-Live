@@ -2035,22 +2035,44 @@ async function runBackgroundCycle() {
           continue;
         }
 
-        // POST-CLOSE COOLDOWN: Don't re-enter a pair that had a trade close recently.
-        // This prevents the duplicate-entry bug where the same setup re-triggers
-        // every 60 seconds after the previous trade hits SL.
-        const REENTRY_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 hours
+        // POST-CLOSE COOLDOWN: Smart re-entry prevention.
+        // Prevents the duplicate-entry bug (same setup re-triggering every 60s)
+        // while allowing genuinely new setups on the same pair.
+        const MIN_COOLDOWN_MS = 30 * 60 * 1000; // 30 min minimum after any close
         const allTradesForPair = activeTrades.filter((t) => t.pair === pair);
         const lastClosed = allTradesForPair
           .filter((t) => t.status !== "Open")
           .sort((a, b) => new Date(b.closeTimestamp || b.timestamp || 0).getTime() - new Date(a.closeTimestamp || a.timestamp || 0).getTime())[0];
+
         if (lastClosed) {
           const closedTime = new Date(lastClosed.closeTimestamp || lastClosed.timestamp || 0).getTime();
-          if (Date.now() - closedTime < REENTRY_COOLDOWN_MS) {
-            const hoursLeft = ((REENTRY_COOLDOWN_MS - (Date.now() - closedTime)) / (60 * 60 * 1000)).toFixed(1);
-            scanLogDetails.push({ pair, status: "COOLDOWN", detail: `Re-entry cooldown (${hoursLeft}h left)`, grade: "-", price: 0 });
+          const timeSinceClose = Date.now() - closedTime;
+
+          if (timeSinceClose < MIN_COOLDOWN_MS) {
+            // Hard minimum: 30 minutes regardless
+            const minsLeft = Math.ceil((MIN_COOLDOWN_MS - timeSinceClose) / (60 * 1000));
+            scanLogDetails.push({ pair, status: "COOLDOWN", detail: `Min cooldown (${minsLeft}m left)`, grade: "-", price: 0 });
             await new Promise((resolve) => setTimeout(resolve, 500));
             continue;
           }
+
+          // After 30 min: allow new setup only if it's genuinely different
+          // Same direction + similar entry = same setup re-triggering → block
+          // Different direction OR price moved > 0.5x ATR = new setup → allow
+          if (lastClosed.direction === res?.direction) {
+            const lastEntry = lastClosed.entryPrice || 0;
+            const currentEntry = res?.price || 0;
+            const entryDistance = Math.abs(currentEntry - lastEntry);
+            // Need ATR to measure "significantly different" — fetch from last scan result
+            // Use a simple proxy: if entry moved > 0.3% it's a different price zone
+            const entryPctMove = lastEntry > 0 ? entryDistance / lastEntry : 0;
+            if (entryPctMove < 0.003) { // < 0.3% = same setup
+              scanLogDetails.push({ pair, status: "COOLDOWN", detail: `Same setup re-trigger blocked (entry moved ${entryPctMove*100:.2f}%)`, grade: "-", price: 0 });
+              await new Promise((resolve) => setTimeout(resolve, 500));
+              continue;
+            }
+          }
+          // Different direction or price moved significantly → allow (new setup)
         }
 
         try {
