@@ -49,6 +49,10 @@ const EOD_VOLATILITY_THRESHOLD = Number(process.env.EOD_VOLATILITY_THRESHOLD) ||
 const STALENESS_HOURS = Number(process.env.STALENESS_HOURS) || 12;
 const STALENESS_MIN_R = Number(process.env.STALENESS_MIN_R) || 0.0;
 const SIGNAL_EXPIRY_HOURS = Number(process.env.SIGNAL_EXPIRY_HOURS) || 4;
+const MAX_CONSOL_ATR = Number(process.env.MAX_CONSOL_ATR) || 0.5;
+
+// Consolidation filter tracking — counts how many setups are detected vs filtered
+let consolFilterStats = { patternsDetected: 0, passedFilter: 0, blockedWide: 0, noPattern: 0 };
 
 // Capital.com Configuration
 const CAPITAL_API_KEY = process.env.CAPITAL_API_KEY || "e0o59JYjc0VLlQay";
@@ -1211,43 +1215,63 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
   let tp3 = 0;
   let setupType = "ATR";
 
-  // Check for momentum-pause pattern
+  // ════════════════════════════════════════════════════════════════
+  // MOMENTUM-PAUSE PATTERN + CONSOLIDATION-WIDTH FILTER
+  // ════════════════════════════════════════════════════════════════
+  const MAX_CONSOL_ATR = Number(process.env.MAX_CONSOL_ATR) || 0.5;
+
   const pattern = findMomentumPausePattern(h1Oldest, direction, hAtr);
 
   if (pattern) {
-    // AGGRESSIVE setup: structure-based SL beyond consolidation candle
-    setupType = "Aggressive";
-    const buffer = hAtr * 0.15; // Small buffer beyond consolidation (not full ATR)
+    const consolRange = pattern.consolHigh - pattern.consolLow;
+    const consolRatio = hAtr > 0 ? consolRange / hAtr : 0;
 
-    if (direction === "BUY") {
-      sl = pattern.consolLow - buffer;
-      const slDist = Math.abs(entry - sl);
-      // Safety: if SL is too tight (< 0.3x ATR), widen slightly
-      if (slDist < 0.3 * hAtr) sl = entry - 0.3 * hAtr;
-      tp1 = entry + 1.5 * Math.abs(entry - sl);  // 1:1.5 RR for fast resolution
-      tp2 = entry + 2.5 * Math.abs(entry - sl);
-      tp3 = pdZone.rHigh;
-      if (tp3 <= entry) tp3 = entry + 3 * Math.abs(entry - sl);
+    if (consolRatio > MAX_CONSOL_ATR) {
+      // CONSOLIDATION FILTER: consolidation candle too wide → SKIP
+      consolFilterStats.patternsDetected++;
+      consolFilterStats.blockedWide++;
+      // A wide consolidation means no genuine tight setup formed.
+      // Forcing a tight stop inside a noisy zone gets stopped out by noise.
+      result.checks.push(`[X] Consolidation too wide (${consolRatio.toFixed(2)}x ATR > ${MAX_CONSOL_ATR}x max) — SKIP`);
+      isFailedSetup = true;
+      result.setupType = setupType;
     } else {
-      sl = pattern.consolHigh + buffer;
-      const slDist = Math.abs(sl - entry);
-      if (slDist < 0.3 * hAtr) sl = entry + 0.3 * hAtr;
-      tp1 = entry - 1.5 * Math.abs(sl - entry);
-      tp2 = entry - 2.5 * Math.abs(sl - entry);
-      tp3 = pdZone.rLow;
-      if (tp3 >= entry) tp3 = entry - 3 * Math.abs(sl - entry);
-    }
+      // AGGRESSIVE setup: tight structure-based SL beyond consolidation candle
+      setupType = "Aggressive";
+      const buffer = hAtr * 0.15;
 
-    result.checks.push(`[OK] AGGRESSIVE: Momentum-pause pattern detected`);
-    result.checks.push(`[OK] SL: beyond consolidation ${pattern.consolLow.toFixed(5)}-${pattern.consolHigh.toFixed(5)} + buffer`);
-    result.bonus_list.push("⚡ Aggressive Setup (momentum-pause)");
+      if (direction === "BUY") {
+        sl = pattern.consolLow - buffer;
+        let slDistCalc = Math.abs(entry - sl);
+        if (slDistCalc < 0.3 * hAtr) sl = entry - 0.3 * hAtr;
+        tp1 = entry + 1.5 * Math.abs(entry - sl);
+        tp2 = entry + 2.5 * Math.abs(entry - sl);
+        tp3 = pdZone.rHigh;
+        if (tp3 <= entry) tp3 = entry + 3 * Math.abs(entry - sl);
+      } else {
+        sl = pattern.consolHigh + buffer;
+        let slDistCalc = Math.abs(sl - entry);
+        if (slDistCalc < 0.3 * hAtr) sl = entry + 0.3 * hAtr;
+        tp1 = entry - 1.5 * Math.abs(sl - entry);
+        tp2 = entry - 2.5 * Math.abs(sl - entry);
+        tp3 = pdZone.rLow;
+        if (tp3 >= entry) tp3 = entry - 3 * Math.abs(sl - entry);
+      }
+
+      result.checks.push(`[OK] AGGRESSIVE: Momentum-pause detected, consolidation ${consolRatio.toFixed(2)}x ATR (≤${MAX_CONSOL_ATR}x)`);
+      consolFilterStats.patternsDetected++;
+      consolFilterStats.passedFilter++;
+      result.checks.push(`[OK] SL: beyond consolidation ${pattern.consolLow.toFixed(5)}-${pattern.consolHigh.toFixed(5)} + buffer`);
+      result.bonus_list.push("⚡ Aggressive Setup (momentum-pause)");
+      result.setupType = setupType;
+    }
   } else {
     // No momentum-pause pattern → WAIT. Don't enter on confluence alone.
     result.checks.push(`[X] No momentum-pause pattern detected — WAIT for aggressive setup`);
+    consolFilterStats.noPattern++;
     isFailedSetup = true;
+    result.setupType = setupType;
   }
-
-  result.setupType = setupType;
 
   const slDist = Math.abs(entry - sl);
   const rr = slDist !== 0 ? Math.abs(tp1 - entry) / slDist : 0;
@@ -2056,23 +2080,9 @@ async function runBackgroundCycle() {
             continue;
           }
 
-          // After 30 min: allow new setup only if it's genuinely different
-          // Same direction + similar entry = same setup re-triggering → block
-          // Different direction OR price moved > 0.5x ATR = new setup → allow
-          if (lastClosed.direction === res?.direction) {
-            const lastEntry = lastClosed.entryPrice || 0;
-            const currentEntry = res?.price || 0;
-            const entryDistance = Math.abs(currentEntry - lastEntry);
-            // Need ATR to measure "significantly different" — fetch from last scan result
-            // Use a simple proxy: if entry moved > 0.3% it's a different price zone
-            const entryPctMove = lastEntry > 0 ? entryDistance / lastEntry : 0;
-            if (entryPctMove < 0.003) { // < 0.3% = same setup
-              scanLogDetails.push({ pair, status: "COOLDOWN", detail: `Same setup re-trigger blocked (entry moved ${(entryPctMove*100).toFixed(2)}%)`, grade: "-", price: 0 });
-              await new Promise((resolve) => setTimeout(resolve, 500));
-              continue;
-            }
-          }
-          // Different direction or price moved significantly → allow (new setup)
+          // After 30 min: allow — can't check "same setup" before scanning
+          // The 30-min minimum already prevents the 60s cycle bug
+          // The post-scan check below handles same-setup re-triggering
         }
 
         try {
@@ -2090,6 +2100,20 @@ async function runBackgroundCycle() {
             });
 
             if (res.passed && (res.grade === "A+" || res.grade === "A" || res.grade === "B")) {
+              // SMART RE-ENTRY CHECK: After scan, verify this isn't the same setup
+              // that just closed. Same direction + similar entry = same setup re-trigger.
+              if (lastClosed) {
+                if (lastClosed.direction === res.direction) {
+                  const lastEntry = lastClosed.entryPrice || 0;
+                  const currentEntry = res.price || 0;
+                  const entryPctMove = lastEntry > 0 ? Math.abs(currentEntry - lastEntry) / lastEntry : 0;
+                  if (entryPctMove < 0.003) {
+                    scanLogDetails.push({ pair, status: "COOLDOWN", detail: `Same setup blocked (entry moved ${(entryPctMove*100).toFixed(2)}%)`, grade: "-", price: 0 });
+                    await new Promise((resolve) => setTimeout(resolve, 500));
+                    continue;
+                  }
+                }
+              }
               const currentTradesList = loadTrades();
               if (!currentTradesList.some((t) => t.pair === pair && t.status === "Open")) {
                 const newTradeEntry: VirtualTrade = {
@@ -2698,6 +2722,11 @@ app.get("/api/health", (req, res) => {
     stalenessLog: {
       totalLogged: stalenessLog.length,
       recent: stalenessLog.slice(-limit).reverse(),
+    },
+
+    consolidationFilter: {
+      threshold: MAX_CONSOL_ATR,
+      ...consolFilterStats,
     },
   });
 });
