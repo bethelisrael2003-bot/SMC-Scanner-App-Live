@@ -1,439 +1,372 @@
 ╔══════════════════════════════════════════════════════════════════╗
 ║                                                                  ║
-║   THE LOCKED SMC SYSTEM v1.0                                     ║
-║   Senior-Reviewed Trading Framework                              ║
-║   Effective Date: 2026-06-15                                     ║
+║   SMC SCANNER SYSTEM — LIVE CODE REFERENCE                       ║
+║   Accurate as of: Aug 19, 2026                                   ║
+║   This document describes what the server ACTUALLY does.         ║
+║   No aspirational rules. No "should be." Only what runs.         ║
 ║                                                                  ║
 ╚══════════════════════════════════════════════════════════════════╝
 
-========================================================================
-PART 1 — WHAT WE KEEP (The Core That Creates Real Edge)
-========================================================================
-
-These are the rules that survived the test of time. Every one of 
-these has measurable edge. They are NON-NEGOTIABLE.
-
-┌──────────────────────────────────────────────────────────────────┐
-│  K1. SESSION TIMING                                              │
-│  ─────────────────                                              │
-│  • Asian session (00:00–07:00 GMT) = NO TRADES                 │
-│    Why: Thin liquidity, fake moves, ranges that trap you.       │
-│  • Monday first 4 hours = REDUCED SIZE ONLY                     │
-│    Why: Weekend gap fills, institutional repositioning.         │
-│  • London Kill Zone (07:00–10:00 GMT) = HIGH PRIORITY           │
-│  • NY Kill Zone (12:00–15:00 GMT) = HIGH PRIORITY               │
-│  • London/NY Overlap (12:00–16:00 GMT) = BEST — A+ setups only  │
-│    enter here.                                                   │
-│                                                                  │
-│  Senior note: I'm using ICT Kill Zones, not vague "London/NY."  │
-│  The first 2-3 hours of London and NY are where 70% of the      │
-│  daily range forms. That's where real money moves.               │
-└──────────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────────┐
-│  K2. MULTI-TIMEFRAME BIAS ALIGNMENT                              │
-│  ───────────────────────────────                                │
-│  Hierarchy: Weekly → Daily → H4 → H1                           │
-│                                                                  │
-│  • Weekly = Daily = H1 trend ALL ALIGNED = A+ setup             │
-│  • Daily = H1 aligned (weekly mixed) = VALID setup              │
-│  • Daily opposes H1 = WAIT (no exceptions)                      │
-│                                                                  │
-│  Trend definition:                                               │
-│  • Bullish = sequence of Higher Highs + Higher Lows             │
-│  • Bearish = sequence of Lower Highs + Lower Lows               │
-│  • Range = mixed structure, no clear sequence = WAIT            │
-└──────────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────────┐
-│  K3. MARKET STRUCTURE (BOS / CHOCH)                             │
-│  ────────────────────────────                                   │
-│  • Mark last 3 swing highs and 3 swing lows on H1               │
-│  • BOS (Break of Structure) = trend continuation confirmed      │
-│  • CHOCH (Change of Character) = potential reversal signal      │
-│  • CHOCH must form AFTER a liquidity sweep (never alone)        │
-│  • If structure is unclear/messy = WAIT                         │
-└──────────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────────┐
-│  K4. PREMIUM / DISCOUNT (Dealing Range)                         │
-│  ──────────────────────────────────────                         │
-│  Define the range using the most recent significant             │
-│  swing high to swing low on H1.                                  │
-│                                                                  │
-│  • Premium (top 30% of range) = SELL ZONE ONLY                  │
-│  • Discount (bottom 30% of range) = BUY ZONE ONLY               │
-│  • EQ (middle 40%) = NO TRADES                                  │
-│                                                                  │
-│  Rule: Range must be ≥ 1.5x ATR(14) to be valid.                │
-│  If range too tight, market is compressed = WAIT.               │
-│                                                                  │
-│  Senior note: Changed from 25% to 30% zones. Buying in the      │
-│  middle is how retail gets chopped up. The 30% band gives       │
-│  cleaner entries while still being strict.                       │
-└──────────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────────┐
-│  K5. LIQUIDITY & SWEEPS                                         │
-│  ──────────────────────                                         │
-│  Identify liquidity pools:                                       │
-│  • Equal highs/lows within 0.15% of each other                  │
-│  • Previous day high/low                                         │
-│  • Session highs/lows (London open, NY open)                    │
-│                                                                  │
-│  Sweep validation:                                               │
-│  • Wick goes BEYOND the liquidity pool                           │
-│  • Candle CLOSES back inside the pool level                      │
-│  • This = inducement VALID = smart money grabbed liquidity       │
-│                                                                  │
-│  If wick beyond + close BEYOND = breakout, not sweep = WAIT      │
-│  If no sweep has occurred = WAIT (setup not triggered yet)       │
-└──────────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────────┐
-│  K6. POI (Point of Interest) VALIDATION                         │
-│  ──────────────────────────────────────                         │
-│  Hierarchy: H4 POI > H1 POI (for H1-based trades)               │
-│  M15 POI = confluence only, never primary entry zone.           │
-│                                                                  │
-│  POI Types:                                                      │
-│  • Order Block = last opposing candle before a displacement      │
-│    move (the strong impulse AWAY from the zone)                  │
-│  • FVG (Fair Value Gap) = imbalance, gap between candles         │
-│    where wicks don't overlap (minimum 3-candle separation)       │
-│                                                                  │
-│  Freshness:                                                      │
-│  • FRESH (price never returned since creation) = BEST            │
-│  • MITIGATED (returned once, held, moved away) = VALID           │
-│  • INVALID (price traded through the body) = SKIP                │
-└──────────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────────┐
-│  K7. DISPLACEMENT (NEW — The POI Validator)                     │
-│  ─────────────────────────────────────────────────────          │
-│  A POI is ONLY valid if there was a strong displacement move     │
-│  AWAY from it after formation.                                   │
-│                                                                  │
-│  Valid displacement = the impulse candle(s) after the OB:        │
-│  • Must move ≥ 1.5x ATR(14) within 3 candles                    │
-│  • Candle bodies must be ≥ 60% of their ranges                  │
-│  • Must break structure (BOS)                                    │
-│                                                                  │
-│  No displacement = no institutional footprint = NOT a real POI.  │
-│  This is the #1 filter that eliminates fake order blocks.        │
-└──────────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────────┐
-│  K8. M15 ENTRY CONFIRMATION (ALL Required)                      │
-│  ────────────────────────────────────────                       │
-│  Sequence must be: SWEEP → CHOCH → RETURN TO POI → ENTRY        │
-│                                                                  │
-│  1. M15 liquidity sweep (wick beyond structure, close inside)    │
-│  2. M15 CHOCH or BOS (must happen AFTER the sweep)               │
-│  3. Price returns to POI (OB or FVG) on M15                      │
-│  4. Entry candle confirmation (ONE of):                          │
-│     • Engulfing previous candle fully                            │
-│     • Strong body ≥ 60% of range in trade direction              │
-│     • Long wick rejection at POI + close in direction            │
-│                                                                  │
-│  If ANY step missing = NO CONFIRMATION → WAIT                   │
-└──────────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────────┐
-│  K9. CORRELATION / CONFLICT CHECK                               │
-│  ───────────────────────────                                    │
-│  • Two setups share a currency and have OPPOSITE bias?           │
-│    → Take the STRONGER one only, WAIT the weaker                │
-│  • Example: GBP/JPY buy + GBP/USD sell = conflicting GBP         │
-│    → Don't take both. One of them is wrong.                      │
-└──────────────────────────────────────────────────────────────────┘
-
 
 ========================================================================
-PART 2 — WHAT WE REMOVE (Over-Engineered or Impractical)
+PART A — WHAT THE SYSTEM ACTUALLY DOES
 ========================================================================
 
-┌──────────────────────────────────────────────────────────────────┐
-│  R1. VOLUME REQUIREMENT → REMOVED                               │
-│  Why: Forex is decentralized (OTC). There is no central          │
-│  exchange, so "volume" from retail feeds is just tick count —     │
-│  unreliable and misleading. Real institutional volume doesn't     │
-│  exist in spot FX. Relying on fake volume = false confidence.     │
-│                                                                  │
-│  Replacement: Use displacement (K7) + candle body ratios.        │
-│  These ARE the real volume proxy — strong bodies = real pressure. │
-└──────────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────────┐
-│  R2. SPREAD THRESHOLDS AS HARD GATES → DOWNGRADED               │
-│  Why: We use mid-price data (no bid/ask). We can't measure       │
-│  live spread from the API. Making it a hard automated gate       │
-│  would be guessing.                                              │
-│                                                                  │
-│  Replacement: Flag as "VERIFY SPREAD ON BROKER" advisory.        │
-│  You manually confirm spread is normal before clicking buy/sell. │
-└──────────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────────┐
-│  R3. VWAP CONFLUENCE → REMOVED                                  │
-│  Why: VWAP is a stock market / futures concept. In spot FX       │
-│  there's no "average price" because there's no central book.     │
-│  FX VWAP indicators are approximations that add noise.            │
-│                                                                  │
-│  Replacement: EMA20/EMA50 direction as optional trend overlay.   │
-└──────────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────────┐
-│  R4. POST-ENTRY SESSION TRANSITION RULES → ADVISORY ONLY        │
-│  Why: Can't be automated in an on-demand scanner. These are      │
-│  real-time management rules.                                     │
-│                                                                  │
-│  Status: Kept as a printed reminder after each signal, not       │
-│  an automated check. You manage this manually during the trade.  │
-└──────────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────────┐
-│  R5. EXCESSIVE POI FRESHNESS SUB-CATEGORIES → SIMPLIFIED        │
-│  Why: The original 3-tier freshness system (fresh/mitigated/     │
-│  invalid) with body-through detection adds complexity without    │
-│  proportional edge.                                              │
-│                                                                  │
-│  Simplified to: Fresh = never touched. Used = touched once.     │
-│  Dead = traded through. That's enough granularity.               │
-└──────────────────────────────────────────────────────────────────┘
+The background scanner runs every 60 seconds. Each cycle does two
+things in order: (1) manage open trades, then (2) scan for new ones.
 
 
-========================================================================
-PART 3 — WHAT WE INTRODUCE (Senior Additions)
-========================================================================
+------------------------------------------------------------------------
+A1. SESSION TIMING
+------------------------------------------------------------------------
 
-These are the rules that separate profitable traders from 
-break-even traders. Learned the hard way.
+The scanner only generates new trades during these windows (GMT):
 
-┌──────────────────────────────────────────────────────────────────┐
-│  N1. ICT KILL ZONES (replaces vague session windows)            │
-│  ────────────────────────────────────────────────────           │
-│  • London KZ: 07:00–10:00 GMT                                   │
-│  • NY KZ:      12:00–15:00 GMT                                  │
-│  • London/NY Overlap: 12:00–16:00 GMT                           │
-│                                                                  │
-│  Only enter trades during kill zones. 70% of daily range         │
-│  forms in these windows. The Asian session range is the          │
-│  liquidity that London and NY sweep.                             │
-└──────────────────────────────────────────────────────────────────┘
+  Weekend (Saturday, Sunday before 21:00)     → NO TRADES
+  Asian session (00:00–07:00)                → NO TRADES
+  Monday first 4 hours (00:00–04:00)         → Can trade (flagged reduced)
+  London Kill Zone (07:00–10:00)             → ACTIVE
+  Midday (10:00–12:00)                       → ACTIVE
+  London/NY Overlap (12:00–16:00)            → ACTIVE (best window)
+  Late NY (16:00–21:00)                      → ACTIVE
+  After 21:00                                → NO TRADES
 
-┌──────────────────────────────────────────────────────────────────┐
-│  N2. DISPLACEMENT VALIDATION (see K7 above)                     │
-│  The single most important addition. A POI without              │
-│  displacement is just a random candle. Displacement = the        │
-│  institutional footprint that proves the zone is real.           │
-└──────────────────────────────────────────────────────────────────┘
+Additionally: if any trade was closed by the volatility cooldown
+(see A7) on a given day, no new trades open for the rest of that
+calendar day (EOD lockout).
 
-┌──────────────────────────────────────────────────────────────────┐
-│  N3. DRAW ON LIQUIDITY (DOL) — SMART TP TARGETING               │
-│  ───────────────────────────────────────────────────────        │
-│  Price moves toward liquidity. Your TP should be at the NEXT     │
-│  major liquidity pool, not just a fixed RR multiple.             │
-│                                                                  │
-│  TP target hierarchy (use the nearest):                          │
-│  1. Opposite end of the dealing range (premium→discount)         │
-│  2. Previous day high/low                                        │
-│  3. Unmitigated H4/H1 FVG                                       │
-│  4. Equal highs/lows (liquidity pool)                            │
-│                                                                  │
-│  Then check: is RR to that target ≥ 1:2? If yes = valid.         │
-│  If no = WAIT (the target isn't far enough to justify risk).     │
-└──────────────────────────────────────────────────────────────────┘
 
-┌──────────────────────────────────────────────────────────────────┐
-│  N4. CONFLUENCE SCORING SYSTEM                                  │
-│  ──────────────────────────────                                 │
-│  Not all setups are equal. Score them:                           │
-│                                                                  │
-│  BASE REQUIREMENTS (must have ALL or it's WAIT):                 │
-│  • H1 bias clear (not range)                           [gate]    │
-│  • Daily/H1 aligned                                    [gate]    │
-│  • Price in premium (sell) or discount (buy)          [gate]    │
-│  • Liquidity sweep occurred                            [gate]    │
-│  • M15 confirmation (sweep→CHOCH→POI→entry candle)    [gate]    │
-│                                                                  │
-│  CONFLUENCE BONUSES (each adds to grade):                        │
-│  +1  Weekly = Daily = H1 all aligned                             │
-│  +1  Fresh POI (never mitigated)                                 │
-│  +1  H4 POI (higher timeframe zone)                              │
-│  +1  Displacement ≥ 2x ATR (very strong move)                    │
-│  +1  In London/NY overlap kill zone                              │
-│  +1  RSI extreme aligned (oversold for buys, overbought sells)   │
-│  +1  EMA20 > EMA50 confirms trend direction                      │
-│                                                                  │
-│  GRADES:                                                         │
-│  • A+ (5+ bonuses) = Max 2% risk, best setups only              │
-│  • A  (3–4 bonuses) = 1% risk                                   │
-│  • B  (1–2 bonuses) = 0.5% risk                                  │
-│  • Below B or any gate missing = WAIT                           │
-└──────────────────────────────────────────────────────────────────┘
+------------------------------------------------------------------------
+A2. ENTRY REQUIREMENTS (ALL must pass)
+------------------------------------------------------------------------
 
-┌──────────────────────────────────────────────────────────────────┐
-│  N5. MAX TRADES PER DAY = 3                                     │
-│  Overtrading kills accounts. After 3 trades, you're done         │
-│  for the day — win or lose. The 4th trade is always revenge      │
-│  or boredom. Stop.                                               │
-└──────────────────────────────────────────────────────────────────┘
+For a trade to open on a pair, every gate below must pass:
 
-┌──────────────────────────────────────────────────────────────────┐
-│  N6. DAILY DRAWDOWN LIMIT = -2%                                 │
-│  If your account is down 2% on the day, you STOP.               │
-│  No "one more trade to recover." That's how -2% becomes -8%.     │
-│  Tomorrow is a new day. The market will be there.                │
-└──────────────────────────────────────────────────────────────────┘
+  GATE 1: SESSION
+    Must be in an active Kill Zone window (see A1).
+    Must not be in EOD lockout.
 
-┌──────────────────────────────────────────────────────────────────┐
-│  N7. TIME-BASED EXIT                                             │
-│  If a trade hasn't moved in your favor by 1R within 8 M15        │
-│  candles (2 hours), the thesis is wrong. Exit at market.         │
-│  Dead money tied up in a stalling trade = opportunity cost       │
-│  + risk of reversal against you.                                 │
-└──────────────────────────────────────────────────────────────────┘
+  GATE 2: RE-ENTRY COOLDOWN
+    If pair already has an Open trade → skip.
+    If pair's last trade closed < 30 minutes ago → skip.
+    After 30 min: if new signal is same direction + entry price moved
+    < 0.3% from last closed entry → block (same setup re-trigger).
 
-┌──────────────────────────────────────────────────────────────────┐
-│  N8. NEWS AWARENESS (SEMI-AUTOMATED)                            │
-│  Before each scan, I web-search today's economic calendar.       │
-│  • High-impact news in next 2 hours = WAIT                      │
-│  • NFP / CPI / FOMC / Rate Decision today = 0.5% risk max       │
-│  • Red folder events = reduce size 50%                          │
-│                                                                  │
-│  This is the one rule I can't fully automate, so I'll flag       │
-│  it at the top of every scan for your awareness.                 │
-└──────────────────────────────────────────────────────────────────┘
+  GATE 3: SPREAD (automated, uses real Capital.com bid/ask)
+    Standard FX pairs: spread > 5 pips → WAIT
+    Gold (XAU/USD):    spread > 50 pips → WAIT
+    Silver (XAG/USD):  spread > 15 pips → WAIT
+
+  GATE 4: H1 TREND
+    H1 must show clear BULLISH (Higher Highs + Higher Lows) or
+    BEARISH (Lower Highs + Lower Lows). RANGE or unclear → WAIT.
+
+  GATE 5: DAILY ALIGNMENT
+    Daily trend must either:
+      • Match H1 trend (both bullish or both bearish), OR
+      • Be RANGE itself (neutral — doesn't conflict)
+    If Daily clearly opposes H1 → WAIT.
+
+  GATE 6: PREMIUM / DISCOUNT
+    Price must be in Premium (top 30% of 50-candle range) for SELL,
+    or Discount (bottom 30%) for BUY. Middle 40% (EQ) → WAIT.
+    Range must be ≥ 1.5× ATR(14) to be valid. Compressed → WAIT.
+
+  GATE 7: TREND-ZONE MATCH
+    Bullish trend must be in Discount. Bearish must be in Premium.
+    Bullish in Premium → WAIT. Bearish in Discount → WAIT.
+
+  GATE 8: POI (Order Block or FVG)
+    Must find a valid Order Block (last opposing candle before a
+    displacement move ≥ 1.5× ATR) or Fair Value Gap (3-candle
+    imbalance). If POI is DEAD (price traded through with a strong
+    body candle) → WAIT.
+
+  GATE 9: M15 ENTRY CANDLE
+    The most recent M15 candle must confirm entry direction via ONE of:
+      • Strong body ≥ 60% of range in trade direction
+      • Engulfing the previous candle fully
+      • Long wick rejection (wick > 50% of range)
+
+  GATE 10: MOMENTUM-PAUSE PATTERN (Aggressive setup)
+    H1 must show a specific sequence:
+      • A strong directional candle (body > 60% of range AND body
+        > 1.5× the average body of recent candles)
+      • Followed by a tight consolidation candle (range < 50% of
+        the momentum candle's range) within 1-3 candles
+    If no momentum-pause pattern exists → WAIT.
+    This is the PRIMARY entry trigger — confluence alone is not enough.
+
+  GATE 11: CONSOLIDATION-WIDTH FILTER
+    The consolidation candle's range must be ≤ 0.5× ATR(14).
+    If consolidation is wider → SKIP (no genuine tight setup formed).
+    Configurable via MAX_CONSOL_ATR env var (default 0.5).
+
+  GATE 12: RISK:REWARD
+    RR to TP1 must be ≥ 1:1.5 (lower than the old 1:2 minimum,
+    because aggressive setups have tighter stops and faster targets).
+
+
+------------------------------------------------------------------------
+A3. STOP LOSS (Structure-Based)
+------------------------------------------------------------------------
+
+SL is placed beyond the consolidation candle from the momentum-pause
+pattern, NOT at a fixed ATR distance.
+
+  BUY:  SL = consolidation low − (0.15 × ATR)
+  SELL: SL = consolidation high + (0.15 × ATR)
+
+  Minimum floor: if SL distance < 0.3× ATR, widen to 0.3× ATR
+  (prevents stops so tight they get hit by normal spread/nose).
+
+There is NO maximum cap on SL distance — but the consolidation-width
+filter (0.5× ATR max) effectively prevents wide stops, since a wide
+consolidation is skipped before the trade opens.
+
+
+------------------------------------------------------------------------
+A4. TAKE PROFIT
+------------------------------------------------------------------------
+
+  TP1 = entry ± 1.5 × SL distance (closes entire position)
+  TP2 = entry ± 2.5 × SL distance (reference level, not separately traded)
+  TP3 = opposite range extreme (Draw on Liquidity reference)
+
+When TP1 is hit, the trade closes as a WIN with the full R:R gained.
+There is no partial closing (no "close 50% at TP1, 30% at TP2").
+The entire position resolves at TP1 or SL.
+
+
+------------------------------------------------------------------------
+A5. CONFLUENCE SCORING (Determines Grade)
+------------------------------------------------------------------------
+
+After all gates pass, bonuses are counted for grading:
+
+  +1  Weekly + Daily + H1 trends all aligned
+  +1  Fresh POI (price never returned since creation)
+  +1  POI found on H4 (higher timeframe zone)
+  +1  Strong displacement (≥ 2× ATR)
+  +1  Currently in London or NY Kill Zone
+  +1  RSI extreme aligned (≤ 35 for BUY, ≥ 65 for SELL)
+  +1  EMA20 > EMA50 confirms direction (on M15)
+
+  Grade A+ = 5+ bonuses
+  Grade A  = 3-4 bonuses
+  Grade B  = 1-2 bonuses
+  Grade C  = 0 bonuses (or any gate failed)
+
+  Only Grade A+, A, or B trades are entered. C → WAIT.
+
+
+------------------------------------------------------------------------
+A6. BREAKEVEN LOGIC
+------------------------------------------------------------------------
+
+  When price moves 1× risk distance in favor (1:1 R:R):
+    → SL is moved to the entry price
+    → breakevenTriggered = true
+    → If price subsequently hits the new SL (entry), trade closes at 0R
+
+  This runs automatically on every cycle for every open trade.
+  BE-triggered trades are exempt from the staleness check (see A7).
+
+
+------------------------------------------------------------------------
+A7. TRADE STALENESS (Safety Net)
+------------------------------------------------------------------------
+
+  If a trade has been open ≥ 12 hours AND:
+    • Has NOT triggered breakeven, AND
+    • Progress is below 0R (underwater)
+  → Trade is closed at market price as a LOSS.
+
+  This prevents trades from sitting open indefinitely with no
+  progress. Designed to rarely trigger if SL/TP sizing is correct.
+
+  Configurable via STALENESS_HOURS (default 12) and
+  STALENESS_MIN_R (default 0.0).
+
+  Logged at: GET /api/staleness-log
+
+
+------------------------------------------------------------------------
+A8. VOLATILITY-BASED COOLDOWN (After 20:00 GMT)
+------------------------------------------------------------------------
+
+  After 20:00 GMT, before force-closing any trade, the system checks
+  whether the PAIR is still actively trading:
+
+    1. Fetches 100 H1 candles for the pair
+    2. Calculates current ATR(14) on recent candles
+    3. Compares to same-hour baseline (average range of candles at
+       the same hour ± 1 hour, from historical data)
+    4. Ratio = current ATR / same-hour baseline
+
+    If ratio < 0.65 (configurable) → pair is QUIET → close trade
+    If ratio ≥ 0.65               → pair is ACTIVE → keep trade open
+
+  This replaced the old "close everything at 20:00 GMT" rule.
+  Gold and Silver (which stay active into the evening) are not
+  force-closed if they're still moving.
+
+  Configurable via EOD_VOLATILITY_THRESHOLD (default 0.65).
+  Logged at: GET /api/volatility-log
+
+
+------------------------------------------------------------------------
+A9. SIGNAL EXPIRY
+------------------------------------------------------------------------
+
+  When a signal is generated (trade opened), it gets an expiresAt
+  timestamp = now + 4 hours (configurable via SIGNAL_EXPIRY_HOURS).
+
+  The /api/signals endpoint tags each signal as expired: true/false.
+  The app UI shows expired signals at reduced opacity with ⏰ EXPIRED.
+
+  Expired signals remain in the database for review — they are not
+  deleted, just visually marked.
+
+
+------------------------------------------------------------------------
+A10. NEWS CHECK (Advisory Only)
+------------------------------------------------------------------------
+
+  The system fetches the Forex Factory economic calendar (XML feed)
+  and checks for HIGH-impact events matching the pair's currencies
+  today.
+
+  If a high-impact event is found:
+    → Flagged as advisory warning in the scan output
+    → Does NOT block the trade (advisory, not a gate)
+
+  The news feed is cached for 15 minutes to avoid rate limits.
+
+
+------------------------------------------------------------------------
+A11. CORRELATION CHECK
+------------------------------------------------------------------------
+
+  If two passing signals share a currency and have opposite bias
+  (e.g., GBP/JPY BUY + GBP/USD SELL), both are flagged as a conflict.
+
+  Both trades can still open — this is informational only, not a
+  hard block.
+
+
+------------------------------------------------------------------------
+A12. DUPLICATE PREVENTION
+------------------------------------------------------------------------
+
+  Three layers prevent the duplicate-entry bug:
+
+  1. Open-trade check: if pair has status "Open" → skip
+  2. 30-minute post-close cooldown: no re-entry for 30 min after
+     any close on that pair
+  3. Same-setup smart check: after 30 min, if new signal is same
+     direction + entry moved < 0.3% → block
+
+
+------------------------------------------------------------------------
+A13. TRADE TAGGING
+------------------------------------------------------------------------
+
+  Every trade is tagged with setupType:
+    • "Aggressive" — opened under the momentum-pause + structure-SL
+      logic (current system). Shows ⚡ AGG badge in UI.
+    • "ATR" — opened under the old ATR-based SL logic (legacy trades
+      still in the system from before the switch).
+
+  The Performance tab separates these visually so you can compare.
+
+
+------------------------------------------------------------------------
+A14. CONFIGURABLE PARAMETERS (Environment Variables)
+------------------------------------------------------------------------
+
+  EOD_VOLATILITY_THRESHOLD   Default: 0.65   (Part 1 cooldown ratio)
+  STALENESS_HOURS            Default: 12     (hours before stale check)
+  STALENESS_MIN_R            Default: 0.0    (minimum R progress required)
+  SIGNAL_EXPIRY_HOURS        Default: 4      (hours before signal expires)
+  MAX_CONSOL_ATR             Default: 0.5    (max consolidation width)
+
+
+------------------------------------------------------------------------
+A15. MONITORING ENDPOINTS
+------------------------------------------------------------------------
+
+  GET /api/health              — Combined dashboard (everything at once)
+  GET /api/volatility-log      — ATR cooldown decisions
+  GET /api/breakeven-log       — BE adjustments (original SL → new SL)
+  GET /api/staleness-log       — Stale trade closures
+  GET /api/signals             — All signals (with expired flag)
+  GET /api/performance/stats   — Full trade history + win rate
+  GET /api/scanner/status      — Background scanner status
 
 
 ========================================================================
-PART 4 — RISK MANAGEMENT (LOCKED)
+PART B — WHAT IS NOT IMPLEMENTED
 ========================================================================
 
-┌──────────────────────────────────────────────────────────────────┐
-│  DYNAMIC RISK SCHEDULE                                           │
-│  ────────────────────                                           │
-│  Starting risk:        1% per trade                              │
-│  After 2 losses:       0.5% (cooldown)                           │
-│  After 3 losses:       STOP for the day                          │
-│  After win streak 3+:  Max 1.5% (never exceed)                  │
-│  A+ setup:             Max 2% (only with 5+ confluences)         │
-│  News day:             0.5% max                                  │
-│                                                                  │
-│  HARD LIMITS                                                      │
-│  • Max 3 trades/day                                              │
-│  • Max daily drawdown: -2% then STOP                             │
-│  • Never risk more than 2% on any single trade                   │
-└──────────────────────────────────────────────────────────────────┘
+The following are NOT enforced by the system. If you want these
+behaviors, you must monitor and manage them yourself.
 
-┌──────────────────────────────────────────────────────────────────┐
-│  STOP LOSS                                                       │
-│  • Place beyond the sweep wick (the invalidation level)          │
-│  • SL distance must be 1.0–1.5x ATR(14)                          │
-│  • If structure requires >1.5x ATR = WAIT (stop too wide)        │
-│  • Move SL to breakeven when price hits 1:1                      │
-└──────────────────────────────────────────────────────────────────┘
+  ╔════════════════════════════════════════════════════════════════╗
+  ║  B1. NO POSITION SIZING                                       ║
+  ║  The system is paper trading only. There is no account balance,║
+  ║  no lot size calculation, no risk-per-trade percentage.       ║
+  ║  Every trade is virtual — 1R = full risk distance, regardless ║
+  ║  of pair volatility or account size.                          ║
+  ╚════════════════════════════════════════════════════════════════╝
 
-┌──────────────────────────────────────────────────────────────────┐
-│  TAKE PROFIT                                                     │
-│  TP1 = 1:2 RR minimum (close 50% here)                           │
-│  TP2 = 1:3 RR (close 30% here)                                   │
-│  TP3 = Draw on Liquidity target / previous day H/L (close rest)  │
-│                                                                  │
-│  If RR to TP1 < 1:2 = WAIT (not worth the risk)                  │
-└──────────────────────────────────────────────────────────────────┘
+  ╔════════════════════════════════════════════════════════════════╗
+  ║  B2. NO DAILY TRADE LIMIT                                     ║
+  ║  There is no "max 3 trades per day" cap. Trade frequency is   ║
+  ║  purely a result of how often all gates align naturally.      ║
+  ║  If 5 pairs qualify simultaneously, 5 trades open.            ║
+  ╚════════════════════════════════════════════════════════════════╝
 
-┌──────────────────────────────────────────────────────────────────┐
-│  MISSED ENTRY PROTOCOL                                           │
-│  • Price moved > 0.5R from ideal entry? = LET IT GO              │
-│  • Never chase. The next POI will form.                          │
-│  • If price returns to POI later = re-evaluate freshness         │
-└──────────────────────────────────────────────────────────────────┘
+  ╔════════════════════════════════════════════════════════════════╗
+  ║  B3. NO DAILY DRAWDOWN LIMIT                                  ║
+  ║  There is no -2% daily stop. No consecutive-loss tracking.    ║
+  ║  No "after 2 losses reduce size" logic. The scanner runs      ║
+  ║  the same regardless of how many losses occurred today.       ║
+  ╚════════════════════════════════════════════════════════════════╝
 
+  ╔════════════════════════════════════════════════════════════════╗
+  ║  B4. NO PARTIAL POSITION CLOSING                              ║
+  ║  When TP1 is hit, the ENTIRE position closes. There is no     ║
+  ║  "close 50% at TP1, trail the rest." TP2 and TP3 are          ║
+  ║  reference levels only — they are not separately executed.    ║
+  ╚════════════════════════════════════════════════════════════════╝
 
-========================================================================
-PART 5 — OUTPUT FORMAT (What You Get Per Pair)
-========================================================================
+  ╔════════════════════════════════════════════════════════════════╗
+  ║  B5. NEWS IS ADVISORY ONLY                                    ║
+  ║  High-impact news events are flagged but do NOT block trades. ║
+  ║  If NFP/CPI/FOMC is today, the system will still enter setups ║
+  ║  during Kill Zones. You must check the calendar yourself      ║
+  ║  if you want to avoid trading around news.                    ║
+  ╚════════════════════════════════════════════════════════════════╝
 
-For each scanned pair, output this block:
+  ╔════════════════════════════════════════════════════════════════╗
+  ║  B6. CORRELATION IS INFORMATIONAL ONLY                        ║
+  ║  If GBP/JPY BUY and GBP/USD SELL fire simultaneously, both    ║
+  ║  trades open. The conflict is reported in the scan output but ║
+  ║  not blocked. You must decide manually which to take.         ║
+  ╚════════════════════════════════════════════════════════════════╝
 
-┌──────────────────────────────────────────────────────────────────┐
-│  PAIR: EUR/JPY                                                   │
-│  ───────────────                                                 │
-│  SESSION:   London Kill Zone ✅ (07:00-10:00 GMT)               │
-│  NEWS:      Clear today ✅ | No high-impact in next 2hrs ✅     │
-│  SPREAD:    ⚠ Verify on your broker                             │
-│                                                                  │
-│  BIAS:      Weekly: Bullish ↑ | Daily: Bullish ↑ | H1: Bullish↑│
-│             → ALL ALIGNED = A+ potential                         │
-│                                                                  │
-│  STRUCTURE: H1 = HH/HL (bullish) | BOS confirmed ✅             │
-│  LOCATION:  Discount zone (bottom 28%) ✅ — BUY zone             │
-│  RANGE:     184.50 – 186.20 | 1.8x ATR ✅ (valid range)         │
-│                                                                  │
-│  LIQUIDITY: Equal lows at 185.10 → SWEPT ✅ (wick + close back) │
-│  POI:       Bullish OB at 185.00–185.20 | Fresh ✅ | H4 POI ✅  │
-│  DISPLACE:  1.6x ATR move away ✅ (valid institutional footprint)│
-│                                                                  │
-│  M15 ENTRY: Sweep ✅ → CHOCH ✅ → Return to POI ✅              │
-│             → Engulfing candle ✅ (body 72%)                     │
-│                                                                  │
-│  CONFLUENCES: 6/7 → GRADE A+                                    │
-│    ✅ Weekly+Daily+H1 aligned                                    │
-│    ✅ Fresh POI                                                  │
-│    ✅ H4 POI                                                     │
-│    ✅ Strong displacement (1.6x ATR)                             │
-│    ✅ In London kill zone                                        │
-│    ✅ EMA20 > EMA50                                              │
-│    ❌ RSI not at extreme (52 — neutral, not a bonus)            │
-│                                                                  │
-│  ══════════════════════════════════════════                      │
-│  DECISION: BUY                                                  │
-│  Grade: A+ → Risk: 2% max                                       │
-│  Entry:  185.15                                                  │
-│  SL:     184.50  (beyond sweep wick, 1.1x ATR) ✅               │
-│  TP1:    186.45  (1:2 RR) → close 50%                           │
-│  TP2:    187.10  (1:3 RR) → close 30%                           │
-│  TP3:    186.20  (Draw on liquidity: 20D high) → close 20%      │
-│  R:R:    1:2.0 minimum ✅                                       │
-│  ══════════════════════════════════════════                      │
-│                                                                  │
-│  REMINDERS:                                                      │
-│  • Move SL to breakeven at 1:1                                   │
-│  • Time exit if no 1R move within 8x M15 candles                │
-│  • Verify spread before entry                                    │
-└──────────────────────────────────────────────────────────────────┘
+  ╔════════════════════════════════════════════════════════════════╗
+  ║  B7. NO TRAILING STOP                                         ║
+  ║  After breakeven triggers, the SL stays at entry price.       ║
+  ║  There is no trailing stop that locks in profit as price      ║
+  ║  moves toward TP1. The trade either hits TP1 (win) or         ║
+  ║  reverses to entry (0R breakeven).                            ║
+  ╚════════════════════════════════════════════════════════════════╝
 
 
 ========================================================================
-PART 6 — DISQUALIFIERS (Auto-WAIT, No Exceptions)
-========================================================================
-
-Any of these = WAIT immediately, no further analysis needed:
-
-  ❌ Asian session (00:00–07:00 GMT)
-  ❌ Monday first 4 hours (gap risk)
-  ❌ H1 trend is RANGE (unclear structure)
-  ❌ Daily opposes H1
-  ❌ Price in EQ (middle 40% of range)
-  ❌ Range < 1.5x ATR (too compressed)
-  ❌ No liquidity sweep occurred
-  ❌ No CHOCH/BOS after sweep
-  ❌ No valid POI (OB or FVG)
-  ❌ No displacement from POI (fake zone)
-  ❌ No M15 entry candle confirmation
-  ❌ RR to TP1 < 1:2
-  ❌ Stop loss would need >1.5x ATR
-  ❌ High-impact news within 2 hours
-  ❌ 3 consecutive losses today (STOP)
-  ❌ Daily drawdown hit -2% (STOP)
-  ❌ Already taken 3 trades today (STOP)
-  ❌ Conflicting correlated pair (shared currency, opposite bias)
-
-
-========================================================================
-  THIS SYSTEM IS LOCKED AS OF 2026-06-15.                          │
-  Do not modify rules mid-trade. Do not bend rules for FOMO.       │
-  The edge is in the discipline of WAITING.                        │
+  END OF DOCUMENT                                                  
+  This reflects the live server.ts code as of Aug 19, 2026.
+  If the code changes, this document must be updated to match.
 ========================================================================
