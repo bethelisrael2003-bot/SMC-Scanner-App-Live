@@ -1876,10 +1876,13 @@ async function runBackgroundCycle() {
             console.warn(`[BACKGROUND ENGINE] Could not retrieve ticks for ${trade.pair}. Skipping updates.`);
             continue;
           }
-          const currentPrice = live.mid;
+          // SPREAD-AWARE PRICING: Use real bid/ask for SL/TP checks
+          // BUY trades close at BID (you sell to exit)
+          // SELL trades close at ASK (you buy to exit)
+          const checkPrice = trade.direction === "BUY" ? live.bid : live.ask;
           const slDist = Math.abs(trade.entryPrice - trade.initialSl);
 
-          console.log(`[BACKGROUND ENGINE] Trade ${trade.id} (${trade.pair}): Entry = ${trade.entryPrice}, Live = ${currentPrice}, SL = ${trade.sl}, TP1 = ${trade.tp1}`);
+          console.log(`[BACKGROUND ENGINE] Trade ${trade.id} (${trade.pair}): Entry = ${trade.entryPrice}, Bid = ${live.bid}, Ask = ${live.ask}, Check = ${checkPrice} (${trade.direction}), SL = ${trade.sl}, TP1 = ${trade.tp1}`);
 
           // ========== TRADE STALENESS CHECK (Part 3) ==========
           // If a trade hasn't made meaningful progress (≥ STALENESS_MIN_R) within
@@ -1891,19 +1894,19 @@ async function runBackgroundCycle() {
           const tradeAgeHours = tradeAgeMs / (60 * 60 * 1000);
           if (tradeAgeHours >= STALENESS_HOURS && !trade.breakevenTriggered && slDist > 0) {
             const moveInFavor = trade.direction === "BUY"
-              ? currentPrice - trade.entryPrice
-              : trade.entryPrice - currentPrice;
+              ? checkPrice - trade.entryPrice
+              : trade.entryPrice - checkPrice;
             const progressR = moveInFavor / slDist;
             if (progressR < STALENESS_MIN_R) {
               const exitR = trade.direction === "BUY"
-                ? (currentPrice - trade.entryPrice) / slDist
-                : (trade.entryPrice - currentPrice) / slDist;
+                ? (checkPrice - trade.entryPrice) / slDist
+                : (trade.entryPrice - checkPrice) / slDist;
               trade.status = "Closed - LOSS";
               trade.rrGained = Number(exitR.toFixed(2));
-              trade.closePrice = Number(currentPrice.toFixed(5));
+              trade.closePrice = Number(checkPrice.toFixed(5));
               trade.closeTimestamp = new Date().toISOString();
               trade.updatedAt = new Date().toISOString();
-              console.log(`[STALENESS] Trade ${trade.id} (${trade.pair}) stale after ${tradeAgeHours.toFixed(1)}h. Progress ${progressR.toFixed(2)}R < ${STALENESS_MIN_R}R min. Closed at ${currentPrice} (${trade.rrGained}R)`);
+              console.log(`[STALENESS] Trade ${trade.id} (${trade.pair}) stale after ${tradeAgeHours.toFixed(1)}h. Progress ${progressR.toFixed(2)}R < ${STALENESS_MIN_R}R min. Closed at ${checkPrice} (${trade.rrGained}R)`);
               stalenessLog.push({
                 timestamp: new Date().toISOString(),
                 tradeId: trade.id, pair: trade.pair, direction: trade.direction,
@@ -1922,15 +1925,15 @@ async function runBackgroundCycle() {
           // Applies to ALL system-generated trades (status === "Open") automatically.
           if (!trade.breakevenTriggered && slDist > 0) {
             const hitBreakeven = trade.direction === "BUY"
-              ? currentPrice >= trade.entryPrice + slDist
-              : currentPrice <= trade.entryPrice - slDist;
+              ? checkPrice >= trade.entryPrice + slDist
+              : checkPrice <= trade.entryPrice - slDist;
 
             if (hitBreakeven) {
               const originalSl = trade.sl;
               trade.sl = trade.entryPrice;
               trade.breakevenTriggered = true;
               trade.updatedAt = new Date().toISOString();
-              console.log(`[BE] Trade ${trade.id} (${trade.pair}) reached 1:1 R:R. SL moved from ${originalSl} to entry ${trade.entryPrice}. Current price: ${currentPrice}`);
+              console.log(`[BE] Trade ${trade.id} (${trade.pair}) reached 1:1 R:R. SL moved from ${originalSl} to entry ${trade.entryPrice}. Current price: ${checkPrice}`);
               // Log to queryable BE log
               breakevenLog.push({
                 timestamp: new Date().toISOString(),
@@ -1940,7 +1943,7 @@ async function runBackgroundCycle() {
                 entryPrice: trade.entryPrice,
                 originalSl,
                 newSl: trade.entryPrice,
-                triggerPrice: currentPrice,
+                triggerPrice: checkPrice,
                 rrAtTrigger: 1.0,
               });
               if (breakevenLog.length > 200) breakevenLog = breakevenLog.slice(-200);
@@ -1965,17 +1968,17 @@ async function runBackgroundCycle() {
               const todayStr = nowUtc.toISOString().substring(0, 10);
               eodExitedDate = todayStr; // Lock out new entries for quiet pairs
               const moveInFavor = trade.direction === "BUY"
-                ? currentPrice - trade.entryPrice
-                : trade.entryPrice - currentPrice;
+                ? checkPrice - trade.entryPrice
+                : trade.entryPrice - checkPrice;
               const exitR = trade.direction === "BUY"
-                ? (currentPrice - trade.entryPrice) / slDist
-                : (trade.entryPrice - currentPrice) / slDist;
+                ? (checkPrice - trade.entryPrice) / slDist
+                : (trade.entryPrice - checkPrice) / slDist;
               trade.status = moveInFavor >= 0 ? "Closed - WIN" : "Closed - LOSS";
               trade.rrGained = Number(exitR.toFixed(2));
-              trade.closePrice = Number(currentPrice.toFixed(5));
+              trade.closePrice = Number(checkPrice.toFixed(5));
               trade.closeTimestamp = new Date().toISOString();
               trade.updatedAt = new Date().toISOString();
-              console.log(`[BACKGROUND ENGINE] COOLDOWN CLOSE: Trade ${trade.id} (${trade.pair}) — ${volCheck.reason}. Price ${currentPrice} (${trade.rrGained}R)`);
+              console.log(`[BACKGROUND ENGINE] COOLDOWN CLOSE: Trade ${trade.id} (${trade.pair}) — ${volCheck.reason}. Price ${checkPrice} (${trade.rrGained}R)`);
               continue;
             } else {
               console.log(`[BACKGROUND ENGINE] COOLDOWN SKIP: Trade ${trade.id} (${trade.pair}) — ${volCheck.reason}. Trade continues.`);
@@ -1989,22 +1992,22 @@ async function runBackgroundCycle() {
           let rrGained = 0;
 
           if (trade.direction === "BUY") {
-            if (currentPrice <= trade.sl) {
+            if (checkPrice <= trade.sl) {
               resolved = true;
               outcomeStatus = "Closed - LOSS";
               rrGained = trade.breakevenTriggered ? 0.0 : -1.0;
-            } else if (currentPrice >= trade.tp1) {
+            } else if (checkPrice >= trade.tp1) {
               resolved = true;
               outcomeStatus = "Closed - WIN";
               rrGained = slDist > 0 ? (trade.tp1 - trade.entryPrice) / slDist : 2.0;
             }
           } else {
             // SELL directions check
-            if (currentPrice >= trade.sl) {
+            if (checkPrice >= trade.sl) {
               resolved = true;
               outcomeStatus = "Closed - LOSS";
               rrGained = trade.breakevenTriggered ? 0.0 : -1.0;
-            } else if (currentPrice <= trade.tp1) {
+            } else if (checkPrice <= trade.tp1) {
               resolved = true;
               outcomeStatus = "Closed - WIN";
               rrGained = slDist > 0 ? (trade.entryPrice - trade.tp1) / slDist : 2.0;
@@ -2014,7 +2017,8 @@ async function runBackgroundCycle() {
           if (resolved && outcomeStatus) {
             trade.status = outcomeStatus;
             trade.rrGained = Number(rrGained.toFixed(2));
-            trade.closePrice = Number(currentPrice.toFixed(5));
+            // Close price = actual fill level (TP1 for wins, SL for losses)
+            trade.closePrice = Number((outcomeStatus === "Closed - WIN" ? trade.tp1 : trade.sl).toFixed(5));
             trade.closeTimestamp = new Date().toISOString();
             trade.updatedAt = new Date().toISOString();
             console.log(`[BACKGROUND ENGINE] Resolved position ${trade.id} -> ${outcomeStatus} | R:R gained: ${trade.rrGained}`);
@@ -2116,6 +2120,11 @@ async function runBackgroundCycle() {
               }
               const currentTradesList = loadTrades();
               if (!currentTradesList.some((t) => t.pair === pair && t.status === "Open")) {
+                // SPREAD-AWARE ENTRY: use real fill price
+                // BUY fills at ASK, SELL fills at BID
+                const entryFillPrice = res.live ? 
+                  (res.direction === "BUY" ? res.live.ask : res.live.bid) : 
+                  res.plan.entry;
                 const newTradeEntry: VirtualTrade = {
                   id: `vtrade_${Date.now()}_${pair.replace("/", "")}`,
                   pair,
@@ -2123,7 +2132,7 @@ async function runBackgroundCycle() {
                   grade: res.grade,
                   setupType: res.setupType || "ATR",
                   timestamp: new Date().toISOString(),
-                  entryPrice: res.plan.entry,
+                  entryPrice: entryFillPrice,
                   sl: res.plan.sl,
                   tp1: res.plan.tp1,
                   tp2: res.plan.tp2,
