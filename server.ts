@@ -1208,7 +1208,7 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
   // Mentor's style: tight SL beyond consolidation candle, fast TP.
   // Only enters when momentum-pause pattern is detected.
   // Falls back to WAIT if no pattern found — doesn't enter on confluence alone.
-  const entry = last;
+  let entry = last;
   let sl = 0;
   let tp1 = 0;
   let tp2 = 0;
@@ -1236,34 +1236,53 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
       isFailedSetup = true;
       result.setupType = setupType;
     } else {
-      // AGGRESSIVE setup: tight structure-based SL beyond consolidation candle
+      // AGGRESSIVE setup: entry at consolidation retest + structure-based SL
       setupType = "Aggressive";
       const buffer = hAtr * 0.15;
 
-      if (direction === "BUY") {
-        sl = pattern.consolLow - buffer;
-        let slDistCalc = Math.abs(entry - sl);
-        if (slDistCalc < 0.3 * hAtr) sl = entry - 0.3 * hAtr;
-        tp1 = entry + 1.5 * Math.abs(entry - sl);
-        tp2 = entry + 2.5 * Math.abs(entry - sl);
-        tp3 = pdZone.rHigh;
-        if (tp3 <= entry) tp3 = entry + 3 * Math.abs(entry - sl);
+      // ── DISTANCE GATE: Fix for wide-SL bug (3rd recurrence) ──
+      // If current price has moved too far from the consolidation zone,
+      // the retest opportunity is gone. Skip the trade.
+      const consolMid = (pattern.consolHigh + pattern.consolLow) / 2;
+      const priceToConsolDist = Math.abs(last - consolMid);
+      if (priceToConsolDist > 0.75 * hAtr) {
+        result.checks.push(`[X] Price too far from consolidation (${(priceToConsolDist / hAtr).toFixed(2)}x ATR away > 0.75x) — retest gone`);
+        isFailedSetup = true;
+        result.setupType = setupType;
+        consolFilterStats.patternsDetected++;
+        consolFilterStats.blockedWide++; // count as blocked
       } else {
-        sl = pattern.consolHigh + buffer;
-        let slDistCalc = Math.abs(sl - entry);
-        if (slDistCalc < 0.3 * hAtr) sl = entry + 0.3 * hAtr;
-        tp1 = entry - 1.5 * Math.abs(sl - entry);
-        tp2 = entry - 2.5 * Math.abs(sl - entry);
-        tp3 = pdZone.rLow;
-        if (tp3 >= entry) tp3 = entry - 3 * Math.abs(sl - entry);
-      }
+        // Price is near consolidation → valid retest entry at consolMid
+        const entryPrice = consolMid;
 
-      result.checks.push(`[OK] AGGRESSIVE: Momentum-pause detected, consolidation ${consolRatio.toFixed(2)}x ATR (≤${MAX_CONSOL_ATR}x)`);
-      consolFilterStats.patternsDetected++;
-      consolFilterStats.passedFilter++;
-      result.checks.push(`[OK] SL: beyond consolidation ${pattern.consolLow.toFixed(5)}-${pattern.consolHigh.toFixed(5)} + buffer`);
-      result.bonus_list.push("⚡ Aggressive Setup (momentum-pause)");
-      result.setupType = setupType;
+        if (direction === "BUY") {
+          sl = pattern.consolLow - buffer;
+          let slDistCalc = Math.abs(entryPrice - sl);
+          if (slDistCalc < 0.3 * hAtr) sl = entryPrice - 0.3 * hAtr;
+          tp1 = entryPrice + 1.5 * Math.abs(entryPrice - sl);
+          tp2 = entryPrice + 2.5 * Math.abs(entryPrice - sl);
+          tp3 = pdZone.rHigh;
+          if (tp3 <= entryPrice) tp3 = entryPrice + 3 * Math.abs(entryPrice - sl);
+        } else {
+          sl = pattern.consolHigh + buffer;
+          let slDistCalc = Math.abs(sl - entryPrice);
+          if (slDistCalc < 0.3 * hAtr) sl = entryPrice + 0.3 * hAtr;
+          tp1 = entryPrice - 1.5 * Math.abs(sl - entryPrice);
+          tp2 = entryPrice - 2.5 * Math.abs(sl - entryPrice);
+          tp3 = pdZone.rLow;
+          if (tp3 >= entryPrice) tp3 = entryPrice - 3 * Math.abs(sl - entryPrice);
+        }
+
+        // Set entry price to the consolidation retest level
+        entry = entryPrice;
+
+        result.checks.push(`[OK] AGGRESSIVE: Retest entry at ${consolMid.toFixed(5)} (${(priceToConsolDist / hAtr).toFixed(2)}x ATR from current)`);
+        result.checks.push(`[OK] SL: beyond consolidation ${pattern.consolLow.toFixed(5)}-${pattern.consolHigh.toFixed(5)} + buffer`);
+        result.bonus_list.push("⚡ Aggressive Setup (momentum-pause retest)");
+        consolFilterStats.patternsDetected++;
+        consolFilterStats.passedFilter++;
+        result.setupType = setupType;
+      }
     }
   } else {
     // No momentum-pause pattern → WAIT. Don't enter on confluence alone.
