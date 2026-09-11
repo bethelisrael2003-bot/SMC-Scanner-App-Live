@@ -7,6 +7,7 @@ import mongoose from "mongoose";
 import cors from "cors";
 import { initializeApp, cert } from 'firebase-admin';
 import { getMessaging } from 'firebase-admin/messaging';
+import { findMomentumPauseSetup } from "./momentumPauseRetest";
 
 dotenv.config();
 
@@ -52,7 +53,11 @@ const SIGNAL_EXPIRY_HOURS = Number(process.env.SIGNAL_EXPIRY_HOURS) || 4;
 const MAX_CONSOL_ATR = Number(process.env.MAX_CONSOL_ATR) || 0.5;
 
 // Consolidation filter tracking — counts how many setups are detected vs filtered
-let consolFilterStats = { patternsDetected: 0, passedFilter: 0, blockedWide: 0, noPattern: 0 };
+let consolFilterStats = { patternsDetected: 0, passedFilter: 0, blockedWide: 0, blockedStale: 0, noPattern: 0 };
+
+// Momentum-Pause-Retest (MPR) module version — exposed via /api/health so a
+// deployment can be verified by commit hash AND by live runtime marker.
+const MPR_VERSION = "2026-09-11.1";
 
 // Capital.com Configuration
 const CAPITAL_API_KEY = process.env.CAPITAL_API_KEY || "e0o59JYjc0VLlQay";
@@ -1220,74 +1225,72 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
   // ════════════════════════════════════════════════════════════════
   const MAX_CONSOL_ATR = Number(process.env.MAX_CONSOL_ATR) || 0.5;
 
-  const pattern = findMomentumPausePattern(h1Oldest, direction, hAtr);
+  // Map server candles ({t,o,h,l,c}) to MPR module candles ({open,high,low,close}).
+  // h1Oldest's last element is the in-progress H1 candle, so the module's
+  // "current price" (last close) tracks the live bid — the same reference the
+  // old external distance gate used.
+  const mprCandles = h1Oldest.map((c: any) => ({ open: c.o, high: c.h, low: c.l, close: c.c }));
 
-  if (pattern) {
-    const consolRange = pattern.consolHigh - pattern.consolLow;
-    const consolRatio = hAtr > 0 ? consolRange / hAtr : 0;
+  // Full-gate scan: pattern + width (<= MAX_CONSOL_ATR) + staleness (<= 0.75x ATR).
+  // Entry = pause midpoint, SL = beyond pause extreme + 0.15x ATR buffer
+  // (floored at 0.3x ATR), TP1 = 1.5R, TP2 = 2.5R, rounded to 5 decimals
+  // BEFORE targets are derived so the published R:R is exact at tick size.
+  const mpr = findMomentumPauseSetup(mprCandles, direction, hAtr, {
+    consolMaxAtr: MAX_CONSOL_ATR,
+    maxStalenessAtr: 0.75,
+    slBufferAtr: 0.15,
+    minSlAtr: 0.3,
+    tp1Rr: 1.5,
+    tp2Rr: 2.5,
+    precision: 5,
+  });
 
-    if (consolRatio > MAX_CONSOL_ATR) {
-      // CONSOLIDATION FILTER: consolidation candle too wide → SKIP
+  if (mpr) {
+    // AGGRESSIVE setup: limit entry at the pause midpoint (retest), structure-based SL/TP
+    setupType = "Aggressive";
+    entry = mpr.entry;
+    sl = mpr.sl;
+    tp1 = mpr.tp1;
+    tp2 = mpr.tp2;
+    tp3 = direction === "BUY" ? pdZone.rHigh : pdZone.rLow;
+    if (direction === "BUY" && tp3 <= entry) tp3 = entry + 3 * mpr.slDistance;
+    if (direction === "SELL" && tp3 >= entry) tp3 = entry - 3 * mpr.slDistance;
+
+    result.checks.push(`[OK] AGGRESSIVE (MPR): Retest entry at ${mpr.entry} (pause ${mpr.consolLow}-${mpr.consolHigh}, ${(mpr.staleness / hAtr).toFixed(2)}x ATR from current)`);
+    result.checks.push(`[OK] SL: ${mpr.sl} — beyond pause ${direction === "BUY" ? "low" : "high"} + 0.15x ATR buffer (risk ${(mpr.slDistance / hAtr).toFixed(2)}x ATR)`);
+    result.bonus_list.push("⚡ Aggressive Setup (momentum-pause retest)");
+    consolFilterStats.patternsDetected++;
+    consolFilterStats.passedFilter++;
+    result.setupType = setupType;
+  } else {
+    // Null means one of: no pattern at all, consolidation too wide, or price
+    // too far from the retest zone. Re-scan with relaxed gates to attribute
+    // the block honestly for the /api/health consolidation-filter funnel.
+    const freshButWide = findMomentumPauseSetup(mprCandles, direction, hAtr, {
+      consolMaxAtr: Number.POSITIVE_INFINITY, // width gate OFF
+      maxStalenessAtr: 0.75,                  // staleness gate still ON
+    });
+    const anyPattern = freshButWide || findMomentumPauseSetup(mprCandles, direction, hAtr, {
+      consolMaxAtr: Number.POSITIVE_INFINITY,     // width gate OFF
+      maxStalenessAtr: Number.POSITIVE_INFINITY,  // staleness gate OFF
+    });
+
+    if (anyPattern && freshButWide) {
+      // Pattern exists, price still near — but the pause is too wide vs ATR
+      const rawRange = freshButWide.consolHigh - freshButWide.consolLow;
+      result.checks.push(`[X] Consolidation too wide (${(rawRange / hAtr).toFixed(2)}x ATR > ${MAX_CONSOL_ATR}x max) — SKIP`);
       consolFilterStats.patternsDetected++;
       consolFilterStats.blockedWide++;
-      // A wide consolidation means no genuine tight setup formed.
-      // Forcing a tight stop inside a noisy zone gets stopped out by noise.
-      result.checks.push(`[X] Consolidation too wide (${consolRatio.toFixed(2)}x ATR > ${MAX_CONSOL_ATR}x max) — SKIP`);
-      isFailedSetup = true;
-      result.setupType = setupType;
+    } else if (anyPattern) {
+      // Pattern exists (width OK or not) but price ran from the retest zone
+      result.checks.push(`[X] Price too far from pause midpoint (> 0.75x ATR) — retest gone`);
+      consolFilterStats.patternsDetected++;
+      consolFilterStats.blockedStale++;
     } else {
-      // AGGRESSIVE setup: entry at consolidation retest + structure-based SL
-      setupType = "Aggressive";
-      const buffer = hAtr * 0.15;
-
-      // ── DISTANCE GATE: Fix for wide-SL bug (3rd recurrence) ──
-      // If current price has moved too far from the consolidation zone,
-      // the retest opportunity is gone. Skip the trade.
-      const consolMid = (pattern.consolHigh + pattern.consolLow) / 2;
-      const priceToConsolDist = Math.abs(last - consolMid);
-      if (priceToConsolDist > 0.75 * hAtr) {
-        result.checks.push(`[X] Price too far from consolidation (${(priceToConsolDist / hAtr).toFixed(2)}x ATR away > 0.75x) — retest gone`);
-        isFailedSetup = true;
-        result.setupType = setupType;
-        consolFilterStats.patternsDetected++;
-        consolFilterStats.blockedWide++; // count as blocked
-      } else {
-        // Price is near consolidation → valid retest entry at consolMid
-        const entryPrice = consolMid;
-
-        if (direction === "BUY") {
-          sl = pattern.consolLow - buffer;
-          let slDistCalc = Math.abs(entryPrice - sl);
-          if (slDistCalc < 0.3 * hAtr) sl = entryPrice - 0.3 * hAtr;
-          tp1 = entryPrice + 1.5 * Math.abs(entryPrice - sl);
-          tp2 = entryPrice + 2.5 * Math.abs(entryPrice - sl);
-          tp3 = pdZone.rHigh;
-          if (tp3 <= entryPrice) tp3 = entryPrice + 3 * Math.abs(entryPrice - sl);
-        } else {
-          sl = pattern.consolHigh + buffer;
-          let slDistCalc = Math.abs(sl - entryPrice);
-          if (slDistCalc < 0.3 * hAtr) sl = entryPrice + 0.3 * hAtr;
-          tp1 = entryPrice - 1.5 * Math.abs(sl - entryPrice);
-          tp2 = entryPrice - 2.5 * Math.abs(sl - entryPrice);
-          tp3 = pdZone.rLow;
-          if (tp3 >= entryPrice) tp3 = entryPrice - 3 * Math.abs(sl - entryPrice);
-        }
-
-        // Set entry price to the consolidation retest level
-        entry = entryPrice;
-
-        result.checks.push(`[OK] AGGRESSIVE: Retest entry at ${consolMid.toFixed(5)} (${(priceToConsolDist / hAtr).toFixed(2)}x ATR from current)`);
-        result.checks.push(`[OK] SL: beyond consolidation ${pattern.consolLow.toFixed(5)}-${pattern.consolHigh.toFixed(5)} + buffer`);
-        result.bonus_list.push("⚡ Aggressive Setup (momentum-pause retest)");
-        consolFilterStats.patternsDetected++;
-        consolFilterStats.passedFilter++;
-        result.setupType = setupType;
-      }
+      // No momentum-pause pattern → WAIT. Don't enter on confluence alone.
+      result.checks.push(`[X] No momentum-pause pattern detected — WAIT for aggressive setup`);
+      consolFilterStats.noPattern++;
     }
-  } else {
-    // No momentum-pause pattern → WAIT. Don't enter on confluence alone.
-    result.checks.push(`[X] No momentum-pause pattern detected — WAIT for aggressive setup`);
-    consolFilterStats.noPattern++;
     isFailedSetup = true;
     result.setupType = setupType;
   }
@@ -1337,45 +1340,11 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
   return cacheAndReturn(result);
 }
 
-// ── Momentum-Pause Pattern Detection (Part 4: Aggressive Setup) ──────────────
-// Finds: strong directional move → brief consolidation → retest entry
-// This is the mentor's style: enter on the pause after momentum, not mid-move.
-function findMomentumPausePattern(candles: any[], direction: "BUY" | "SELL", hAtr: number) {
-  if (!candles || candles.length < 25) return null;
-
-  const lookback = Math.min(20, candles.length - 5);
-  const recent = candles.slice(-lookback - 5);
-  const avgBody = recent.reduce((s, c) => s + Math.abs(c.c - c.o), 0) / recent.length;
-
-  // Scan backwards for momentum + consolidation
-  for (let i = recent.length - 3; i >= 3; i--) {
-    const mc = recent[i];
-    const mcBody = Math.abs(mc.c - mc.o);
-    const mcRange = mc.h - mc.l;
-    if (mcRange === 0) continue;
-
-    // Momentum candle check
-    const bodyRatio = mcBody / mcRange;
-    if (bodyRatio < 0.60) continue;
-    if (mcBody < avgBody * 1.5) continue;
-    if (direction === "BUY" && mc.c <= mc.o) continue;
-    if (direction === "SELL" && mc.c >= mc.o) continue;
-
-    // Look for consolidation in next 1-3 candles
-    for (let j = i + 1; j < Math.min(i + 4, recent.length); j++) {
-      const cc = recent[j];
-      const ccRange = cc.h - cc.l;
-      if (mcRange > 0 && ccRange < mcRange * 0.50 && ccRange > 0) {
-        // Found momentum + pause
-        const consolHigh = cc.h;
-        const consolLow = cc.l;
-        const consolMid = (consolHigh + consolLow) / 2;
-        return { consolHigh, consolLow, consolMid, momentumCandle: mc, consolCandle: cc };
-      }
-    }
-  }
-  return null;
-}
+// ── Momentum-Pause-Retest detection now lives in momentumPauseRetest.ts ──────
+// (old inline findMomentumPausePattern removed — replaced by findMomentumPauseSetup,
+//  which adds: staleness gate inside the scan, deterministic freshest/tightest
+//  tie-break, zero-range + broken-feed rejection, self-excluding avgBody
+//  baseline, precision-exact R:R, and a coherence guard. See mpr.test.ts.)
 
 // Check Correlation Conflicts
 function findCorrelationConflicts(signals: any[]) {
@@ -2755,6 +2724,25 @@ app.get("/api/health", (req, res) => {
     consolidationFilter: {
       threshold: MAX_CONSOL_ATR,
       ...consolFilterStats,
+    },
+
+    mpr: {
+      version: MPR_VERSION,
+      source: "momentumPauseRetest.ts",
+      config: {
+        lookback: 20,
+        maxPauseCandles: 3,
+        momentumBodyRatio: 0.6,
+        momentumBodyMultiple: 1.5,
+        consolRangeRatio: 0.5,
+        consolMaxAtr: MAX_CONSOL_ATR,
+        maxStalenessAtr: 0.75,
+        slBufferAtr: 0.15,
+        minSlAtr: 0.3,
+        tp1Rr: 1.5,
+        tp2Rr: 2.5,
+        precision: 5,
+      },
     },
   });
 });

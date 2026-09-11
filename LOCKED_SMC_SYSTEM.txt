@@ -1,7 +1,7 @@
 ╔══════════════════════════════════════════════════════════════════╗
 ║                                                                  ║
 ║   SMC SCANNER SYSTEM — LIVE CODE REFERENCE                       ║
-║   Accurate as of: Aug 19, 2026                                   ║
+║   Accurate as of: Sep 11, 2026 (MPR module integrated)           ║
 ║   This document describes what the server ACTUALLY does.         ║
 ║   No aspirational rules. No "should be." Only what runs.         ║
 ║                                                                  ║
@@ -88,19 +88,34 @@ For a trade to open on a pair, every gate below must pass:
       • Engulfing the previous candle fully
       • Long wick rejection (wick > 50% of range)
 
-  GATE 10: MOMENTUM-PAUSE PATTERN (Aggressive setup)
+  GATE 10: MOMENTUM-PAUSE-RETEST PATTERN (Aggressive setup, MPR module)
+    Implemented in momentumPauseRetest.ts (findMomentumPauseSetup),
+    replacing the old inline findMomentumPausePattern.
     H1 must show a specific sequence:
-      • A strong directional candle (body > 60% of range AND body
-        > 1.5× the average body of recent candles)
-      • Followed by a tight consolidation candle (range < 50% of
-        the momentum candle's range) within 1-3 candles
-    If no momentum-pause pattern exists → WAIT.
+      • A strong directional candle (body ≥ 60% of range AND body
+        ≥ 1.5× the average body of the 20 candles BEFORE it — the
+        momentum candle is excluded from its own baseline)
+      • Followed by a tight pause candle (range < 50% of the momentum
+        candle's range) within 1-3 candles
+      • Zero-range / structurally broken candles (NaN, high < low,
+        close outside high/low) are rejected as feed errors
+    When several setups qualify, the detector picks deterministically:
+    freshest pause first, then tightest pause, then freshest momentum.
+    If no valid setup exists → WAIT.
     This is the PRIMARY entry trigger — confluence alone is not enough.
 
-  GATE 11: CONSOLIDATION-WIDTH FILTER
-    The consolidation candle's range must be ≤ 0.5× ATR(14).
-    If consolidation is wider → SKIP (no genuine tight setup formed).
+  GATE 10b: STALENESS / DISTANCE GATE (inside the MPR scan)
+    Current price (close of the in-progress H1 candle ≈ live bid)
+    must be ≤ 0.75× ATR(14) from the pause midpoint. If price has
+    run further, the retest is gone → SKIP. This is the wide-SL bug
+    fix: the entry can never be staged far from the pause zone.
+
+  GATE 11: CONSOLIDATION-WIDTH FILTER (inside the MPR scan)
+    The pause candle's range must be ≤ 0.5× ATR(14).
+    If the pause is wider → SKIP (no genuine tight setup formed).
     Configurable via MAX_CONSOL_ATR env var (default 0.5).
+    /api/health reports the funnel: patternsDetected, passedFilter,
+    blockedWide, blockedStale, noPattern.
 
   GATE 12: RISK:REWARD
     RR to TP1 must be ≥ 1:1.5 (lower than the old 1:2 minimum,
@@ -111,18 +126,28 @@ For a trade to open on a pair, every gate below must pass:
 A3. STOP LOSS (Structure-Based)
 ------------------------------------------------------------------------
 
-SL is placed beyond the consolidation candle from the momentum-pause
-pattern, NOT at a fixed ATR distance.
+Entry is a LIMIT ORDER at the midpoint of the pause candle (the
+retest level) — price must come back into the pause zone before the
+position fills. Never a market entry at current price.
 
-  BUY:  SL = consolidation low − (0.15 × ATR)
-  SELL: SL = consolidation high + (0.15 × ATR)
+SL is placed beyond the pause candle extreme, NOT at a fixed ATR
+distance.
+
+  BUY:  SL = pause low − (0.15 × ATR)
+  SELL: SL = pause high + (0.15 × ATR)
 
   Minimum floor: if SL distance < 0.3× ATR, widen to 0.3× ATR
-  (prevents stops so tight they get hit by normal spread/nose).
+  (prevents stops so tight they get hit by normal spread/noise).
 
-There is NO maximum cap on SL distance — but the consolidation-width
-filter (0.5× ATR max) effectively prevents wide stops, since a wide
-consolidation is skipped before the trade opens.
+All levels (entry, SL) are rounded to 5 decimals BEFORE the targets
+are derived, so the published R:R (1.5R TP1, 2.5R TP2) is exact at
+the quoted tick size. If rounding would ever collapse levels onto
+each other (degenerate ATR vs precision), the setup is discarded.
+
+By construction SL distance is bounded: pause ≤ 0.5× ATR means
+mid-to-extreme ≤ 0.25× ATR, plus the 0.15× ATR buffer → SL is
+0.15–0.4× ATR unless the 0.3× ATR floor widens it. Wide stops are
+structurally impossible; there is no separate maximum cap.
 
 
 ------------------------------------------------------------------------
