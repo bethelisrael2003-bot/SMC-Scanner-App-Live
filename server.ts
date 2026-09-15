@@ -109,7 +109,11 @@ const MPR_VERSION = "2026-09-11.1";
 // 2026-09-11 defect-fix deploy: data guards + entry guard + honest close accounting
 const FIXES_VERSION = "2026-09-11.1";
 // 2026-09-11 observability deploy: signal_id linkage + signal outcomes + gate funnel
-const OBS_VERSION = "2026-09-11.1";
+// 2026-09-15.2: + fillDriftAtr on every trade (pure observability)
+const OBS_VERSION = "2026-09-15.2";
+// 2026-09-15 ops tooling: /api/admin/close-trade (manual close at market,
+// spread-aware, honest accounting, audited closeReason)
+const OPS_VERSION = "2026-09-15.1";
 // Clean MPR sample boundary — only trades OPENED after this instant count
 // toward the post-fix sample (user decision: restart counter at the fix
 // deploy). Set at commit time 2026-09-15; trades before it ran on unfixed
@@ -930,6 +934,7 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
     result.checks.push("Could not calculate H1 ATR");
     return cacheAndReturn(result);
   }
+  result.h1Atr = hAtr; // exposed for fill-drift observability (no logic depends on it)
 
   // ── DATA GUARD (2026-09-11 corruption fix) ────────────────────────────────
   // Incident: the H1 feed served a series that ended days earlier while the
@@ -1630,6 +1635,9 @@ const tradeSchema = new mongoose.Schema({
   closeReason: String,
   dataQuality: String,
   dataQualityNote: String,
+  /* ── 2026-09-15 additions ── */
+  fillDriftAtr: Number,
+  closeNote: String,
 }, { minimize: false });
 
 const signalSchema = new mongoose.Schema({
@@ -1689,9 +1697,12 @@ interface VirtualTrade {
   /* ── 2026-09-11 additions ── */
   signalId?: string;        // originating signal (set at open; backfilled for history)
   signalDeduped?: boolean;  // true when the signal log was deduped against an earlier signal
-  closeReason?: string;     // "TP1" | "SL" | "BE" | "STALENESS" | "EOD_QUIET"
+  closeReason?: string;     // "TP1" | "SL" | "BE" | "STALENESS" | "EOD_QUIET" | "MANUAL"
   dataQuality?: string;     // set when a record is flagged as corrupted (excluded from stats)
   dataQualityNote?: string;
+  /* ── 2026-09-15 additions ── */
+  fillDriftAtr?: number;    // signed fill-vs-plan drift in ATR units (+ = favorable, − = adverse)
+  closeNote?: string;       // audit note for manual closes
 }
 
 interface SignalLog {
@@ -2324,6 +2335,18 @@ async function runBackgroundCycle() {
                   scanLogDetails.push({ pair, status: "ENTRY_BLOCKED", detail: `Fill ${entryFillPrice} outside SL(${res.plan.sl})–TP1(${res.plan.tp1}) band — entry rejected`, grade: "-", price: entryFillPrice });
                   console.log(`[BACKGROUND ENGINE] ENTRY GUARD: ${pair} ${res.direction} rejected — fill ${entryFillPrice} outside plan band (SL ${res.plan.sl}, TP1 ${res.plan.tp1}).`);
                 } else {
+                  // FILL DRIFT (observability only, 2026-09-15): signed distance
+                  // between the actual fill and the planned retest entry, in ATR
+                  // units. POSITIVE = favorable (fill better than plan: BUY filled
+                  // below plan / SELL filled above plan). NEGATIVE = adverse.
+                  // No logic reads this — it informs the staged-limit-order
+                  // decision at the 15-20 trade review.
+                  const fillDriftAtr = (res.h1Atr && res.h1Atr > 0)
+                    ? (res.direction === "BUY"
+                        ? (res.plan.entry - entryFillPrice) / res.h1Atr
+                        : (entryFillPrice - res.plan.entry) / res.h1Atr)
+                    : 0;
+
                   const newTradeEntry: VirtualTrade = {
                     id: `vtrade_${Date.now()}_${pair.replace("/", "")}`,
                     pair,
@@ -2343,12 +2366,13 @@ async function runBackgroundCycle() {
                     rrGained: 0,
                     signalId: sigInfo?.signalId || undefined,
                     signalDeduped: sigInfo?.deduped || undefined,
+                    fillDriftAtr: Number(fillDriftAtr.toFixed(3)),
                   };
 
                   currentTradesList.push(newTradeEntry);
                   saveTrades(currentTradesList);
                   stampSignalOutcome(sigInfo, "TRADED", newTradeEntry.id);
-                  console.log(`[BACKGROUND ENGINE] 🔥 AUTOLOG ENTRY REGISTERED: ${pair} | Direction: ${newTradeEntry.direction} | Grade: ${newTradeEntry.grade} @ ${newTradeEntry.entryPrice} | Signal: ${newTradeEntry.signalId || "none"}${newTradeEntry.signalDeduped ? " (deduped)" : ""}`);
+                  console.log(`[BACKGROUND ENGINE] 🔥 AUTOLOG ENTRY REGISTERED: ${pair} | Direction: ${newTradeEntry.direction} | Grade: ${newTradeEntry.grade} @ ${newTradeEntry.entryPrice} | Signal: ${newTradeEntry.signalId || "none"}${newTradeEntry.signalDeduped ? " (deduped)" : ""} | Drift: ${newTradeEntry.fillDriftAtr >= 0 ? "+" : ""}${newTradeEntry.fillDriftAtr.toFixed(2)} ATR (${newTradeEntry.fillDriftAtr >= 0 ? "favorable" : "adverse"})`);
                 }
               } else {
                 stampSignalOutcome(sigInfo, "NOT_TRADED_OPEN_POSITION");
@@ -2594,6 +2618,12 @@ app.get("/api/performance/stats", (req, res) => {
     const sampleOpen = cleanTrades.filter((t) => t.status === "Open" && new Date(t.timestamp).getTime() >= boundaryMs);
     const sampleWins = sampleClosed.filter((t) => t.status === "Closed - WIN").length;
     const sampleRSum = sampleClosed.reduce((s, t) => s + (t.rrGained || 0), 0);
+    // Fill-drift telemetry (2026-09-15): average signed drift in ATR units over
+    // sample trades that carry the field. Positive = favorable fill vs plan.
+    const driftTrades = sampleClosed.filter((t: any) => typeof t.fillDriftAtr === "number");
+    const driftAvg = driftTrades.length > 0
+      ? driftTrades.reduce((s: number, t: any) => s + t.fillDriftAtr, 0) / driftTrades.length
+      : null;
 
     res.json({
       winRate: Number(winRate.toFixed(1)),
@@ -2612,6 +2642,8 @@ app.get("/api/performance/stats", (req, res) => {
         losses: sampleClosed.length - sampleWins,
         winRate: sampleClosed.length > 0 ? Number(((sampleWins / sampleClosed.length) * 100).toFixed(1)) : 0,
         rSum: Number(sampleRSum.toFixed(2)),
+        fillDriftAvgAtr: driftAvg === null ? null : Number(driftAvg.toFixed(3)),
+        fillDriftSamples: driftTrades.length,
       },
     });
   } catch (error) {
@@ -2783,6 +2815,51 @@ app.post("/api/admin/backfill-signal-links", (req, res) => {
     res.json({ success: true, linked, alreadyLinked, unmatched, totalTrades: trades.length, totalSignals: signals.length });
   } catch (err) {
     res.status(500).json({ error: (err as any).message || "Backfill failed." });
+  }
+});
+
+// Manually close an open trade at the current market price (user-approved
+// intervention, 2026-09-15: used to retire the pre-fix GBP/JPY legacy position
+// whose 508-pip SL was a bug artifact and had frozen the pair for 11 days).
+// Same accounting rules as the automated engine: spread-aware exit side
+// (BUY closes at BID, SELL at ASK), rrGained from the actual market price,
+// WIN/LOSS by P&L sign, closeReason + closeNote audited on the record.
+// Refuses to close without a verified live price.
+app.post("/api/admin/close-trade", async (req, res) => {
+  try {
+    const { id, reason, note } = req.body || {};
+    if (!id) return res.status(400).json({ error: "'id' is required." });
+    const trades = loadTrades();
+    const t: any = trades.find((x) => x.id === id);
+    if (!t) return res.status(404).json({ error: `Trade ${id} not found.` });
+    if (t.status !== "Open") return res.status(409).json({ error: `Trade ${id} is not open (status: ${t.status}).` });
+
+    const live = await getLivePrice(t.pair);
+    if (!live) {
+      return res.status(503).json({ error: `No live price for ${t.pair} — refusing to close at an unverified price. Retry shortly.` });
+    }
+
+    // Spread-aware exit: BUY closes at BID, SELL closes at ASK
+    const checkPrice = t.direction === "BUY" ? live.bid : live.ask;
+    const slDist = Math.abs(t.entryPrice - t.initialSl);
+    const exitR = slDist > 0
+      ? (t.direction === "BUY"
+          ? (checkPrice - t.entryPrice) / slDist
+          : (t.entryPrice - checkPrice) / slDist)
+      : 0;
+
+    t.status = exitR >= 0 ? "Closed - WIN" : "Closed - LOSS";
+    t.rrGained = Number(exitR.toFixed(2));
+    t.closePrice = Number(checkPrice.toFixed(5));
+    t.closeReason = reason || "MANUAL";
+    if (note) t.closeNote = note;
+    t.closeTimestamp = new Date().toISOString();
+    t.updatedAt = new Date().toISOString();
+    saveTrades(trades);
+    console.log(`[ADMIN] Manual close: trade ${t.id} (${t.pair}) at ${checkPrice} -> ${t.status} ${t.rrGained}R (reason: ${t.closeReason})`);
+    res.json({ success: true, trade: t });
+  } catch (err) {
+    res.status(500).json({ error: (err as any).message || "Manual close failed." });
   }
 });
 
@@ -3045,6 +3122,7 @@ app.get("/api/health", (req, res) => {
       mpr: MPR_VERSION,
       fixes: FIXES_VERSION,
       observability: OBS_VERSION,
+      ops: OPS_VERSION,
     },
 
     cleanSampleSince: CLEAN_SAMPLE_SINCE,

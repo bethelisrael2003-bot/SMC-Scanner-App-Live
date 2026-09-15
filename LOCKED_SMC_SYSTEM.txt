@@ -1,7 +1,7 @@
 ╔══════════════════════════════════════════════════════════════════╗
 ║                                                                  ║
 ║   SMC SCANNER SYSTEM — LIVE CODE REFERENCE                       ║
-║   Accurate as of: Sep 15, 2026 (data guards + observability)     ║
+║   Accurate as of: Sep 15, 2026 PM (ops tooling + drift logging)  ║
 ║   This document describes what the server ACTUALLY does.         ║
 ║   No aspirational rules. No "should be." Only what runs.         ║
 ║                                                                  ║
@@ -353,6 +353,14 @@ seconds later tagged "WIN" with negative R. Three defenses now exist:
   count toward the post-fix MPR sample (exposed as `sample` in
   /api/performance/stats and cleanSampleSince in /api/health).
 
+  MANUAL CLOSE TOOL (2026-09-15, /api/admin/close-trade): closes an open
+  trade at the live market price with the same accounting rules as the
+  automated engine (spread-aware exit side, rrGained from actual market
+  price, WIN/LOSS by P&L sign) and an audited closeReason + closeNote.
+  Refuses to close without a verified live price. Used once, with user
+  approval, to retire the pre-fix GBP/JPY legacy position (508-pip SL
+  bug artifact, had frozen the pair from scanning for 11 days).
+
 
 ------------------------------------------------------------------------
 A15. SIGNAL LIFECYCLE, LINKAGE & GATE FUNNEL (2026-09-15)
@@ -382,6 +390,17 @@ Signal ↔ trade linkage (2026-09-15):
   - Historical trades were backfilled by pair+direction+timestamp
     (±10 s) via /api/admin/backfill-signal-links — deterministic, no
     price matching.
+
+FILL-DRIFT TELEMETRY (2026-09-15, pure observability):
+  - Every trade opened after this deploy carries fillDriftAtr: the signed
+    distance between the ACTUAL fill and the planned retest entry, in ATR
+    units. POSITIVE = favorable (BUY filled below plan / SELL filled above
+    plan). NEGATIVE = adverse (fill beyond plan entry toward TP1).
+  - No trading logic reads this field. It exists to inform the open design
+    decision — whether to replace at-market entry with a staged limit
+    order at the pause midpoint — at the 15-20 trade sample review.
+  - /api/performance/stats exposes sample.fillDriftAvgAtr and
+    sample.fillDriftSamples for the same purpose.
 
 Gate funnel telemetry (/api/health → gates):
   - Counters increment ONLY on background-scanner analyses, never on
