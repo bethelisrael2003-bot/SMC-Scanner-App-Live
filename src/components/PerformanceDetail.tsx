@@ -30,6 +30,7 @@ export function PerformanceDetail({ performanceStats, perfLoading: _perfLoading,
             const isWin = trade.status === "Closed - WIN";
             const isLoss = trade.status === "Closed - LOSS";
             const isOpen = trade.status === "Open";
+            const isFlagged = !!trade.dataQuality;
             return (
               <div key={trade.id} className="p-4 bg-zinc-950/40 border border-zinc-850/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all hover:bg-zinc-950/80 hover:border-zinc-800">
                 <div className="flex flex-col gap-2">
@@ -53,12 +54,14 @@ export function PerformanceDetail({ performanceStats, perfLoading: _perfLoading,
                   <div className="text-[10px] font-mono text-zinc-550 sm:text-right">Status</div>
                   {isOpen ? (
                     <div className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-lg text-[10px] font-bold"><span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />Live Ticks</div>
+                  ) : isFlagged ? (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 bg-orange-500/10 text-orange-400 border border-orange-500/20 rounded-lg text-[10px] font-bold whitespace-nowrap" title={`Excluded from stats — ${trade.dataQualityNote || trade.dataQuality}`}>⚠ EXCLUDED ({isWin ? "WIN" : "LOSS"} on record)</div>
                   ) : isWin ? (
                     <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-lg text-[10px] font-bold">🏆 WINNER</div>
                   ) : (
                     <div className="flex items-center gap-1.5 px-2.5 py-1 bg-red-500/10 text-red-400 border border-red-500/20 rounded-lg text-[10px] font-bold">❌ LOSS</div>
                   )}
-                  {!isOpen && (<div className={`text-xs font-mono font-bold mt-1 ${isWin ? "text-emerald-400" : trade.rrGained === 0 ? "text-zinc-500" : "text-red-400"}`}>{trade.rrGained >= 0 ? `+${trade.rrGained.toFixed(2)}` : `${trade.rrGained.toFixed(2)}`} R:R</div>)}
+                  {!isOpen && (<div className={`text-xs font-mono font-bold mt-1 ${isFlagged ? "text-zinc-500" : isWin ? "text-emerald-400" : trade.rrGained === 0 ? "text-zinc-500" : "text-red-400"}`}>{trade.rrGained >= 0 ? `+${trade.rrGained.toFixed(2)}` : `${trade.rrGained.toFixed(2)}`} R:R</div>)}
                 </div>
               </div>
             );
