@@ -38,11 +38,14 @@ export function PerformanceDetail({ performanceStats, perfLoading: _perfLoading,
                     <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-md font-mono ${trade.direction === "BUY" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-red-500/10 text-red-500 border border-red-500/20"}`}>{trade.direction}</span>
                     <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-zinc-850 border border-zinc-800 text-zinc-300 font-mono">Grade {trade.grade}</span>
                     {trade.breakevenTriggered && (<span className="text-[9px] px-1.5 py-0.5 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded font-mono font-medium flex items-center gap-1">🔒 BE</span>)}
+                    {trade.signalId && (<span className="text-[9px] px-1.5 py-0.5 bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded font-mono font-medium" title={trade.signalId + (trade.signalDeduped ? " (deduped link)" : "")}>⚡ SIG</span>)}
+                    {trade.dataQuality && (<span className="text-[9px] px-1.5 py-0.5 bg-orange-500/10 text-orange-400 border border-orange-500/20 rounded font-mono font-medium" title={trade.dataQualityNote || trade.dataQuality}>⚠ {trade.dataQuality}</span>)}
                   </div>
                   <div className="grid grid-cols-2 sm:flex sm:items-center gap-x-4 gap-y-1 font-mono text-[10px] text-zinc-500">
                     <span>Entry: <span className="text-zinc-300 font-semibold">{trade.entryPrice}</span></span>
                     <span>SL: <span className="text-zinc-300 font-semibold">{trade.sl}</span></span>
                     <span>TP1: <span className="text-zinc-300 font-semibold">{trade.tp1}</span></span>
+                    {trade.closeReason && <span>Exit: <span className="text-zinc-300 font-semibold">{trade.closeReason}</span></span>}
                   </div>
                   <span className="text-[9px] text-zinc-550 font-mono">Entered: {new Date(trade.timestamp).toLocaleString()}</span>
                 </div>

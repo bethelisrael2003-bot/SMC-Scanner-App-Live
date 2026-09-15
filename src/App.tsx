@@ -75,6 +75,8 @@ function SignalsTab({ signals, loading }: { signals: any[]; loading: boolean }) 
                 <span className="font-mono text-xs font-bold px-2 py-0.5 rounded" style={{ background: sig.direction === "BUY" ? "rgba(0,255,136,0.15)" : "rgba(255,51,102,0.15)", color: sig.direction === "BUY" ? "#00ff88" : "#ff3366" }}>{sig.direction}</span>
                 {sig.grade && <span className="font-mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: "rgba(0,212,255,0.1)", color: "#00d4ff" }}>Grade {sig.grade}</span>}
                 {expired && <span className="font-mono text-[9px] px-1.5 py-0.5 rounded" style={{ background: "rgba(255,170,0,0.1)", color: "#ffaa00", border: "1px solid rgba(255,170,0,0.2)" }}>⏰ EXPIRED</span>}
+                {sig.outcome === "TRADED" && <span className="font-mono text-[9px] px-1.5 py-0.5 rounded" style={{ background: "rgba(0,255,136,0.1)", color: "#00ff88", border: "1px solid rgba(0,255,136,0.2)" }}>✅ TRADED</span>}
+                {sig.outcome && String(sig.outcome).startsWith("NOT_TRADED") && <span className="font-mono text-[9px] px-1.5 py-0.5 rounded" style={{ background: "rgba(255,170,0,0.1)", color: "#ffaa00", border: "1px solid rgba(255,170,0,0.2)" }} title={sig.outcome}>🚫 {String(sig.outcome).replace("NOT_TRADED_", "").replace(/_/g, " ")}</span>}
               </div>
               <div className="font-mono text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>{sig.timestamp ? new Date(sig.timestamp).toLocaleString() : ""} · {sig.session || ""}</div>
             </div>

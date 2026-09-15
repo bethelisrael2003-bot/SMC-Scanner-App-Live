@@ -1,7 +1,7 @@
 ╔══════════════════════════════════════════════════════════════════╗
 ║                                                                  ║
 ║   SMC SCANNER SYSTEM — LIVE CODE REFERENCE                       ║
-║   Accurate as of: Sep 11, 2026 (MPR module integrated)           ║
+║   Accurate as of: Sep 15, 2026 (data guards + observability)     ║
 ║   This document describes what the server ACTUALLY does.         ║
 ║   No aspirational rules. No "should be." Only what runs.         ║
 ║                                                                  ║
@@ -304,6 +304,97 @@ A13. TRADE TAGGING
       still in the system from before the switch).
 
   The Performance tab separates these visually so you can compare.
+
+
+------------------------------------------------------------------------
+A14. DATA INTEGRITY GUARDS + HONEST CLOSE ACCOUNTING (2026-09-15)
+------------------------------------------------------------------------
+
+Background: on 2026-09-11 (NZD/USD) and 2026-09-14 (EUR/JPY) the
+Capital.com candle feed served a series that ended days earlier while
+the live-price endpoint returned current price. Every candle gate then
+judged stale structure; the trade filled 56–84 pips off the planned
+retest; the TP1 condition was already true at fill; the trade closed
+seconds later tagged "WIN" with negative R. Three defenses now exist:
+
+  1. DATA GUARD (per scan, in analyzePair)
+     - H1/M15 candle feeds must be coherent with the live mid price
+       (|last close − live mid| ≤ 3× ATR for H1 and M15, 5× ATR for H4).
+     - The H1 series must not be older than 7 days.
+     - Violation → scan rejected with a "[X] DATA GUARD" check line.
+       (Cannot cross-check when the live fetch failed; the entry guard
+       still protects fills in that case.)
+
+  2. ENTRY GUARD (at trade open, in the background scanner)
+     - A trade only opens with a verified live price, and only when the
+       fill lies strictly between SL and TP1 on the correct sides for
+       the direction. No market entry beyond TP1 or SL, ever.
+     - Blocked entries are logged as ENTRY_BLOCKED in the scanner log.
+
+  3. HONEST CLOSE ACCOUNTING (at SL/TP resolution)
+     - rrGained is computed from the ACTUAL market price at close
+       (checkPrice), not from the TP/SL level — includes slippage.
+     - WIN/LOSS is classified by the sign of the actual P&L, not by
+       which level triggered.
+     - closePrice records the market price at close, not the level.
+     - closeReason field on every close: TP1 | SL | BE | STALENESS |
+       EOD_QUIET.
+     - Note: SL closes now record actual slippage (e.g. −1.04R)
+       instead of exactly −1.0R; breakeven stop-outs record the small
+       real deviation instead of exactly 0.00R.
+
+  CORRUPTED-TRADE POLICY: trades proven to run on corrupt data are
+  flagged via /api/admin/annotate-trade (dataQuality field). They stay
+  visible in history (⚠ badge) but are EXCLUDED from win-rate/R stats.
+  Flagged so far: NZD/USD 2026-09-11 08:45Z (stale feed, −0.84R shown
+  as WIN), EUR/JPY 2026-09-14 20:45Z (stale feed, −0.71R shown as WIN).
+
+  CLEAN SAMPLE BOUNDARY: only trades OPENED after 2026-09-15T06:30:00Z
+  count toward the post-fix MPR sample (exposed as `sample` in
+  /api/performance/stats and cleanSampleSince in /api/health).
+
+
+------------------------------------------------------------------------
+A15. SIGNAL LIFECYCLE, LINKAGE & GATE FUNNEL (2026-09-15)
+------------------------------------------------------------------------
+
+What a SIGNAL actually is (documented truth, no decoration):
+  - A signal is a LOG ENTRY, not an order. It is written whenever a
+    scan passes all gates (any grade, including C) and is not a
+    duplicate of the same pair+direction within 6 hours.
+  - The trade (if any) opens INSTANTLY in the same 60-second cycle,
+    at the LIVE bid/ask — Grade A+/A/B only, no open position on the
+    pair, cooldown/same-setup checks passed, and now the entry guard.
+  - "EXPIRED" on the Signals tab means ONLY "more than 4 hours since
+    creation". The 4-hour window has NO mechanical effect. Nothing
+    waits and nothing is lost to it.
+  - Note: execution is an at-market entry near the zone (bounded by
+    the MPR staleness gate ≤ 0.75× ATR), NOT a staged limit at the
+    pause midpoint. That design gap is known and open.
+
+Signal ↔ trade linkage (2026-09-15):
+  - Every trade carries signalId (+ signalDeduped when the signal log
+    was deduped against an earlier signal; the trade links to the
+    earlier signal).
+  - Every signal carries an outcome: ACTIVE | TRADED (with tradeId) |
+    NOT_TRADED_GRADE_C | NOT_TRADED_SAME_SETUP | NOT_TRADED_ENTRY_GUARD
+    | NOT_TRADED_OPEN_POSITION.
+  - Historical trades were backfilled by pair+direction+timestamp
+    (±10 s) via /api/admin/backfill-signal-links — deterministic, no
+    price matching.
+
+Gate funnel telemetry (/api/health → gates):
+  - Counters increment ONLY on background-scanner analyses, never on
+    manual/API views, and persist in MongoDB (survive deploys and
+    spin-downs). `since` marks when counting started.
+  - blocked: spread, h1Trend, dailyAlign, pdZone, trendZoneMatch,
+    poi_none, poi_dead, m15_noData, m15_noConfirm, mpr_noPattern,
+    mpr_blockedWide, mpr_blockedStale, rr, insufficientData.
+    (News is ADVISORY ONLY — it never blocks a scan; the "reduce size
+    50%" message has no mechanism behind it.)
+  - scannerSkips: sessionOff, eodLockout, openPosition, cooldown,
+    sameSetup, gradeFilter, entryGuard.
+  - dataGuard: h1Incoherent, m15Incoherent, h4Incoherent, h1StaleAge.
 
 
 ------------------------------------------------------------------------

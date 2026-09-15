@@ -53,11 +53,68 @@ const SIGNAL_EXPIRY_HOURS = Number(process.env.SIGNAL_EXPIRY_HOURS) || 4;
 const MAX_CONSOL_ATR = Number(process.env.MAX_CONSOL_ATR) || 0.5;
 
 // Consolidation filter tracking — counts how many setups are detected vs filtered
-let consolFilterStats = { patternsDetected: 0, passedFilter: 0, blockedWide: 0, blockedStale: 0, noPattern: 0 };
+// ── Gate-by-gate funnel statistics (MongoDB-persisted, scanner-only) ─────────
+// Counters increment ONLY on background-scanner analyses (bypassCache=true),
+// never on manual/API views, so the funnel reflects real scan traffic.
+// Persisted in the GateStat Mongo document so counters survive deploys and
+// free-tier spin-downs; `since` marks when counting started.
+const EMPTY_GATE_STATS = () => ({
+  since: new Date().toISOString(),
+  scansTotal: 0,
+  passedAll: 0,
+  newsAdvisories: 0,
+  blocked: { spread: 0, h1Trend: 0, dailyAlign: 0, pdZone: 0, trendZoneMatch: 0, poi_none: 0, poi_dead: 0, m15_noData: 0, m15_noConfirm: 0, mpr_noPattern: 0, mpr_blockedWide: 0, mpr_blockedStale: 0, rr: 0, insufficientData: 0 },
+  scannerSkips: { sessionOff: 0, eodLockout: 0, openPosition: 0, cooldown: 0, sameSetup: 0, gradeFilter: 0, entryGuard: 0 },
+  dataGuard: { h1Incoherent: 0, m15Incoherent: 0, h4Incoherent: 0, h1StaleAge: 0 },
+  mpr: { patternsDetected: 0, passedFilter: 0, blockedWide: 0, blockedStale: 0, noPattern: 0 },
+});
+let gateStats: any = EMPTY_GATE_STATS();
+let gateStatsDirty = false;
+
+function gateCount(group: string, key: string) {
+  if (!gateStats[group]) gateStats[group] = {};
+  gateStats[group][key] = (gateStats[group][key] || 0) + 1;
+  gateStatsDirty = true;
+}
+
+async function loadGateStats() {
+  if (!isDbReady()) return;
+  try {
+    const doc: any = await GateStat.findById("global").lean();
+    if (doc && doc.data) {
+      gateStats = { ...EMPTY_GATE_STATS(), ...doc.data };
+      console.log(`[INFO] Gate stats loaded from MongoDB (since ${gateStats.since}, ${gateStats.scansTotal} scans counted).`);
+    } else {
+      gateStatsDirty = true; // persist the initial document on first flush
+      console.log("[INFO] No gate-stats document found — starting a fresh funnel count.");
+    }
+  } catch (err) {
+    console.error("[ERROR] Failed to load gate stats:", err);
+  }
+}
+
+async function flushGateStats() {
+  if (!gateStatsDirty || !isDbReady()) return;
+  gateStatsDirty = false;
+  try {
+    await GateStat.findByIdAndUpdate("global", { data: gateStats }, { upsert: true });
+  } catch (err) {
+    console.error("[ERROR] Failed to flush gate stats:", err);
+  }
+}
 
 // Momentum-Pause-Retest (MPR) module version — exposed via /api/health so a
 // deployment can be verified by commit hash AND by live runtime marker.
 const MPR_VERSION = "2026-09-11.1";
+// 2026-09-11 defect-fix deploy: data guards + entry guard + honest close accounting
+const FIXES_VERSION = "2026-09-11.1";
+// 2026-09-11 observability deploy: signal_id linkage + signal outcomes + gate funnel
+const OBS_VERSION = "2026-09-11.1";
+// Clean MPR sample boundary — only trades OPENED after this instant count
+// toward the post-fix sample (user decision: restart counter at the fix
+// deploy). Set at commit time 2026-09-15; trades before it ran on unfixed
+// code (incl. two corrupted stale-feed trades: NZD/USD 09-11, EUR/JPY 09-14).
+const CLEAN_SAMPLE_SINCE = "2026-09-15T06:30:00Z";
 
 // Capital.com Configuration
 const CAPITAL_API_KEY = process.env.CAPITAL_API_KEY || "e0o59JYjc0VLlQay";
@@ -815,8 +872,18 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
     }
   }
 
+  // Gate-funnel tracking: only background-scanner analyses (bypassCache) count.
+  const track = (group: string, key: string) => {
+    if (bypassCache) gateCount(group, key);
+  };
+
   const cacheAndReturn = (res: any) => {
     pairAnalysisCache[pair] = { result: res, timestamp: Date.now() };
+    if (bypassCache) {
+      gateStats.scansTotal++;
+      if (res.passed) gateStats.passedAll++;
+      gateStatsDirty = true;
+    }
     return res;
   };
 
@@ -838,6 +905,7 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
   const m15 = await getCandles(pair, "15min", 120);
 
   if (!h1 || h1.length < 20) {
+    track("blocked", "insufficientData");
     result.checks.push("Insufficient H1 data from Capital.com");
     return cacheAndReturn(result);
   }
@@ -858,8 +926,41 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
   const dAtr = dOldest ? atr(dOldest, 14) : hAtr;
 
   if (!hAtr) {
+    track("blocked", "insufficientData");
     result.checks.push("Could not calculate H1 ATR");
     return cacheAndReturn(result);
+  }
+
+  // ── DATA GUARD (2026-09-11 corruption fix) ────────────────────────────────
+  // Incident: the H1 feed served a series that ended days earlier while the
+  // live endpoint returned current price. Every candle gate then judged stale
+  // structure, the trade filled 56 pips off the planned retest, and its TP1
+  // condition was already true at fill. Guards below reject the scan when a
+  // candle feed is incoherent with the live mid price, or catastrophically
+  // old. (Coherence cannot be checked when the live fetch failed; the entry
+  // guard still protects fills in that case.)
+  const feedCoherent = (name: string, candles: any[] | null, tolAtrMult: number): boolean => {
+    if (!live || !candles || candles.length === 0) return true; // nothing to cross-check
+    const lastClose = candles[candles.length - 1].c;
+    const drift = Math.abs(lastClose - live.mid);
+    if (drift > tolAtrMult * hAtr) {
+      result.checks.push(`[X] DATA GUARD: ${name} feed incoherent with live price (last close ${lastClose} vs live ${live.mid.toFixed(5)}, ${(drift / hAtr).toFixed(1)}x ATR drift) — scan rejected`);
+      return false;
+    }
+    return true;
+  };
+
+  const h1LastTimeRaw = h1Oldest[h1Oldest.length - 1] && h1Oldest[h1Oldest.length - 1].t;
+  const h1LastTime = h1LastTimeRaw ? new Date(h1LastTimeRaw).getTime() : NaN;
+  if (Number.isFinite(h1LastTime) && Date.now() - h1LastTime > 7 * 24 * 60 * 60 * 1000) {
+    track("dataGuard", "h1StaleAge");
+    result.checks.push(`[X] DATA GUARD: H1 feed catastrophically stale (last bar ${h1LastTimeRaw}) — scan rejected`);
+    return cacheAndReturn(result);
+  }
+  if (live) {
+    if (!feedCoherent("H1", h1Oldest, 3)) { track("dataGuard", "h1Incoherent"); return cacheAndReturn(result); }
+    if (!feedCoherent("M15", m15Oldest, 3)) { track("dataGuard", "m15Incoherent"); return cacheAndReturn(result); }
+    if (!feedCoherent("H4", h4Oldest, 5)) { track("dataGuard", "h4Incoherent"); return cacheAndReturn(result); }
   }
 
   // Let's use a flag to track whether any core requirement failed
@@ -871,6 +972,7 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
     const icon = spreadInfo.status === "PASS" ? "OK" : spreadInfo.status === "WARN" ? "!" : "X";
     result.checks.push(`[${icon}] Spread: ${live.spread_pips} pips`);
     if (spreadInfo.status === "FAIL") {
+      track("blocked", "spread");
       result.checks.push("    -> WAIT (spread too wide)");
       isFailedSetup = true;
     }
@@ -908,6 +1010,7 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
     }
 
     if (hasHighImpactNews) {
+      if (bypassCache) { gateStats.newsAdvisories++; gateStatsDirty = true; }
       result.checks.push(`[!] News advisory: High-impact event today (${newsDetail}) — reduce size 50%`);
     } else {
       result.checks.push(`[OK] News calendar: No high-impact events today`);
@@ -921,6 +1024,7 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
   const h1Trend = h1TrendInfo.trend;
   result.h1_trend = h1Trend;
   if (h1Trend === "RANGE" || h1Trend === "UNCLEAR") {
+    track("blocked", "h1Trend");
     result.checks.push(`[X] H1 Trend: ${h1Trend} (unclear structure)`);
     isFailedSetup = true;
   } else {
@@ -934,6 +1038,7 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
   }
   result.daily_trend = dTrend;
   if (dTrend !== "RANGE" && dTrend !== "UNCLEAR" && dTrend !== h1Trend) {
+    track("blocked", "dailyAlign");
     result.checks.push(`[X] Daily Trend (${dTrend}) opposes H1 Trend (${h1Trend})`);
     isFailedSetup = true;
   } else {
@@ -947,9 +1052,11 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
   result.range_low = pdZone.rLow;
 
   if (pdZone.zone === "COMPRESSED") {
+    track("blocked", "pdZone");
     result.checks.push(`[X] Range compressed (<1.5x ATR)`);
     isFailedSetup = true;
   } else if (pdZone.zone === "EQ") {
+    track("blocked", "pdZone");
     result.checks.push(`[X] Location: EQ (${(pdZone.pos * 100).toFixed(0)}%) - middle zone`);
     isFailedSetup = true;
   }
@@ -958,9 +1065,11 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
   const direction = (pdZone.zone === "DISCOUNT" || pdZone.pos <= 0.5) ? "BUY" : "SELL";
   
   if (h1Trend === "BULLISH" && pdZone.zone === "PREMIUM") {
+    track("blocked", "trendZoneMatch");
     result.checks.push(`[X] Bullish trend but in Premium (overbought)`);
     isFailedSetup = true;
   } else if (h1Trend === "BEARISH" && pdZone.zone === "DISCOUNT") {
+    track("blocked", "trendZoneMatch");
     result.checks.push(`[X] Bearish trend but in Discount (oversold)`);
     isFailedSetup = true;
   }
@@ -1031,6 +1140,7 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
 
   // Fallback POI if none found, so SL/TP can still be derived safely
   if (!poi || !poi.valid) {
+    track("blocked", "poi_none");
     result.checks.push(`[X] No valid POI (OB/FVG) found - using range boundaries`);
     isFailedSetup = true;
     if (direction === "BUY") {
@@ -1058,6 +1168,7 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
 
   const freshness = checkPoiFreshness(poiCandles, poi);
   if (freshness === "DEAD") {
+    track("blocked", "poi_dead");
     result.checks.push(`[X] POI dead (traded through)`);
     isFailedSetup = true;
   }
@@ -1077,6 +1188,7 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
 
   // M15 Confirmation
   if (!m15Oldest || m15Oldest.length < 10) {
+    track("blocked", "m15_noData");
     result.checks.push(`[X] Insufficient M15 data`);
     isFailedSetup = true;
   }
@@ -1107,6 +1219,7 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
 
   if (m15Oldest && m15Oldest.length >= 10) {
     if (!entryCandleInfo.valid) {
+      track("blocked", "m15_noConfirm");
       result.checks.push(`[X] M15 entry candle: ${entryCandleInfo.reason}`);
       isFailedSetup = true;
     } else {
@@ -1259,8 +1372,8 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
     result.checks.push(`[OK] AGGRESSIVE (MPR): Retest entry at ${mpr.entry} (pause ${mpr.consolLow}-${mpr.consolHigh}, ${(mpr.staleness / hAtr).toFixed(2)}x ATR from current)`);
     result.checks.push(`[OK] SL: ${mpr.sl} — beyond pause ${direction === "BUY" ? "low" : "high"} + 0.15x ATR buffer (risk ${(mpr.slDistance / hAtr).toFixed(2)}x ATR)`);
     result.bonus_list.push("⚡ Aggressive Setup (momentum-pause retest)");
-    consolFilterStats.patternsDetected++;
-    consolFilterStats.passedFilter++;
+    track("mpr", "patternsDetected");
+    track("mpr", "passedFilter");
     result.setupType = setupType;
   } else {
     // Null means one of: no pattern at all, consolidation too wide, or price
@@ -1279,17 +1392,20 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
       // Pattern exists, price still near — but the pause is too wide vs ATR
       const rawRange = freshButWide.consolHigh - freshButWide.consolLow;
       result.checks.push(`[X] Consolidation too wide (${(rawRange / hAtr).toFixed(2)}x ATR > ${MAX_CONSOL_ATR}x max) — SKIP`);
-      consolFilterStats.patternsDetected++;
-      consolFilterStats.blockedWide++;
+      track("mpr", "patternsDetected");
+      track("mpr", "blockedWide");
+      track("blocked", "mpr_blockedWide");
     } else if (anyPattern) {
       // Pattern exists (width OK or not) but price ran from the retest zone
       result.checks.push(`[X] Price too far from pause midpoint (> 0.75x ATR) — retest gone`);
-      consolFilterStats.patternsDetected++;
-      consolFilterStats.blockedStale++;
+      track("mpr", "patternsDetected");
+      track("mpr", "blockedStale");
+      track("blocked", "mpr_blockedStale");
     } else {
       // No momentum-pause pattern → WAIT. Don't enter on confluence alone.
       result.checks.push(`[X] No momentum-pause pattern detected — WAIT for aggressive setup`);
-      consolFilterStats.noPattern++;
+      track("mpr", "noPattern");
+      track("blocked", "mpr_noPattern");
     }
     isFailedSetup = true;
     result.setupType = setupType;
@@ -1311,6 +1427,7 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
 
   if (setupType === "Aggressive") {
     if (rr < 1.5) {
+      track("blocked", "rr");
       result.checks.push(`[X] RR 1:${rr.toFixed(1)} < 1:1.5 minimum (Aggressive)`);
       isFailedSetup = true;
     } else {
@@ -1507,6 +1624,12 @@ const tradeSchema = new mongoose.Schema({
   rrGained: Number,
   closePrice: Number,
   closeTimestamp: String,
+  /* ── 2026-09-11 additions (strict mode drops unknown fields, so these must be declared) ── */
+  signalId: String,
+  signalDeduped: Boolean,
+  closeReason: String,
+  dataQuality: String,
+  dataQualityNote: String,
 }, { minimize: false });
 
 const signalSchema = new mongoose.Schema({
@@ -1524,10 +1647,17 @@ const signalSchema = new mongoose.Schema({
   bonuses: Number,
   session: String,
   passed: Boolean,
+  /* ── 2026-09-11 additions ── */
+  outcome: String,   // "ACTIVE" | "TRADED" | "NOT_TRADED_GRADE_C" | "NOT_TRADED_SAME_SETUP" | "NOT_TRADED_ENTRY_GUARD" | "NOT_TRADED_OPEN_POSITION"
+  tradeId: String,   // id of the trade opened from this signal (when TRADED)
 }, { minimize: false });
 
 const Trade: any = mongoose.models.Trade || mongoose.model("Trade", tradeSchema);
 const Signal: any = mongoose.models.Signal || mongoose.model("Signal", signalSchema);
+
+// Gate-funnel statistics: single persisted document (see EMPTY_GATE_STATS)
+const gateStatSchema = new mongoose.Schema({ _id: String, data: Object }, { minimize: false });
+const GateStat: any = mongoose.models.GateStat || mongoose.model("GateStat", gateStatSchema);
 
 function isDbReady() {
   return mongoose.connection.readyState === 1;
@@ -1556,6 +1686,12 @@ interface VirtualTrade {
   rrGained: number;
   closePrice?: number;
   closeTimestamp?: string;
+  /* ── 2026-09-11 additions ── */
+  signalId?: string;        // originating signal (set at open; backfilled for history)
+  signalDeduped?: boolean;  // true when the signal log was deduped against an earlier signal
+  closeReason?: string;     // "TP1" | "SL" | "BE" | "STALENESS" | "EOD_QUIET"
+  dataQuality?: string;     // set when a record is flagged as corrupted (excluded from stats)
+  dataQualityNote?: string;
 }
 
 interface SignalLog {
@@ -1573,6 +1709,9 @@ interface SignalLog {
   bonuses: number;
   session: string;
   passed: boolean;
+  /* ── 2026-09-11 additions ── */
+  outcome?: string;  // "ACTIVE" | "TRADED" | "NOT_TRADED_GRADE_C" | "NOT_TRADED_SAME_SETUP" | "NOT_TRADED_ENTRY_GUARD" | "NOT_TRADED_OPEN_POSITION"
+  tradeId?: string;  // id of the trade opened from this signal (when TRADED)
 }
 
 let tradesMemory: VirtualTrade[] = [];
@@ -1670,25 +1809,26 @@ async function sendPushNotification(signal: any): Promise<{ success: boolean; se
   }
 }
 
-function recordSignalIfNeeded(res: any, session: any) {
-  if (!res || !res.passed || !res.plan) return;
+function recordSignalIfNeeded(res: any, session: any): { signalId: string | null; deduped: boolean } | null {
+  if (!res || !res.passed || !res.plan) return null;
   const pair = res.pair;
   const direction = res.decision; // BUY or SELL
-  if (direction === "WAIT") return;
+  if (direction === "WAIT") return null;
 
   try {
     const signals = loadSignals();
     const now = new Date();
     const fifteenMinsAgo = now.getTime() - 360 * 60 * 1000; // 6 hours - prevents duplicate signals on same pair
 
-    // Deduplicate: No double logging of identical signal on the same pair in 6 hour window
-    const redundant = signals.some((s) =>
+    // Deduplicate: No double logging of identical signal on the same pair in 6 hour window.
+    // When deduped, the trade links back to the EXISTING signal (truthful lineage).
+    const redundant = signals.find((s) =>
       s.pair === pair &&
       s.direction === direction &&
       new Date(s.timestamp).getTime() > fifteenMinsAgo
     );
 
-    if (redundant) return;
+    if (redundant) return { signalId: redundant.id, deduped: true };
 
     const newSignal: SignalLog = {
       id: `signal_${Date.now()}_${pair.replace("/", "")}`,
@@ -1704,7 +1844,8 @@ function recordSignalIfNeeded(res: any, session: any) {
       tp3: res.plan.tp3,
       bonuses: res.bonuses,
       session: session.session || "ACTIVE",
-      passed: true
+      passed: true,
+      outcome: "ACTIVE",
     };
 
     signals.push(newSignal);
@@ -1728,8 +1869,31 @@ function recordSignalIfNeeded(res: any, session: any) {
       rr: res.plan.rr,
       session: newSignal.session,
     }).catch(err => console.error('[PUSH] Error sending notification on record:', err));
+
+    return { signalId: newSignal.id, deduped: false };
   } catch (err) {
     console.error("[ERROR] Failed to record signal:", err);
+    return null;
+  }
+}
+
+/**
+ * Stamp a signal record with its final outcome after the trade-open attempt:
+ * TRADED (with tradeId) or NOT_TRADED_* with the specific reason. Called in
+ * the same scan cycle that recorded the signal, so the Signals tab always
+ * shows what actually happened instead of an ambiguous age-based EXPIRED tag.
+ */
+function stampSignalOutcome(sigInfo: { signalId: string | null; deduped: boolean } | null, outcome: string, tradeId?: string) {
+  if (!sigInfo || !sigInfo.signalId) return;
+  try {
+    const signals = loadSignals();
+    const s: any = signals.find((x) => x.id === sigInfo.signalId);
+    if (!s) return;
+    s.outcome = outcome;
+    if (tradeId) s.tradeId = tradeId;
+    saveSignals(signals);
+  } catch (err) {
+    console.error("[SIGNALS ENGINE] Failed to stamp signal outcome:", err);
   }
 }
 
@@ -1892,6 +2056,7 @@ async function runBackgroundCycle() {
               trade.status = "Closed - LOSS";
               trade.rrGained = Number(exitR.toFixed(2));
               trade.closePrice = Number(checkPrice.toFixed(5));
+              trade.closeReason = "STALENESS";
               trade.closeTimestamp = new Date().toISOString();
               trade.updatedAt = new Date().toISOString();
               console.log(`[STALENESS] Trade ${trade.id} (${trade.pair}) stale after ${tradeAgeHours.toFixed(1)}h. Progress ${progressR.toFixed(2)}R < ${STALENESS_MIN_R}R min. Closed at ${checkPrice} (${trade.rrGained}R)`);
@@ -1964,6 +2129,7 @@ async function runBackgroundCycle() {
               trade.status = moveInFavor >= 0 ? "Closed - WIN" : "Closed - LOSS";
               trade.rrGained = Number(exitR.toFixed(2));
               trade.closePrice = Number(checkPrice.toFixed(5));
+              trade.closeReason = "EOD_QUIET";
               trade.closeTimestamp = new Date().toISOString();
               trade.updatedAt = new Date().toISOString();
               console.log(`[BACKGROUND ENGINE] COOLDOWN CLOSE: Trade ${trade.id} (${trade.pair}) — ${volCheck.reason}. Price ${checkPrice} (${trade.rrGained}R)`);
@@ -2003,13 +2169,29 @@ async function runBackgroundCycle() {
           }
 
           if (resolved && outcomeStatus) {
-            trade.status = outcomeStatus;
-            trade.rrGained = Number(rrGained.toFixed(2));
-            // Close price = actual fill level (TP1 for wins, SL for losses)
-            trade.closePrice = Number((outcomeStatus === "Closed - WIN" ? trade.tp1 : trade.sl).toFixed(5));
+            // HONEST CLOSE ACCOUNTING (2026-09-11 fix):
+            // 1. rrGained is computed from the ACTUAL market price at close
+            //    (checkPrice), not from the TP/SL level — includes slippage.
+            // 2. WIN/LOSS is classified by the sign of the actual P&L, not by
+            //    which level triggered. (The NZD/USD incident "hit TP1" while
+            //    the fill had opened beyond it — a loss tagged as a WIN.)
+            // 3. closePrice records the market price at close, not the level.
+            const exitR = slDist > 0
+              ? (trade.direction === "BUY"
+                  ? (checkPrice - trade.entryPrice) / slDist
+                  : (trade.entryPrice - checkPrice) / slDist)
+              : 0;
+            trade.rrGained = Number(exitR.toFixed(2));
+            trade.status = trade.rrGained >= 0 ? "Closed - WIN" : "Closed - LOSS";
+            trade.closePrice = Number(checkPrice.toFixed(5));
+            trade.closeReason = trade.breakevenTriggered && outcomeStatus === "Closed - LOSS"
+              ? "BE"
+              : (trade.direction === "BUY"
+                  ? (checkPrice >= trade.tp1 ? "TP1" : "SL")
+                  : (checkPrice <= trade.tp1 ? "TP1" : "SL"));
             trade.closeTimestamp = new Date().toISOString();
             trade.updatedAt = new Date().toISOString();
-            console.log(`[BACKGROUND ENGINE] Resolved position ${trade.id} -> ${outcomeStatus} | R:R gained: ${trade.rrGained}`);
+            console.log(`[BACKGROUND ENGINE] Resolved position ${trade.id} -> ${trade.status} (${trade.closeReason}) | R:R gained: ${trade.rrGained}`);
           }
         } catch (err) {
           console.error(`[BACKGROUND ENGINE] Failed to update virtual trade ${trade.id}:`, err);
@@ -2025,6 +2207,7 @@ async function runBackgroundCycle() {
     let scanLogDetails: any[] = [];
 
     if (!session.canTrade) {
+      gateCount("scannerSkips", "sessionOff");
       console.log(`[BACKGROUND ENGINE] Offline scan pause: Current active session restricts entries. (${session.message})`);
       lastAutoScannerStatus.message = `Scheduled scan skipped: ${session.message}.`;
       for (const pair of pairs) {
@@ -2034,6 +2217,7 @@ async function runBackgroundCycle() {
       // EOD LOCKOUT: If EOD exit has fired today, do not open any new trades
       const todayStr = new Date().toISOString().substring(0, 10);
       if (eodExitedDate === todayStr) {
+        gateCount("scannerSkips", "eodLockout");
         console.log(`[BACKGROUND ENGINE] EOD lockout active for ${todayStr}. No new entries until tomorrow.`);
         lastAutoScannerStatus.message = `End-of-day reached. No new entries until next trading day.`;
         for (const pair of pairs) {
@@ -2045,6 +2229,7 @@ async function runBackgroundCycle() {
         // Guarantee no double active open trades for the same pair
         const isAlreadyOpen = activeTrades.some((t) => t.pair === pair && t.status === "Open");
         if (isAlreadyOpen) {
+          gateCount("scannerSkips", "openPosition");
           console.log(`[BACKGROUND ENGINE] Pair ${pair} skipped: High-priority open trade active.`);
           scanLogDetails.push({ pair, status: "OPEN_POSITION", detail: "Already open position active", grade: "-", price: 0 });
           await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -2066,6 +2251,7 @@ async function runBackgroundCycle() {
 
           if (timeSinceClose < MIN_COOLDOWN_MS) {
             // Hard minimum: 30 minutes regardless
+            gateCount("scannerSkips", "cooldown");
             const minsLeft = Math.ceil((MIN_COOLDOWN_MS - timeSinceClose) / (60 * 1000));
             scanLogDetails.push({ pair, status: "COOLDOWN", detail: `Min cooldown (${minsLeft}m left)`, grade: "-", price: 0 });
             await new Promise((resolve) => setTimeout(resolve, 500));
@@ -2080,8 +2266,9 @@ async function runBackgroundCycle() {
         try {
           const res = await analyzePair(pair, true);
           if (res) {
-            // Record all real signals generated on scanner pass
-            recordSignalIfNeeded(res, session);
+            // Record all real signals generated on scanner pass.
+            // Returns { signalId, deduped } so the trade can carry its lineage.
+            const sigInfo = recordSignalIfNeeded(res, session);
 
             scanLogDetails.push({
               pair,
@@ -2100,6 +2287,8 @@ async function runBackgroundCycle() {
                   const currentEntry = res.price || 0;
                   const entryPctMove = lastEntry > 0 ? Math.abs(currentEntry - lastEntry) / lastEntry : 0;
                   if (entryPctMove < 0.003) {
+                    gateCount("scannerSkips", "sameSetup");
+                    stampSignalOutcome(sigInfo, "NOT_TRADED_SAME_SETUP");
                     scanLogDetails.push({ pair, status: "COOLDOWN", detail: `Same setup blocked (entry moved ${(entryPctMove*100).toFixed(2)}%)`, grade: "-", price: 0 });
                     await new Promise((resolve) => setTimeout(resolve, 500));
                     continue;
@@ -2113,29 +2302,61 @@ async function runBackgroundCycle() {
                 const entryFillPrice = res.live ? 
                   (res.direction === "BUY" ? res.live.ask : res.live.bid) : 
                   res.plan.entry;
-                const newTradeEntry: VirtualTrade = {
-                  id: `vtrade_${Date.now()}_${pair.replace("/", "")}`,
-                  pair,
-                  direction: res.direction as "BUY" | "SELL",
-                  grade: res.grade,
-                  setupType: res.setupType || "ATR",
-                  timestamp: new Date().toISOString(),
-                  entryPrice: entryFillPrice,
-                  sl: res.plan.sl,
-                  tp1: res.plan.tp1,
-                  tp2: res.plan.tp2,
-                  tp3: res.plan.tp3,
-                  initialSl: res.plan.sl,
-                  status: "Open",
-                  updatedAt: new Date().toISOString(),
-                  breakevenTriggered: false,
-                  rrGained: 0,
-                };
 
-                currentTradesList.push(newTradeEntry);
-                saveTrades(currentTradesList);
-                console.log(`[BACKGROUND ENGINE] 🔥 AUTOLOG ENTRY REGISTERED: ${pair} | Direction: ${newTradeEntry.direction} | Grade: ${newTradeEntry.grade} @ ${newTradeEntry.entryPrice}`);
+                // ── ENTRY GUARD (2026-09-11 corruption fix) ──
+                // Never open a position whose fill is already at/beyond TP1 or SL,
+                // and never trade without a verified live price. The NZD/USD
+                // incident opened a SELL whose TP1 condition was already true
+                // at fill (entered 56 pips off plan on a stale candle feed).
+                const liveVerified = !!res.live;
+                const fillWithinPlan = res.direction === "BUY"
+                  ? entryFillPrice > res.plan.sl && entryFillPrice < res.plan.tp1
+                  : entryFillPrice < res.plan.sl && entryFillPrice > res.plan.tp1;
+
+                if (!liveVerified) {
+                  gateCount("scannerSkips", "entryGuard");
+                  stampSignalOutcome(sigInfo, "NOT_TRADED_ENTRY_GUARD");
+                  scanLogDetails.push({ pair, status: "ENTRY_BLOCKED", detail: "No verified live price — entry rejected", grade: "-", price: 0 });
+                  console.log(`[BACKGROUND ENGINE] ENTRY GUARD: ${pair} ${res.direction} rejected — no verified live price.`);
+                } else if (!fillWithinPlan) {
+                  gateCount("scannerSkips", "entryGuard");
+                  stampSignalOutcome(sigInfo, "NOT_TRADED_ENTRY_GUARD");
+                  scanLogDetails.push({ pair, status: "ENTRY_BLOCKED", detail: `Fill ${entryFillPrice} outside SL(${res.plan.sl})–TP1(${res.plan.tp1}) band — entry rejected`, grade: "-", price: entryFillPrice });
+                  console.log(`[BACKGROUND ENGINE] ENTRY GUARD: ${pair} ${res.direction} rejected — fill ${entryFillPrice} outside plan band (SL ${res.plan.sl}, TP1 ${res.plan.tp1}).`);
+                } else {
+                  const newTradeEntry: VirtualTrade = {
+                    id: `vtrade_${Date.now()}_${pair.replace("/", "")}`,
+                    pair,
+                    direction: res.direction as "BUY" | "SELL",
+                    grade: res.grade,
+                    setupType: res.setupType || "ATR",
+                    timestamp: new Date().toISOString(),
+                    entryPrice: entryFillPrice,
+                    sl: res.plan.sl,
+                    tp1: res.plan.tp1,
+                    tp2: res.plan.tp2,
+                    tp3: res.plan.tp3,
+                    initialSl: res.plan.sl,
+                    status: "Open",
+                    updatedAt: new Date().toISOString(),
+                    breakevenTriggered: false,
+                    rrGained: 0,
+                    signalId: sigInfo?.signalId || undefined,
+                    signalDeduped: sigInfo?.deduped || undefined,
+                  };
+
+                  currentTradesList.push(newTradeEntry);
+                  saveTrades(currentTradesList);
+                  stampSignalOutcome(sigInfo, "TRADED", newTradeEntry.id);
+                  console.log(`[BACKGROUND ENGINE] 🔥 AUTOLOG ENTRY REGISTERED: ${pair} | Direction: ${newTradeEntry.direction} | Grade: ${newTradeEntry.grade} @ ${newTradeEntry.entryPrice} | Signal: ${newTradeEntry.signalId || "none"}${newTradeEntry.signalDeduped ? " (deduped)" : ""}`);
+                }
+              } else {
+                stampSignalOutcome(sigInfo, "NOT_TRADED_OPEN_POSITION");
               }
+            } else if (res.passed) {
+              // Signal was logged, but only A+/A/B grades open trades.
+              gateCount("scannerSkips", "gradeFilter");
+              stampSignalOutcome(sigInfo, "NOT_TRADED_GRADE_C");
             }
           }
         } catch (err) {
@@ -2154,6 +2375,9 @@ async function runBackgroundCycle() {
 
     lastAutoScannerStatus.lastScanTime = new Date().toISOString();
     lastAutoScannerStatus.pairsChecked = scanLogDetails;
+
+    // Persist gate-funnel counters to MongoDB (best-effort, once per cycle)
+    flushGateStats().catch((e) => console.error("[GATES] Flush failed:", e));
 
   } catch (error) {
     console.error("[BACKGROUND ENGINE] Fatal cycle failure:", error);
@@ -2342,7 +2566,11 @@ app.post("/api/performance/clear", (req, res) => {
 app.get("/api/performance/stats", (req, res) => {
   try {
     const trades = loadTrades();
-    const closedTrades = trades.filter((t) => t.status.startsWith("Closed"));
+    // Data-quality-flagged trades stay visible in history but are EXCLUDED
+    // from win-rate / R statistics (2026-09-11 decision: annotate, don't delete).
+    const cleanTrades = trades.filter((t: any) => !t.dataQuality);
+    const flagged = trades.filter((t: any) => !!t.dataQuality);
+    const closedTrades = cleanTrades.filter((t) => t.status.startsWith("Closed"));
     const totalClosed = closedTrades.length;
 
     const totalWins = closedTrades.filter((t) => t.status === "Closed - WIN").length;
@@ -2359,14 +2587,32 @@ app.get("/api/performance/stats", (req, res) => {
 
     const sequence = sortedClosed.slice(-20).map((t) => (t.status === "Closed - WIN" ? "🟢" : "🔴"));
 
+    // Clean-sample accounting: only trades OPENED after CLEAN_SAMPLE_SINCE
+    // count toward the post-fix MPR sample (user decision 2026-09-11).
+    const boundaryMs = new Date(CLEAN_SAMPLE_SINCE).getTime();
+    const sampleClosed = closedTrades.filter((t) => new Date(t.timestamp).getTime() >= boundaryMs);
+    const sampleOpen = cleanTrades.filter((t) => t.status === "Open" && new Date(t.timestamp).getTime() >= boundaryMs);
+    const sampleWins = sampleClosed.filter((t) => t.status === "Closed - WIN").length;
+    const sampleRSum = sampleClosed.reduce((s, t) => s + (t.rrGained || 0), 0);
+
     res.json({
       winRate: Number(winRate.toFixed(1)),
-      totalTrades: trades.length,
+      totalTrades: cleanTrades.length,
       totalClosed,
       totalWins,
       totalLosses,
       sequence,
-      trades: [...trades].reverse(), // reverse list: newest entries rendered first
+      trades: [...trades].reverse(), // full history incl. flagged (they carry dataQuality fields)
+      flaggedTrades: flagged.map((t: any) => ({ id: t.id, pair: t.pair, dataQuality: t.dataQuality, note: t.dataQualityNote || "" })),
+      sample: {
+        since: CLEAN_SAMPLE_SINCE,
+        closedTrades: sampleClosed.length,
+        openTrades: sampleOpen.length,
+        wins: sampleWins,
+        losses: sampleClosed.length - sampleWins,
+        winRate: sampleClosed.length > 0 ? Number(((sampleWins / sampleClosed.length) * 100).toFixed(1)) : 0,
+        rSum: Number(sampleRSum.toFixed(2)),
+      },
     });
   } catch (error) {
     console.error("[API ERROR] Failed to compute performance statistics:", error);
@@ -2483,6 +2729,63 @@ app.post("/api/admin/cleanup", async (req, res) => {
   }
 });
 
+// Annotate a trade with a data-quality flag (e.g. mark a corrupted record).
+// Flagged trades remain visible in history but are EXCLUDED from win-rate/R
+// statistics (user decision 2026-09-11: annotate, don't delete).
+app.post("/api/admin/annotate-trade", (req, res) => {
+  try {
+    const { id, dataQuality, note } = req.body || {};
+    if (!id || !dataQuality) {
+      return res.status(400).json({ error: "Both 'id' and 'dataQuality' are required." });
+    }
+    const trades = loadTrades();
+    const t: any = trades.find((x) => x.id === id);
+    if (!t) return res.status(404).json({ error: `Trade ${id} not found.` });
+    t.dataQuality = dataQuality;
+    if (note) t.dataQualityNote = note;
+    t.updatedAt = new Date().toISOString();
+    saveTrades(trades);
+    console.log(`[ADMIN] Trade ${id} annotated: dataQuality=${dataQuality}`);
+    res.json({ success: true, trade: t });
+  } catch (err) {
+    res.status(500).json({ error: (err as any).message || "Annotation failed." });
+  }
+});
+
+// One-time (idempotent) backfill: link historical trades to their originating
+// signals by pair + direction + timestamp proximity (±10 seconds). Signal and
+// trade are created milliseconds apart in the same scan cycle, so this match
+// is deterministic — no price-matching ambiguity.
+app.post("/api/admin/backfill-signal-links", (req, res) => {
+  try {
+    const trades = loadTrades();
+    const signals = loadSignals();
+    let linked = 0, alreadyLinked = 0, unmatched = 0;
+    for (const t of trades) {
+      if (t.signalId) { alreadyLinked++; continue; }
+      const match = signals.find((s) =>
+        s.pair === t.pair &&
+        s.direction === t.direction &&
+        Math.abs(new Date(s.timestamp).getTime() - new Date(t.timestamp).getTime()) <= 10000
+      );
+      if (match) {
+        (t as any).signalId = match.id;
+        (match as any).outcome = "TRADED";
+        (match as any).tradeId = t.id;
+        linked++;
+      } else {
+        unmatched++;
+      }
+    }
+    saveTrades(trades);
+    saveSignals(signals);
+    console.log(`[ADMIN] Signal-link backfill: ${linked} linked, ${alreadyLinked} already linked, ${unmatched} unmatched.`);
+    res.json({ success: true, linked, alreadyLinked, unmatched, totalTrades: trades.length, totalSignals: signals.length });
+  } catch (err) {
+    res.status(500).json({ error: (err as any).message || "Backfill failed." });
+  }
+});
+
 // PROGRESSIVE WEB APP (PWA) SUPPORT FOR STANDALONE ANDROID INSTALLS
 app.get("/manifest.json", (req, res) => {
   res.setHeader("Content-Type", "application/json");
@@ -2580,6 +2883,7 @@ app.get("/icon.png", (req, res) => {
 async function startServer() {
   await connectToDatabase();
   await hydrateMemoryFromDatabase();
+  await loadGateStats();
 
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
@@ -2723,8 +3027,27 @@ app.get("/api/health", (req, res) => {
 
     consolidationFilter: {
       threshold: MAX_CONSOL_ATR,
-      ...consolFilterStats,
+      ...gateStats.mpr,
     },
+
+    gates: {
+      since: gateStats.since,
+      scansTotal: gateStats.scansTotal,
+      passedAll: gateStats.passedAll,
+      newsAdvisories: gateStats.newsAdvisories,
+      blocked: gateStats.blocked,
+      scannerSkips: gateStats.scannerSkips,
+      dataGuard: gateStats.dataGuard,
+      persistedInMongo: isDbReady(),
+    },
+
+    build: {
+      mpr: MPR_VERSION,
+      fixes: FIXES_VERSION,
+      observability: OBS_VERSION,
+    },
+
+    cleanSampleSince: CLEAN_SAMPLE_SINCE,
 
     mpr: {
       version: MPR_VERSION,
