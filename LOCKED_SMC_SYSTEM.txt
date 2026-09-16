@@ -1,7 +1,7 @@
 ╔══════════════════════════════════════════════════════════════════╗
 ║                                                                  ║
 ║   SMC SCANNER SYSTEM — LIVE CODE REFERENCE                       ║
-║   Accurate as of: Sep 15, 2026 PM (ops tooling + drift logging)  ║
+║   Accurate as of: Sep 16, 2026 (candle-array inversion fixed)    ║
 ║   This document describes what the server ACTUALLY does.         ║
 ║   No aspirational rules. No "should be." Only what runs.         ║
 ║                                                                  ║
@@ -344,14 +344,18 @@ seconds later tagged "WIN" with negative R. Three defenses now exist:
        real deviation instead of exactly 0.00R.
 
   CORRUPTED-TRADE POLICY: trades proven to run on corrupt data are
-  flagged via /api/admin/annotate-trade (dataQuality field). They stay
-  visible in history (⚠ badge) but are EXCLUDED from win-rate/R stats.
-  Flagged so far: NZD/USD 2026-09-11 08:45Z (stale feed, −0.84R shown
-  as WIN), EUR/JPY 2026-09-14 20:45Z (stale feed, −0.71R shown as WIN).
+  flagged via dataQuality fields. They stay visible in history (⚠ badge)
+  but are EXCLUDED from win-rate/R stats. As of 2026-09-16 ALL 28 pre-fix
+  trades carry dataQuality "inverted-era" (every one was analyzed on
+  time-inverted candles — see A16), including the two originally flagged
+  "corrupted-stale-feed" (re-annotated: the feed was fresh, the arrays
+  were reversed).
 
-  CLEAN SAMPLE BOUNDARY: only trades OPENED after 2026-09-15T06:30:00Z
-  count toward the post-fix MPR sample (exposed as `sample` in
-  /api/performance/stats and cleanSampleSince in /api/health).
+  CLEAN SAMPLE BOUNDARY: only trades OPENED after 2026-09-16T18:15:00Z
+  (the inversion-fix deploy) count toward the clean MPR sample (exposed
+  as `sample` in /api/performance/stats and cleanSampleSince in
+  /api/health). Zero trades opened between the previous boundary and
+  this one (the data guard blocked all scans), so nothing was lost.
 
   MANUAL CLOSE TOOL (2026-09-15, /api/admin/close-trade): closes an open
   trade at the live market price with the same accounting rules as the
@@ -401,6 +405,55 @@ FILL-DRIFT TELEMETRY (2026-09-15, pure observability):
     order at the pause midpoint — at the 15-20 trade sample review.
   - /api/performance/stats exposes sample.fillDriftAvgAtr and
     sample.fillDriftSamples for the same purpose.
+
+
+------------------------------------------------------------------------
+A16. THE CANDLE-ARRAY INVERSION (2026-09-16) — ROOT CAUSE OF THE
+     WIDE-SL SAGA
+------------------------------------------------------------------------
+
+Capital.com returns candle series in ASCENDING timestamp order (oldest
+first; the last element is the current in-progress bar) — confirmed
+against their API documentation and raw probes. The getCandles comment
+claimed "newest first" (true for the old Twelve Data source, never true
+for Capital.com), so analyzePair's five .reverse() calls (plus one in
+checkVolatilityCooldown) INVERTED TIME for the entire analysis pipeline
+from the day of the Capital.com migration:
+
+  - "Most recent candle" references actually read the OLDEST bar
+    (4-7 days back) of each window.
+  - Trend, premium/discount, POI, M15 confirmation, and MPR pattern
+    detection all analyzed 4-7-day-old structure as if current.
+  - MPR's staleness gate compared the pause midpoint against a
+    4-7-day-old "current price" — internally consistent old data.
+  - Trades then entered at LIVE prices against old-data plans. When
+    price revisited old levels the trades looked normal; when price
+    trended away, entries were 50-110 pips off plan (the "wide-SL bug",
+    the NZD/USD and EUR/JPY corrupted entries, and the contaminated
+    25-trade sample were all this bug).
+  - The 2026-09-15 data guard (comparing the analysis's "last candle"
+    vs live) caught it within 26 minutes of market open — 100% of scans
+    rejected, 16,440/16,440 over 35 hours — which is what exposed the
+    inversion. The guard was never the problem; it was the alarm.
+
+THE FIX (2026-09-16): the five reversals removed — h1Oldest/h4Oldest/
+m15Oldest/dOldest/wOldest are now chronological, matching what every
+downstream function always assumed. Additionally, getCandles SORTS by
+timestamp — wire order is never trusted (one descending response was
+observed in ~20 probes). Gate-funnel counters reset at this deploy (the
+inverted-era rejections must not pollute post-fix statistics). Expected
+post-fix behavior: dataGuard rejections ≈ 0 (true current bar vs live
+drift is 0-2 pips), all trading gates finally evaluated on current
+structure, and the first correctly-analyzed trades in the system's
+history.
+
+IMPORTANT CAVEAT — BACKTEST EVIDENCE: the local Python client had the
+same inversion (get_candles_oldest_first returned newest-first). Every
+backtest run through it — including the H1 analysis behind the 12h/0R
+staleness rule and the SL/TP sizing sweep — was computed on inverted
+data and is UNPROVEN (not necessarily wrong, but unverified). Rules
+stay locked as-is per user decision; revalidation on correctly-ordered
+data is a separate, future exercise.
 
 Gate funnel telemetry (/api/health → gates):
   - Counters increment ONLY on background-scanner analyses, never on

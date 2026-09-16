@@ -77,16 +77,24 @@ function gateCount(group: string, key: string) {
   gateStatsDirty = true;
 }
 
+// Funnel reset marker: bumped when the funnel must start fresh. Reset at the
+// 2026-09-16 inversion-fix deploy — the 16k+ dataGuard rejections from the
+// inverted era must not pollute post-fix statistics.
+const GATE_STATS_RESET_VERSION = "inversion-fix-1";
+
 async function loadGateStats() {
   if (!isDbReady()) return;
   try {
     const doc: any = await GateStat.findById("global").lean();
-    if (doc && doc.data) {
+    if (doc && doc.data && doc.data.resetVersion === GATE_STATS_RESET_VERSION) {
       gateStats = { ...EMPTY_GATE_STATS(), ...doc.data };
       console.log(`[INFO] Gate stats loaded from MongoDB (since ${gateStats.since}, ${gateStats.scansTotal} scans counted).`);
     } else {
-      gateStatsDirty = true; // persist the initial document on first flush
-      console.log("[INFO] No gate-stats document found — starting a fresh funnel count.");
+      // First boot of this build (or no document yet): start a fresh funnel count.
+      gateStats = EMPTY_GATE_STATS();
+      gateStats.resetVersion = GATE_STATS_RESET_VERSION;
+      gateStatsDirty = true;
+      console.log("[INFO] Gate stats reset for this build — fresh funnel count started (inversion-fix deploy).");
     }
   } catch (err) {
     console.error("[ERROR] Failed to load gate stats:", err);
@@ -106,8 +114,9 @@ async function flushGateStats() {
 // Momentum-Pause-Retest (MPR) module version — exposed via /api/health so a
 // deployment can be verified by commit hash AND by live runtime marker.
 const MPR_VERSION = "2026-09-11.1";
-// 2026-09-11 defect-fix deploy: data guards + entry guard + honest close accounting
-const FIXES_VERSION = "2026-09-11.1";
+// 2026-09-11: data guards + entry guard + honest close accounting
+// 2026-09-16.1: candle-array inversion fix — root cause of the wide-SL saga
+const FIXES_VERSION = "2026-09-16.1";
 // 2026-09-11 observability deploy: signal_id linkage + signal outcomes + gate funnel
 // 2026-09-15.2: + fillDriftAtr on every trade (pure observability)
 const OBS_VERSION = "2026-09-15.2";
@@ -115,10 +124,11 @@ const OBS_VERSION = "2026-09-15.2";
 // spread-aware, honest accounting, audited closeReason)
 const OPS_VERSION = "2026-09-15.1";
 // Clean MPR sample boundary — only trades OPENED after this instant count
-// toward the post-fix sample (user decision: restart counter at the fix
-// deploy). Set at commit time 2026-09-15; trades before it ran on unfixed
-// code (incl. two corrupted stale-feed trades: NZD/USD 09-11, EUR/JPY 09-14).
-const CLEAN_SAMPLE_SINCE = "2026-09-15T06:30:00Z";
+// toward the post-fix sample. Moved to the inversion-fix deploy (user
+// decision, 2026-09-16): every prior trade was analyzed on time-inverted
+// candles, and zero trades opened since the previous boundary (the data
+// guard blocked all scans), so nothing was discarded.
+const CLEAN_SAMPLE_SINCE = "2026-09-16T18:15:00Z";
 
 // Capital.com Configuration
 const CAPITAL_API_KEY = process.env.CAPITAL_API_KEY || "e0o59JYjc0VLlQay";
@@ -360,7 +370,17 @@ async function getCandles(pair: string, timeframe = "1h", count = 120) {
       c: p.closePrice.bid,
     }));
 
-    return candles; // Newest first of raw response, but we reverse it for calculations!
+    // HARDENING (2026-09-16): Capital.com returns ascending order in the vast
+    // majority of responses, but one descending response was observed in ~20
+    // probes. Never trust wire order — sort by timestamp so the array is
+    // ALWAYS oldest-first (last element = current bar), whatever the API does.
+    candles.sort((a: any, b: any) => {
+      const ta = new Date(a.t || 0).getTime() || 0;
+      const tb = new Date(b.t || 0).getTime() || 0;
+      return ta - tb;
+    });
+
+    return candles; // ASCENDING (oldest first, last = current in-progress bar) — enforced by sort
   } catch (error) {
     console.error(`Error getting candles for ${pair}:`, error);
     return null;
@@ -914,12 +934,16 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
     return cacheAndReturn(result);
   }
 
-  // Since we reversed client's return in python, let's reverse them to oldest first!
-  const wOldest = weekly ? [...weekly].reverse() : null;
-  const dOldest = daily ? [...daily].reverse() : null;
-  const h4Oldest = h4 ? [...h4].reverse() : null;
-  const h1Oldest = [...h1].reverse();
-  const m15Oldest = m15 ? [...m15].reverse() : null;
+  // Capital.com returns candle series in ASCENDING timestamp order (oldest
+  // first; the LAST element is the current in-progress bar) — verified against
+  // their API documentation and raw probes, 2026-09-15/16. The historical
+  // .reverse() calls here inverted time for the ENTIRE analysis pipeline —
+  // root cause of the wide-SL saga. Arrays are now used exactly as delivered.
+  const wOldest = weekly;
+  const dOldest = daily;
+  const h4Oldest = h4;
+  const h1Oldest = h1;
+  const m15Oldest = m15;
 
   const live = await getLivePrice(pair);
   const last = live ? live.mid : h1Oldest[h1Oldest.length - 1].c;
@@ -1939,8 +1963,8 @@ async function checkVolatilityCooldown(pair: string): Promise<{
     if (!candles || candles.length < 30) {
       return { shouldClose: true, atrCurrent: 0, atrBaseline: 0, ratio: 0, reason: "No candle data — fallback to close" };
     }
-    // Reverse to oldest-first
-    const oldest = [...candles].reverse();
+    // Candles are already oldest-first (Capital.com returns ascending order)
+    const oldest = candles;
     
     // Current ATR: last 14 candles (need 15+ for calculation)
     const currentAtr = atr(oldest.slice(-30), 14);
@@ -2860,6 +2884,35 @@ app.post("/api/admin/close-trade", async (req, res) => {
     res.json({ success: true, trade: t });
   } catch (err) {
     res.status(500).json({ error: (err as any).message || "Manual close failed." });
+  }
+});
+
+// One-time (idempotent): flag every trade opened before the given boundary
+// (default CLEAN_SAMPLE_SINCE) as inverted-era. The entire pre-fix history
+// was analyzed on time-inverted candle arrays (Capital.com migration bug):
+// trend/zone/POI/MPR structure was 4-7 days old at entry. Flagged trades
+// stay visible with the ⚠ EXCLUDED pill but drop out of headline win-rate/R
+// stats (user decision, 2026-09-16). Earlier 'corrupted-stale-feed' flags
+// are re-annotated with the true root cause.
+app.post("/api/admin/flag-inverted-era", (req, res) => {
+  try {
+    const boundary = (req.body && req.body.boundary) || CLEAN_SAMPLE_SINCE;
+    const boundaryMs = new Date(boundary).getTime();
+    const trades = loadTrades();
+    let newlyFlagged = 0, reAnnotated = 0, skipped = 0;
+    for (const t of trades) {
+      if (new Date(t.timestamp).getTime() >= boundaryMs) { skipped++; continue; }
+      const hadOldFlag = !!t.dataQuality;
+      (t as any).dataQuality = "inverted-era";
+      (t as any).dataQualityNote = "Analysis ran on time-inverted candle arrays (Capital.com migration bug): the trend/zone/POI/MPR structure behind this trade was 4-7 days old at entry. Root cause fixed 2026-09-16." + (hadOldFlag ? " [Supersedes the earlier 'stale-feed' annotation — the feed was fresh; the arrays were reversed.]" : "");
+      (t as any).updatedAt = new Date().toISOString();
+      if (hadOldFlag) reAnnotated++; else newlyFlagged++;
+    }
+    saveTrades(trades);
+    console.log(`[ADMIN] Inverted-era flag applied: ${newlyFlagged} newly flagged, ${reAnnotated} re-annotated, ${skipped} skipped (post-boundary). Boundary: ${boundary}`);
+    res.json({ success: true, newlyFlagged, reAnnotated, skipped, boundary });
+  } catch (err) {
+    res.status(500).json({ error: (err as any).message || "Era flagging failed." });
   }
 });
 
