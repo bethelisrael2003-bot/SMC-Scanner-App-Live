@@ -59,6 +59,8 @@ export interface ClassicSetup {
   poiLow: number;
   slDistance: number;
   slAtr: number;            // SL distance in ATR units (diagnostics)
+  slAnchor: "sweep" | "poi";
+  structPrior: string;      // trend the CHOCH/BOS was measured against
 }
 
 /* ── server.ts function copies (verbatim semantics) ─────────────────────── */
@@ -300,6 +302,7 @@ export function findClassicSetup(
   m15: Candle[],
   h1Atr: number,
   direction: Direction,
+  opts: { structPriorTrend?: string; slAnchor?: "sweep" | "poi" } = {},
 ): ClassicSetup | null {
   if (!h4 || h4.length < 50 || !m15 || m15.length < 50) return null;
   if (!(h1Atr > 0)) return null;
@@ -322,13 +325,15 @@ export function findClassicSetup(
   }
   if (!sweep) return null;
 
-  /* 2. CHOCH/BOS on M15 against M15's own prior trend, AFTER the sweep */
+  /* 2. CHOCH/BOS on M15 — prior trend is H1's (live-system semantics) when
+     provided, else M15's own (textbook). Break must be AFTER the sweep. */
   const m15TrendInfo = classifyTrend(m15Win);
-  if (m15TrendInfo.trend === "RANGE" || m15TrendInfo.trend === "UNCLEAR") {
-    // No prior M15 structure to break — not a textbook CHOCH/BOS context.
+  const priorTrend = opts.structPriorTrend || m15TrendInfo.trend;
+  if (priorTrend === "RANGE" || priorTrend === "UNCLEAR") {
+    // No prior structure to break against.
     return null;
   }
-  const struct = detectStructureBreak(m15Win, m15TrendInfo.highs, m15TrendInfo.lows, m15TrendInfo.trend);
+  const struct = detectStructureBreak(m15Win, m15TrendInfo.highs, m15TrendInfo.lows, priorTrend);
   if (!struct || !struct.bar) return null;
   // Direction check: the break must be in the SETUP direction
   const brokeUp = struct.bar.close > struct.bar.open ? true : struct.bar.close > struct.brokenLevel;
@@ -370,10 +375,15 @@ export function findClassicSetup(
   const conf = checkEntryCandle(m15Win, direction);
   if (!conf.valid) return null;
 
-  /* Trade plan: entry at confirmation close, SL beyond sweep extreme */
+  /* Trade plan: entry at confirmation close. SL anchor is configurable:
+     "sweep" (default, ICT standard — beyond the sweep wick) or "poi"
+     (beyond the POI far edge). Same 0.15 ATR buffer + 0.3 ATR floor. */
   const entry = lastM15.close;
   const buffer = 0.15 * h1Atr;
-  const rawStop = isBuy ? sweep.extreme - buffer : sweep.extreme + buffer;
+  const anchorLevel = opts.slAnchor === "poi"
+    ? (isBuy ? poiLow : poiHigh)
+    : sweep.extreme;
+  const rawStop = isBuy ? anchorLevel - buffer : anchorLevel + buffer;
   let slDistance = Math.abs(entry - rawStop);
   let stopLevel = rawStop;
   const minStop = 0.3 * h1Atr;
@@ -405,6 +415,8 @@ export function findClassicSetup(
     poiLow,
     slDistance: risk,
     slAtr: risk / h1Atr,
+    slAnchor: opts.slAnchor === "poi" ? "poi" : "sweep",
+    structPrior: priorTrend,
   };
 }
 

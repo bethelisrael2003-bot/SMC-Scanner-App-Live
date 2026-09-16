@@ -141,7 +141,8 @@ function simulateTrade(
 
 /* ── books ─────────────────────────────────────────────────────────────── */
 
-const BOOKS = ["mpr", "classic_pure", "classic_conf", "combined"] as const;
+const CONF_VARIANTS = ["conf_m15_sweep", "conf_h1_sweep", "conf_h1_poi", "conf_m15_poi"] as const;
+const BOOKS = ["mpr", "classic_pure", ...CONF_VARIANTS, "combined"] as const;
 type BookName = typeof BOOKS[number];
 interface BookState {
   trades: TradeRec[];
@@ -182,10 +183,11 @@ function loadBars(epic: string, tf: string): Bar[] {
 }
 
 function main() {
-  const books: Record<BookName, BookState> = {
-    mpr: newBook(), classic_pure: newBook(), classic_conf: newBook(), combined: newBook(),
-  };
-  let overlapFires = 0, mprFires = 0, classicPureFires = 0, classicConfFires = 0, overlapConfFires = 0;
+  const books: Record<BookName, BookState> = Object.fromEntries(
+    (["mpr", "classic_pure", ...CONF_VARIANTS, "combined"] as string[]).map(b => [b, newBook()])
+  ) as Record<BookName, BookState>;
+  const confFires: Record<string, number> = { conf_m15_sweep: 0, conf_h1_sweep: 0, conf_h1_poi: 0, conf_m15_poi: 0 };
+  let overlapFires = 0, mprFires = 0, classicPureFires = 0, overlapConfFires = 0;
 
   for (const [pair, epic] of PAIRS) {
     const m15 = loadBars(epic, "M15");
@@ -274,9 +276,19 @@ function main() {
       if (confluenceOk && !entryCandleOk) bump(books.mpr, "m15_noConfirm");
       const mprPlanRr = mpr ? Math.abs(mpr.tp1 - mpr.entry) / Math.abs(mpr.entry - mpr.sl) : 0;
 
-      /* Classic triggers */
-      const classicConf = (confluenceOk)
-        ? findClassicSetup(h4C, m15C, hAtr, direction)
+      /* Classic triggers — conf variants: 2x2 matrix of
+         { struct prior: M15-own | H1 } x { SL anchor: sweep | POI } */
+      const classicConf: any = confluenceOk
+        ? findClassicSetup(h4C, m15C, hAtr, direction, {})
+        : null;
+      const classicConfH1: any = confluenceOk
+        ? findClassicSetup(h4C, m15C, hAtr, direction, { structPriorTrend: h1Trend })
+        : null;
+      const classicConfH1Poi: any = confluenceOk
+        ? findClassicSetup(h4C, m15C, hAtr, direction, { structPriorTrend: h1Trend, slAnchor: "poi" })
+        : null;
+      const classicConfM15Poi: any = confluenceOk
+        ? findClassicSetup(h4C, m15C, hAtr, direction, { slAnchor: "poi" })
         : null;
       let classicPure: any = null;
       let pureDir: "BUY" | "SELL" | null = null;
@@ -288,12 +300,15 @@ function main() {
 
       if (mpr) mprFires++;
       if (classicPure) classicPureFires++;
-      if (classicConf) classicConfFires++;
+      if (classicConf) confFires.conf_m15_sweep++;
+      if (classicConfH1) confFires.conf_h1_sweep++;
+      if (classicConfH1Poi) confFires.conf_h1_poi++;
+      if (classicConfM15Poi) confFires.conf_m15_poi++;
       if (mpr && classicPure) overlapFires++;
-      if (mpr && classicConf) overlapConfFires++;
+      if (mpr && (classicConf || classicConfH1 || classicConfH1Poi || classicConfM15Poi)) overlapConfFires++;
 
       /* Books: entries (one slot per pair, cooldown after close) */
-      const mprBook = books.mpr, cpBook = books.classic_pure, ccBook = books.classic_conf, comBook = books.combined;
+      const mprBook = books.mpr, cpBook = books.classic_pure, comBook = books.combined;
 
       if (mpr && (mprBook.cooldownUntil.get(pair) ?? 0) <= i) {
         tryOpen(mprBook, "mpr", pair, m15, i, "MPR", direction, mpr.entry, mpr.sl, mpr.tp1, mprPlanRr, hAtr);
@@ -301,8 +316,14 @@ function main() {
       if (classicPure && pureDir && (cpBook.cooldownUntil.get(pair) ?? 0) <= i) {
         tryOpen(cpBook, "classic_pure", pair, m15, i, "Classic", pureDir, classicPure.entry, classicPure.sl, classicPure.tp1, 1.5, hAtr);
       }
-      if (classicConf && (ccBook.cooldownUntil.get(pair) ?? 0) <= i) {
-        tryOpen(ccBook, "classic_conf", pair, m15, i, "Classic", direction, classicConf.entry, classicConf.sl, classicConf.tp1, 1.5, hAtr);
+      const confEntries: [string, any][] = [
+        ["conf_m15_sweep", classicConf], ["conf_h1_sweep", classicConfH1],
+        ["conf_h1_poi", classicConfH1Poi], ["conf_m15_poi", classicConfM15Poi],
+      ];
+      for (const [vn, vs] of confEntries) {
+        if (vs && (books[vn as BookName].cooldownUntil.get(pair) ?? 0) <= i) {
+          tryOpen(books[vn as BookName], vn as BookName, pair, m15, i, "Classic", direction, vs.entry, vs.sl, vs.tp1, 1.5, hAtr);
+        }
       }
       if ((comBook.cooldownUntil.get(pair) ?? 0) <= i) {
         if (mpr) tryOpen(comBook, "combined", pair, m15, i, "MPR", direction, mpr.entry, mpr.sl, mpr.tp1, mprPlanRr, hAtr);
@@ -314,9 +335,10 @@ function main() {
   /* ── report ── */
   const fmt = (n: number) => Number(n.toFixed(2));
   console.log("\n════════ MPR vs CLASSIC — 90-DAY REPLAY ════════\n");
-  console.log(`Trigger fires (pre-entry-guard): MPR=${mprFires}, classic_pure=${classicPureFires}, classic_conf=${classicConfFires}, overlap_pure=${overlapFires}, overlap_conf=${overlapConfFires}\n`);
+  console.log(`Trigger fires (pre-entry-guard): MPR=${mprFires}, classic_pure=${classicPureFires}, overlap_pure=${overlapFires}, overlap_anyconf=${overlapConfFires}`);
+  console.log(`conf variant fires: ${JSON.stringify(confFires)}\n`);
 
-  const summary: any = { fires: { mprFires, classicPureFires, classicConfFires, overlapFires }, books: {} };
+  const summary: any = { fires: { mprFires, classicPureFires, overlapFires, overlapConfFires, confFires }, books: {} };
   for (const bn of BOOKS) {
     const b = books[bn];
     const trades = b.trades;
