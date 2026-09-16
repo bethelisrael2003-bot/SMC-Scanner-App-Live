@@ -13,3 +13,4 @@ android/local.properties
 # App session data
 capital_session.json
 keystore_pw.txt
+replay/data/
