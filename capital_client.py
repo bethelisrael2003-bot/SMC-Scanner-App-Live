@@ -111,7 +111,9 @@ class CapitalClient:
         return None
 
     def get_candles(self, pair, timeframe="1h", count=120):
-        """Fetch OHLC candles. Returns list newest-first, converted to {t,o,h,l,c}.
+        """Fetch OHLC candles. Returns list OLDEST-FIRST (ascending timestamps,
+        last element = current in-progress bar) — Capital.com's native order,
+        verified against their API docs and raw probes 2026-09-15/16.
         Uses bid price for close calculations.
         """
         epic = EPICS.get(pair)
@@ -149,15 +151,24 @@ class CapitalClient:
             except (KeyError, TypeError):
                 continue
 
-        # Newest first (consistent with old format)
+        # HARDENING (2026-09-16): never trust wire order — one descending
+        # response was observed in ~20 probes. Sort by timestamp so the list
+        # is ALWAYS oldest-first (last element = current bar).
+        candles.sort(key=lambda x: x.get("t") or "")
+
+        # Raw response order = ascending (oldest first). Returned as-is.
         return candles
 
     def get_candles_oldest_first(self, pair, timeframe="1h", count=120):
-        """Fetch candles oldest-first (for indicator calculations)."""
-        candles = self.get_candles(pair, timeframe, count)
-        if candles:
-            return candles[::-1]  # reverse to oldest-first
-        return None
+        """Fetch candles oldest-first (for indicator calculations).
+
+        2026-09-16 FIX: this method used to reverse the response, which
+        inverted time for every consumer (the same bug as server.ts —
+        Capital.com already returns oldest-first, so the reversal produced
+        newest-first). It now returns the native ascending order. Any
+        backtest run before this fix was computed on inverted data.
+        """
+        return self.get_candles(pair, timeframe, count)
 
     def get_all_prices(self):
         """Fetch live prices for all watchlist pairs at once.
