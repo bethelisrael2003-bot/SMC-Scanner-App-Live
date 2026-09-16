@@ -1,7 +1,7 @@
 ╔══════════════════════════════════════════════════════════════════╗
 ║                                                                  ║
 ║   SMC SCANNER SYSTEM — LIVE CODE REFERENCE                       ║
-║   Accurate as of: Sep 16, 2026 (candle-array inversion fixed)    ║
+║   Accurate as of: Sep 16, 2026 PM (classic shadow mode live)    ║
 ║   This document describes what the server ACTUALLY does.         ║
 ║   No aspirational rules. No "should be." Only what runs.         ║
 ║                                                                  ║
@@ -394,6 +394,30 @@ Signal ↔ trade linkage (2026-09-15):
   - Historical trades were backfilled by pair+direction+timestamp
     (±10 s) via /api/admin/backfill-signal-links — deterministic, no
     price matching.
+
+CLASSIC DETECTOR SHADOW MODE (2026-09-16, deployed, PASSIVE):
+  - findClassicSetup (classicSetup.ts) runs alongside MPR on every
+    background scan. Config: conf_h1_sweep — CHOCH/BOS prior = H1 trend
+    (live-system semantics), SL anchor = SWEEP EXTREME (user decision,
+    2026-09-16: sweep anchor chosen over POI far edge; replay favored it
+    +5.8 to +6.6R vs +2.5 to +3.3R).
+  - Sequence detected: H4 liquidity sweep (8-bar lookback) → M15 CHOCH/BOS
+    after the sweep (within 24h) → return to H4 OB/FVG → M15 confirmation
+    candle. Entry at confirmation close; SL beyond sweep wick + 0.15 ATR
+    buffer (0.3 ATR floor); TP 1.5R/2.5R.
+  - PASSIVE ONLY: no trades, no signals, no notifications. Counters in the
+    persisted funnel: classic.confluencePassed / classic.fired /
+    classic.wouldTrade (fired + entry-guard + RR parity). Exposed in
+    /api/health as classicShadow. Unit tests: classic.test.ts (21 checks).
+  - Live deployment of the classic path as a second setup type is a
+    SEPARATE, PENDING decision. Replay evidence lives on branch
+    analysis/mpr-vs-classic (conf variants positive, n=14-20;
+    classic_pure rejected at -31R).
+
+STAGED LIMIT-ORDER ENGINE FOR MPR: design drafted (see
+STAGED_LIMIT_ORDER_DESIGN.md), NOT deployed, NOT approved. Replay evidence:
+at-market fills degrade winners to median ~0.5R vs 1.5R plan; limit fills
+restore full R at the cost of a 40% fill rate (12 vs 26 trades, 90d).
 
 FILL-DRIFT TELEMETRY (2026-09-15, pure observability):
   - Every trade opened after this deploy carries fillDriftAtr: the signed

@@ -96,7 +96,7 @@ export function classifyTrend(candles: Candle[], lookback = 2) {
   return { trend: "RANGE", highs, lows };
 }
 
-function findLiquidityPools(candles: Candle[], tolPct = 0.0015) {
+export function findLiquidityPools(candles: Candle[], tolPct = 0.0015) {
   const pools: any[] = [];
   const last = candles[candles.length - 1].close;
   const window = candles.slice(-30);

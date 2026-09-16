@@ -8,6 +8,7 @@ import cors from "cors";
 import { initializeApp, cert } from 'firebase-admin';
 import { getMessaging } from 'firebase-admin/messaging';
 import { findMomentumPauseSetup } from "./momentumPauseRetest";
+import { findClassicSetup } from "./classicSetup";
 
 dotenv.config();
 
@@ -67,6 +68,7 @@ const EMPTY_GATE_STATS = () => ({
   scannerSkips: { sessionOff: 0, eodLockout: 0, openPosition: 0, cooldown: 0, sameSetup: 0, gradeFilter: 0, entryGuard: 0 },
   dataGuard: { h1Incoherent: 0, m15Incoherent: 0, h4Incoherent: 0, h1StaleAge: 0 },
   mpr: { patternsDetected: 0, passedFilter: 0, blockedWide: 0, blockedStale: 0, noPattern: 0 },
+  classic: { confluencePassed: 0, fired: 0, wouldTrade: 0 },
 });
 let gateStats: any = EMPTY_GATE_STATS();
 let gateStatsDirty = false;
@@ -123,6 +125,9 @@ const OBS_VERSION = "2026-09-15.2";
 // 2026-09-15 ops tooling: /api/admin/close-trade (manual close at market,
 // spread-aware, honest accounting, audited closeReason)
 const OPS_VERSION = "2026-09-15.1";
+// 2026-09-16 classic-detector shadow mode: PASSIVE counters only (conf_h1_sweep
+// config), no trades, no signals, no notifications. User-approved.
+const SHADOW_VERSION = "2026-09-16.1";
 // Clean MPR sample boundary — only trades OPENED after this instant count
 // toward the post-fix sample. Moved to the inversion-fix deploy (user
 // decision, 2026-09-16): every prior trade was analyzed on time-inverted
@@ -1167,6 +1172,9 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
     }
   }
 
+  // Was there a REAL POI before the derived fallback? (classic-shadow parity)
+  const poiOriginallyValid = !!(poi && poi.valid);
+
   // Fallback POI if none found, so SL/TP can still be derived safely
   if (!poi || !poi.valid) {
     track("blocked", "poi_none");
@@ -1438,6 +1446,51 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
     }
     isFailedSetup = true;
     result.setupType = setupType;
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // CLASSIC SHADOW MODE (2026-09-16, user-approved, PASSIVE ONLY)
+  // conf_h1_sweep config: CHOCH/BOS prior = H1 trend, SL anchor = sweep
+  // extreme (user decision 2026-09-16). Runs alongside MPR every scan and
+  // counts only. NO trades, NO signals, NO notifications. Live deployment
+  // of the classic path is a separate, pending decision.
+  // ════════════════════════════════════════════════════════════════
+  const classicConfluenceOk =
+    (!live || verifySpread(pair, live.spread_pips).status !== "FAIL") &&
+    h1Trend !== "RANGE" && h1Trend !== "UNCLEAR" &&
+    !(dTrend !== "RANGE" && dTrend !== "UNCLEAR" && dTrend !== h1Trend) &&
+    pdZone.zone !== "COMPRESSED" && pdZone.zone !== "EQ" &&
+    !((h1Trend === "BULLISH" && pdZone.zone === "PREMIUM") || (h1Trend === "BEARISH" && pdZone.zone === "DISCOUNT")) &&
+    poiOriginallyValid && freshness !== "DEAD";
+
+  if (classicConfluenceOk) track("classic", "confluencePassed");
+
+  const classicShadow = classicConfluenceOk
+    ? findClassicSetup(
+        h4Oldest.map((c: any) => ({ open: c.o, high: c.h, low: c.l, close: c.c, time: c.t })),
+        m15Oldest.map((c: any) => ({ open: c.o, high: c.h, low: c.l, close: c.c, time: c.t })),
+        hAtr,
+        direction,
+        { structPriorTrend: h1Trend, slAnchor: "sweep" },
+      )
+    : null;
+
+  if (classicShadow) {
+    track("classic", "fired");
+    // Would it have traded? Entry-guard + RR parity with the live MPR path.
+    const shadowFill = live
+      ? (classicShadow.direction === "BUY" ? live.ask : live.bid)
+      : classicShadow.entry;
+    const shadowRr = classicShadow.slDistance > 0
+      ? Math.abs(classicShadow.tp1 - classicShadow.entry) / classicShadow.slDistance
+      : 0;
+    const shadowInBand = classicShadow.direction === "BUY"
+      ? shadowFill > classicShadow.sl && shadowFill < classicShadow.tp1
+      : shadowFill < classicShadow.sl && shadowFill > classicShadow.tp1;
+    if (shadowInBand && Number(shadowRr.toFixed(2)) >= 1.5) {
+      track("classic", "wouldTrade");
+    }
+    console.log(`[CLASSIC SHADOW] ${pair} ${classicShadow.direction} ${classicShadow.structType} (prior ${classicShadow.structPrior}) — would-fire: entry ${classicShadow.entry}, sl ${classicShadow.sl} (${classicShadow.slAtr.toFixed(2)}x ATR, ${classicShadow.slAnchor} anchor), tp1 ${classicShadow.tp1}. PASSIVE — no trade taken.`);
   }
 
   const slDist = Math.abs(entry - sl);
@@ -3176,6 +3229,14 @@ app.get("/api/health", (req, res) => {
       fixes: FIXES_VERSION,
       observability: OBS_VERSION,
       ops: OPS_VERSION,
+      shadow: SHADOW_VERSION,
+    },
+
+    classicShadow: {
+      version: SHADOW_VERSION,
+      config: "conf_h1_sweep (CHOCH/BOS prior = H1 trend, SL anchor = sweep extreme)",
+      mode: "PASSIVE — no trades, no signals, no notifications",
+      ...gateStats.classic,
     },
 
     cleanSampleSince: CLEAN_SAMPLE_SINCE,

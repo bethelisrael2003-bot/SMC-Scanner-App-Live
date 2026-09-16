@@ -142,7 +142,7 @@ function simulateTrade(
 /* ── books ─────────────────────────────────────────────────────────────── */
 
 const CONF_VARIANTS = ["conf_m15_sweep", "conf_h1_sweep", "conf_h1_poi", "conf_m15_poi"] as const;
-const BOOKS = ["mpr", "classic_pure", ...CONF_VARIANTS, "combined"] as const;
+const BOOKS = ["mpr", "mpr_limit", "classic_pure", ...CONF_VARIANTS, "combined"] as const;
 type BookName = typeof BOOKS[number];
 interface BookState {
   trades: TradeRec[];
@@ -184,8 +184,12 @@ function loadBars(epic: string, tf: string): Bar[] {
 
 function main() {
   const books: Record<BookName, BookState> = Object.fromEntries(
-    (["mpr", "classic_pure", ...CONF_VARIANTS, "combined"] as string[]).map(b => [b, newBook()])
+    (["mpr", "mpr_limit", "classic_pure", ...CONF_VARIANTS, "combined"] as string[]).map(b => [b, newBook()])
   ) as Record<BookName, BookState>;
+  // Staged-limit book state: one pending order per pair (MPR plan entry =
+  // pause midpoint, 4h expiry = 16 M15 bars, cancelled if price crosses SL
+  // before filling; BUY fills when ask touches the limit, SELL when bid does).
+  const mprPending = new Map<string, { idx: number; dir: "BUY" | "SELL"; limit: number; sl: number; tp1: number }>();
   const confFires: Record<string, number> = { conf_m15_sweep: 0, conf_h1_sweep: 0, conf_h1_poi: 0, conf_m15_poi: 0 };
   let overlapFires = 0, mprFires = 0, classicPureFires = 0, overlapConfFires = 0;
 
@@ -312,6 +316,39 @@ function main() {
 
       if (mpr && (mprBook.cooldownUntil.get(pair) ?? 0) <= i) {
         tryOpen(mprBook, "mpr", pair, m15, i, "MPR", direction, mpr.entry, mpr.sl, mpr.tp1, mprPlanRr, hAtr);
+      }
+
+      /* Staged-limit MPR book: pending at the pause midpoint */
+      {
+        const lb = books.mpr_limit;
+        const pend = mprPending.get(pair);
+        if (pend) {
+          const pbar = m15[i];
+          const age = i - pend.idx;
+          if (age > 16) {
+            mprPending.delete(pair); bump(lb, "expired");
+          } else if (pend.dir === "BUY" ? pbar.l <= pend.sl : pbar.h >= pend.sl) {
+            mprPending.delete(pair); bump(lb, "cancelledSL");
+          } else if (pend.dir === "BUY" ? pbar.al <= pend.limit : pbar.ah >= pend.limit) {
+            // Filled at the limit price (paper semantics: touch = fill at limit)
+            mprPending.delete(pair);
+            const sim = simulateTrade(m15, i, pend.dir, pend.limit, pend.sl, pend.tp1);
+            const risk = Math.abs(pend.limit - pend.sl);
+            lb.trades.push({
+              book: "mpr_limit", pair, direction: pend.dir, setup: "MPR",
+              time: m15[i].t, entry: pend.limit, sl: pend.sl, tp1: pend.tp1, risk,
+              planEntry: pend.limit, fillDriftAtr: 0, slAtr: Number((risk / hAtr).toFixed(2)),
+              closeTime: sim.closeTime, exit: sim.exit, r: Number(sim.r.toFixed(2)),
+              reason: sim.reason, holdH: Number(sim.holdH.toFixed(1)),
+            });
+            lb.cooldownUntil.set(pair, sim.closeIdx + 2);
+            bump(lb, "filled");
+          }
+        }
+        if (mpr && !mprPending.has(pair) && (lb.cooldownUntil.get(pair) ?? 0) <= i && mprPlanRr >= 1.5) {
+          mprPending.set(pair, { idx: i, dir: direction, limit: mpr.entry, sl: mpr.sl, tp1: mpr.tp1 });
+          bump(lb, "pendings");
+        }
       }
       if (classicPure && pureDir && (cpBook.cooldownUntil.get(pair) ?? 0) <= i) {
         tryOpen(cpBook, "classic_pure", pair, m15, i, "Classic", pureDir, classicPure.entry, classicPure.sl, classicPure.tp1, 1.5, hAtr);
