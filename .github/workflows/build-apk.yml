@@ -34,10 +34,14 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
 
-      - name: Create local.properties
+      - name: Create local.properties (signing credentials from Actions secrets)
         run: |
-          echo "RELEASE_STORE_PASSWORD=WhJ3Zqn9w9nclShz" > android/local.properties
-          echo "RELEASE_KEY_PASSWORD=WhJ3Zqn9w9nclShz" >> android/local.properties
+          if [ -z "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" ]; then
+            echo "::error::ANDROID_KEYSTORE_PASSWORD secret is not set. Add it in repo Settings > Secrets and variables > Actions before pushing to main."
+            exit 1
+          fi
+          echo "RELEASE_STORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" > android/local.properties
+          echo "RELEASE_KEY_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> android/local.properties
 
       - name: Build Release APK
         run: cd android && ./gradlew assembleRelease
