@@ -2559,7 +2559,7 @@ app.post("/api/device/register", (req, res) => {
 });
 
 // Manual Push Notification Test Endpoint
-// Protected by CRON_SECRET (same pattern as /api/cron/trigger).
+// Protected by ADMIN_SECRET (requireAdmin, 2026-09-17 — fail-closed).
 // Triggers a dummy push notification so you can verify the pipeline
 // (server → Firebase → phone) without waiting for a live signal.
 app.post("/api/test-push", async (req, res) => {
@@ -3143,7 +3143,7 @@ async function startServer() {
 
 startServer();
 
-// Temporary restore endpoint — protected by CRON_SECRET
+// Temporary restore endpoint — protected by ADMIN_SECRET (requireAdmin, 2026-09-17)
 app.post("/api/performance/restore", async (req, res) => {
   if (!requireAdmin(req, res)) return;
   try {
