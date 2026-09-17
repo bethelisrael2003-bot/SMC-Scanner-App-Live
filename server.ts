@@ -119,7 +119,7 @@ async function flushGateStats() {
 const MPR_VERSION = "2026-09-11.1";
 // 2026-09-11: data guards + entry guard + honest close accounting
 // 2026-09-16.1: candle-array inversion fix — root cause of the wide-SL saga
-const FIXES_VERSION = "2026-09-16.1";
+const FIXES_VERSION = "2026-09-17.2";
 // 2026-09-11 observability deploy: signal_id linkage + signal outcomes + gate funnel
 // 2026-09-15.2: + fillDriftAtr on every trade (pure observability)
 const OBS_VERSION = "2026-09-15.2";
@@ -955,6 +955,22 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
   const h4Oldest = h4;
   const h1Oldest = h1;
   const m15Oldest = m15;
+  // M15 CLOSED-CANDLE FIX (2026-09-17): Capital.com includes the in-progress
+  // M15 bar as the FINAL element — verified live 2026-09-17 09:32-09:39 UTC:
+  // only the last element's close mutates between probes (1.14755 -> ... ->
+  // 1.14748 over 6+ minutes without rolling; a closed candle cannot change).
+  // All M15 JUDGMENTS (confirmation candle, sweep, structure, momentum, RSI,
+  // EMA, M15-OB fallback, classic shadow) must evaluate CLOSED candles only —
+  // standard SMC practice: never judge strength or classify breaks on a
+  // forming bar. Positional drop of the final element, NOT timestamp-based:
+  // this feed's bar stamps run ~45-60 min AHEAD of wall-clock UTC (observed
+  // on both the raw API and converted data), so timestamp closure tests would
+  // wrongly discard closed bars. Residual risk of the positional drop: if the
+  // feed ever omits the forming bar, the newest CLOSED bar is dropped and the
+  // prior one judged — briefly stale but still a completed candle. The data
+  // guard (feedCoherent M15) intentionally keeps the forming bar (live-price
+  // coherence check).
+  const m15Closed = m15Oldest ? m15Oldest.slice(0, -1) : m15Oldest;
 
   const live = await getLivePrice(pair);
   const last = live ? live.mid : h1Oldest[h1Oldest.length - 1].c;
@@ -1154,8 +1170,8 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
   }
 
   if (!poi || !poi.valid) {
-    if (m15Oldest && m15Oldest.length >= 20) {
-      poi = findOrderBlock(m15Oldest, h1Trend, atr(m15Oldest, 14) || hAtr);
+    if (m15Closed && m15Closed.length >= 20) {
+      poi = findOrderBlock(m15Closed, h1Trend, atr(m15Closed, 14) || hAtr);
       poiSource = "M15";
     }
   }
@@ -1230,7 +1246,7 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
   // Core SMC gates (trend, premium/discount, POI, M15 entry candle, RR) remain.
 
   // M15 Confirmation
-  if (!m15Oldest || m15Oldest.length < 10) {
+  if (!m15Closed || m15Closed.length < 10) {
     track("blocked", "m15_noData");
     result.checks.push(`[X] Insufficient M15 data`);
     isFailedSetup = true;
@@ -1240,12 +1256,12 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
   let m15Struct: any = null;
   let entryCandleInfo = { valid: false, reason: "No data" };
 
-  if (m15Oldest && m15Oldest.length >= 10) {
+  if (m15Closed && m15Closed.length >= 10) {
     // M15 Sweep check
-    const mPools = findLiquidityPools(m15Oldest);
+    const mPools = findLiquidityPools(m15Closed);
     const mTestPools = direction === "BUY" ? mPools.sellPools : mPools.buyPools;
     for (const pool of mTestPools) {
-      const sweep = detectSweep(m15Oldest, pool, 6);
+      const sweep = detectSweep(m15Closed, pool, 6);
       if (sweep.swept) {
         m15Swept = true;
         break;
@@ -1253,14 +1269,14 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
     }
 
     // M15 Break of structure
-    const m15TrendInfo = classifyTrend(m15Oldest, 2);
-    m15Struct = detectStructureBreak(m15Oldest, m15TrendInfo.highs, m15TrendInfo.lows, h1Trend);
+    const m15TrendInfo = classifyTrend(m15Closed, 2);
+    m15Struct = detectStructureBreak(m15Closed, m15TrendInfo.highs, m15TrendInfo.lows, h1Trend);
 
     // Entry Candle
-    entryCandleInfo = checkEntryCandle(m15Oldest, direction);
+    entryCandleInfo = checkEntryCandle(m15Closed, direction);
   }
 
-  if (m15Oldest && m15Oldest.length >= 10) {
+  if (m15Closed && m15Closed.length >= 10) {
     if (!entryCandleInfo.valid) {
       track("blocked", "m15_noConfirm");
       result.checks.push(`[X] M15 entry candle: ${entryCandleInfo.reason}`);
@@ -1282,8 +1298,8 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
     }
 
     // Momentum
-    const mAtrVal = atr(m15Oldest, 14) || hAtr;
-    const momInfo = checkMomentum(m15Oldest, direction, mAtrVal);
+    const mAtrVal = atr(m15Closed, 14) || hAtr;
+    const momInfo = checkMomentum(m15Closed, direction, mAtrVal);
     result.checks.push(`[${momInfo.valid ? "OK" : " "}] Momentum: ${momInfo.detail}`);
   }
 
@@ -1327,8 +1343,8 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
   }
 
   // 6. RSI extreme
-  if (m15Oldest && m15Oldest.length >= 15) {
-    const rVal = rsi(m15Oldest.map(c => c.c), 14);
+  if (m15Closed && m15Closed.length >= 15) {
+    const rVal = rsi(m15Closed.map(c => c.c), 14);
     result.rsi = rVal || undefined;
     if (rVal) {
       if (direction === "BUY" && rVal <= 35) {
@@ -1342,8 +1358,8 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
   }
 
   // 7. EMA 20/50 crossover
-  if (m15Oldest && m15Oldest.length >= 50) {
-    const m15Closes = m15Oldest.map(c => c.c);
+  if (m15Closed && m15Closed.length >= 50) {
+    const m15Closes = m15Closed.map(c => c.c);
     const ema20 = ema(m15Closes, 20);
     const ema50 = ema(m15Closes, 50);
     if (ema20 && ema50) {
@@ -1474,7 +1490,7 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
   const classicShadow = classicConfluenceOk
     ? findClassicSetup(
         h4Oldest.map((c: any) => ({ open: c.o, high: c.h, low: c.l, close: c.c, time: c.t })),
-        m15Oldest.map((c: any) => ({ open: c.o, high: c.h, low: c.l, close: c.c, time: c.t })),
+        m15Closed.map((c: any) => ({ open: c.o, high: c.h, low: c.l, close: c.c, time: c.t })),
         hAtr,
         direction,
         { structPriorTrend: h1Trend, slAnchor: "sweep" },

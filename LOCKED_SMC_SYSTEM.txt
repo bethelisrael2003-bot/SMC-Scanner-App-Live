@@ -1,7 +1,7 @@
 ╔══════════════════════════════════════════════════════════════════╗
 ║                                                                  ║
 ║   SMC SCANNER SYSTEM — LIVE CODE REFERENCE                       ║
-║   Accurate as of: Sep 17, 2026 (admin auth enforced)            ║
+║   Accurate as of: Sep 17, 2026 PM (M15 closed-candle fix live)  ║
 ║   This document describes what the server ACTUALLY does.         ║
 ║   No aspirational rules. No "should be." Only what runs.         ║
 ║                                                                  ║
@@ -82,11 +82,25 @@ For a trade to open on a pair, every gate below must pass:
     imbalance). If POI is DEAD (price traded through with a strong
     body candle) → WAIT.
 
-  GATE 9: M15 ENTRY CANDLE
-    The most recent M15 candle must confirm entry direction via ONE of:
+  GATE 9: M15 ENTRY CANDLE (CLOSED-CANDLE FIX 2026-09-17)
+    The most recent CLOSED M15 candle must confirm entry direction via
+    ONE of:
       • Strong body ≥ 60% of range in trade direction
       • Engulfing the previous candle fully
       • Long wick rejection (wick > 50% of range)
+    FIX: Capital.com includes the in-progress M15 bar as the final
+    element of every response (verified live: only the last element's
+    close mutates; a closed candle cannot change). Until 2026-09-17 the
+    gate judged the FORMING candle for ~93% of every 15-minute window —
+    a half-built candle almost never shows a 60% body or wick rejection,
+    which inflated m15_noConfirm to 76-91% of all scans. All M15
+    judgments (confirmation, sweep, structure, momentum, RSI, EMA, M15
+    OB fallback, classic shadow) now evaluate m15Closed = all but the
+    final element. Positional, not timestamp-based: this feed's bar
+    stamps run ~45-60 min AHEAD of wall-clock UTC (observed on raw and
+    converted data), so timestamp closure tests would discard closed
+    bars. The M15 data guard intentionally still uses the forming bar
+    (live-price coherence).
 
   GATE 10: MOMENTUM-PAUSE-RETEST PATTERN (Aggressive setup, MPR module)
     Implemented in momentumPauseRetest.ts (findMomentumPauseSetup),
