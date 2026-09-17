@@ -5,6 +5,7 @@ import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import mongoose from "mongoose";
 import cors from "cors";
+import * as crypto from "crypto";
 import { initializeApp, cert } from 'firebase-admin';
 import { getMessaging } from 'firebase-admin/messaging';
 import { findMomentumPauseSetup } from "./momentumPauseRetest";
@@ -128,6 +129,11 @@ const OPS_VERSION = "2026-09-15.1";
 // 2026-09-16 classic-detector shadow mode: PASSIVE counters only (conf_h1_sweep
 // config), no trades, no signals, no notifications. User-approved.
 const SHADOW_VERSION = "2026-09-16.1";
+// 2026-09-17 admin authentication: all mutating endpoints require the
+// x-admin-secret header to match ADMIN_SECRET (env). FAIL-CLOSED: if the
+// secret is not configured, mutations are refused (503) — protecting the
+// dataset outranks convenience. 2026-09-17 audit finding #4.
+const SECURITY_VERSION = "2026-09-17.1";
 // Clean MPR sample boundary — only trades OPENED after this instant count
 // toward the post-fix sample. Moved to the inversion-fix deploy (user
 // decision, 2026-09-16): every prior trade was analyzed on time-inverted
@@ -2503,9 +2509,49 @@ setTimeout(() => {
 
 // REST Api Endpoints
 
+// ── Admin authentication (2026-09-17, audit finding #4) ────────────────────
+// All mutating endpoints require the x-admin-secret header (or adminSecret
+// body field / ?secret= query, for curl convenience) to match ADMIN_SECRET.
+// FAIL-CLOSED: with ADMIN_SECRET unset the server refuses mutations entirely.
+const ADMIN_SECRET = process.env.ADMIN_SECRET || "";
+const MAX_DEVICE_TOKENS = 100;
+
+function secretMatches(provided: unknown): boolean {
+  if (typeof provided !== "string" || provided.length === 0) return false;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(ADMIN_SECRET);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function requireAdmin(req: any, res: any): boolean {
+  if (!ADMIN_SECRET) {
+    console.warn("[ADMIN WARNING] Mutation refused: ADMIN_SECRET is not configured on the server. Set it in Render → Environment.");
+    res.status(503).json({ error: "Admin operations disabled: ADMIN_SECRET is not configured on the server." });
+    return false;
+  }
+  const provided = (req.headers && (req.headers["x-admin-secret"] || req.headers["X-Admin-Secret"]))
+    || (req.body && req.body.adminSecret)
+    || req.query.secret;
+  if (!secretMatches(provided)) {
+    console.warn(`[ADMIN WARNING] Unauthorized admin mutation attempt (${req.method} ${req.path}).`);
+    res.status(401).json({ error: "Unauthorized: invalid or missing admin secret (x-admin-secret header)." });
+    return false;
+  }
+  return true;
+}
+
 app.post("/api/device/register", (req, res) => {
+  // Client endpoint (called by the app itself) — NOT admin-gated (the secret
+  // would ship inside the APK, and installed APKs send no header). Hardened
+  // instead: format validation + bounded registration list (2026-09-17 audit).
   const { token } = req.body;
-  if (token && !deviceTokens.includes(token)) {
+  if (typeof token !== "string" || token.length < 20 || token.length > 512) {
+    return res.status(400).json({ error: "Invalid token format" });
+  }
+  if (!deviceTokens.includes(token)) {
+    if (deviceTokens.length >= MAX_DEVICE_TOKENS) {
+      deviceTokens.shift(); // bound the list: drop the oldest registration
+    }
     deviceTokens.push(token);
     console.log(`[PUSH] Registered device token. Total registered devices: ${deviceTokens.length}`);
   }
@@ -2517,6 +2563,7 @@ app.post("/api/device/register", (req, res) => {
 // Triggers a dummy push notification so you can verify the pipeline
 // (server → Firebase → phone) without waiting for a live signal.
 app.post("/api/test-push", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
   const dummySignal = {
     pair: "TEST/USD",
     direction: "BUY",
@@ -2612,6 +2659,7 @@ app.get("/api/scanner/status", (req, res) => {
 
 // Sync Manual Trade entry from UI
 app.post("/api/performance/enter", (req, res) => {
+  if (!requireAdmin(req, res)) return;
   try {
     const { pair, direction, entryPrice, sl, tp1, tp2, tp3, grade } = req.body;
     if (!pair || !direction || !entryPrice || !sl || !tp1) {
@@ -2653,6 +2701,7 @@ app.post("/api/performance/enter", (req, res) => {
 
 // Force Delete/Reset performance trade memory
 app.post("/api/performance/clear", (req, res) => {
+  if (!requireAdmin(req, res)) return;
   try {
     saveTrades([]);
     saveSignals([]);
@@ -2825,6 +2874,7 @@ app.get("/api/news", async (req, res) => {
 
 
 app.post("/api/admin/cleanup", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
   try {
     signalsMemory = [];
     tradesMemory = [];
@@ -2842,6 +2892,7 @@ app.post("/api/admin/cleanup", async (req, res) => {
 // Flagged trades remain visible in history but are EXCLUDED from win-rate/R
 // statistics (user decision 2026-09-11: annotate, don't delete).
 app.post("/api/admin/annotate-trade", (req, res) => {
+  if (!requireAdmin(req, res)) return;
   try {
     const { id, dataQuality, note } = req.body || {};
     if (!id || !dataQuality) {
@@ -2866,6 +2917,7 @@ app.post("/api/admin/annotate-trade", (req, res) => {
 // trade are created milliseconds apart in the same scan cycle, so this match
 // is deterministic — no price-matching ambiguity.
 app.post("/api/admin/backfill-signal-links", (req, res) => {
+  if (!requireAdmin(req, res)) return;
   try {
     const trades = loadTrades();
     const signals = loadSignals();
@@ -2903,6 +2955,7 @@ app.post("/api/admin/backfill-signal-links", (req, res) => {
 // WIN/LOSS by P&L sign, closeReason + closeNote audited on the record.
 // Refuses to close without a verified live price.
 app.post("/api/admin/close-trade", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
   try {
     const { id, reason, note } = req.body || {};
     if (!id) return res.status(400).json({ error: "'id' is required." });
@@ -2948,6 +3001,7 @@ app.post("/api/admin/close-trade", async (req, res) => {
 // stats (user decision, 2026-09-16). Earlier 'corrupted-stale-feed' flags
 // are re-annotated with the true root cause.
 app.post("/api/admin/flag-inverted-era", (req, res) => {
+  if (!requireAdmin(req, res)) return;
   try {
     const boundary = (req.body && req.body.boundary) || CLEAN_SAMPLE_SINCE;
     const boundaryMs = new Date(boundary).getTime();
@@ -3091,6 +3145,7 @@ startServer();
 
 // Temporary restore endpoint — protected by CRON_SECRET
 app.post("/api/performance/restore", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
   try {
     const trades = req.body.trades;
     if (!Array.isArray(trades)) return res.status(400).json({ error: "trades array required" });
@@ -3230,6 +3285,14 @@ app.get("/api/health", (req, res) => {
       observability: OBS_VERSION,
       ops: OPS_VERSION,
       shadow: SHADOW_VERSION,
+      security: SECURITY_VERSION,
+    },
+
+    adminAuth: {
+      enforced: true,
+      secretConfigured: !!ADMIN_SECRET,
+      protectedEndpoints: 9,
+      note: "Mutating endpoints require the x-admin-secret header (ADMIN_SECRET env). Fail-closed when unconfigured.",
     },
 
     classicShadow: {

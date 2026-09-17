@@ -1,7 +1,7 @@
 ╔══════════════════════════════════════════════════════════════════╗
 ║                                                                  ║
 ║   SMC SCANNER SYSTEM — LIVE CODE REFERENCE                       ║
-║   Accurate as of: Sep 16, 2026 PM (classic shadow mode live)    ║
+║   Accurate as of: Sep 17, 2026 (admin auth enforced)            ║
 ║   This document describes what the server ACTUALLY does.         ║
 ║   No aspirational rules. No "should be." Only what runs.         ║
 ║                                                                  ║
@@ -413,6 +413,24 @@ CLASSIC DETECTOR SHADOW MODE (2026-09-16, deployed, PASSIVE):
     SEPARATE, PENDING decision. Replay evidence lives on branch
     analysis/mpr-vs-classic (conf variants positive, n=14-20;
     classic_pure rejected at -31R).
+
+A17. ADMIN AUTHENTICATION (2026-09-17, security audit finding #4)
+------------------------------------------------------------------------
+All nine mutating endpoints require the x-admin-secret header (or
+adminSecret body field / ?secret= query) matching ADMIN_SECRET (Render
+env). FAIL-CLOSED: with ADMIN_SECRET unset, mutations return 503 — the
+dataset outranks convenience. Timing-safe comparison. Protected:
+  /api/admin/cleanup, annotate-trade, backfill-signal-links,
+  close-trade, flag-inverted-era
+  /api/performance/enter, clear, restore
+  /api/test-push (was unprotected despite its comment claiming otherwise)
+/api/device/register is NOT gated (client endpoint — the secret would
+ship inside the APK, and installed APKs send no header). Hardened
+instead: token format validation + registration list capped at 100
+(oldest dropped). The Performance tab's "Reset Data" button was removed
+from the UI in the same deploy — data resets are server-admin-only.
+Verified in /api/health: build.security marker + adminAuth block
+(enforced, secretConfigured, protectedEndpoints).
 
 STAGED LIMIT-ORDER ENGINE FOR MPR: design drafted (see
 STAGED_LIMIT_ORDER_DESIGN.md), NOT deployed, NOT approved. Replay evidence:

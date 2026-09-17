@@ -48,11 +48,7 @@ export function PerformanceTab({ performanceStats, perfLoading, onRefresh }: Per
         <button onClick={() => onRefresh()} disabled={perfLoading} className="flex-1 py-2.5 bg-zinc-850 hover:bg-zinc-800 text-zinc-300 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 border border-zinc-800 transition-all cursor-pointer active:scale-[0.98]">
           <RotateCw className={`w-3.5 h-3.5 ${perfLoading ? "animate-spin" : ""}`} /><span>Refresh Stats</span>
         </button>
-        <button onClick={async () => {
-          if (window.confirm("Are you sure you want to clear all historical and active trade tracking memory on the server? This cannot be undone.")) {
-            try { await fetch(`${API_BASE_URL}/api/performance/clear`, { method: "POST" }); onRefresh(); } catch (err) { console.error(err); }
-          }
-        }} className="py-2.5 px-3 bg-red-500/10 hover:bg-red-500/20 text-red-500 hover:text-red-400 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border border-red-500/20 transition-all cursor-pointer active:scale-[0.98]">Reset Data</button>
+        <span className="py-2.5 px-3 rounded-xl text-[10px] font-mono text-zinc-600 border border-zinc-800/60 flex items-center" title="Data resets are admin-only (server-side x-admin-secret) as of 2026-09-17 — protects the sample dataset from accidental or unauthorized wipes.">🔒 Reset is admin-only</span>
       </div>
     </div>
   );
