@@ -69,7 +69,7 @@ const EMPTY_GATE_STATS = () => ({
   scannerSkips: { sessionOff: 0, eodLockout: 0, openPosition: 0, cooldown: 0, sameSetup: 0, gradeFilter: 0, entryGuard: 0 },
   dataGuard: { h1Incoherent: 0, m15Incoherent: 0, h4Incoherent: 0, h1StaleAge: 0 },
   mpr: { patternsDetected: 0, passedFilter: 0, blockedWide: 0, blockedStale: 0, noPattern: 0 },
-  classic: { confluencePassed: 0, fired: 0, wouldTrade: 0 },
+  classic: { confluencePassed: 0, fired: 0, wouldTrade: 0, episodes: 0 },
 });
 let gateStats: any = EMPTY_GATE_STATS();
 let gateStatsDirty = false;
@@ -119,7 +119,7 @@ async function flushGateStats() {
 const MPR_VERSION = "2026-09-11.1";
 // 2026-09-11: data guards + entry guard + honest close accounting
 // 2026-09-16.1: candle-array inversion fix — root cause of the wide-SL saga
-const FIXES_VERSION = "2026-09-17.2";
+const FIXES_VERSION = "2026-09-17.3";
 // 2026-09-11 observability deploy: signal_id linkage + signal outcomes + gate funnel
 // 2026-09-15.2: + fillDriftAtr on every trade (pure observability)
 const OBS_VERSION = "2026-09-15.2";
@@ -1499,6 +1499,14 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
 
   if (classicShadow) {
     track("classic", "fired");
+    // Episode dedup: a scan-level fire repeats every 60s while a setup
+    // persists. Count a NEW episode only when this pair+direction last fired
+    // more than 15 minutes ago — approximates distinct setups (matches the
+    // replay's once-per-M15-close sampling semantics).
+    const epKey = `${pair}:${classicShadow.direction}`;
+    const lastFire = classicEpisodes.get(epKey) || 0;
+    if (Date.now() - lastFire > 15 * 60 * 1000) track("classic", "episodes");
+    classicEpisodes.set(epKey, Date.now());
     // Would it have traded? Entry-guard + RR parity with the live MPR path.
     const shadowFill = live
       ? (classicShadow.direction === "BUY" ? live.ask : live.bid)
@@ -1530,7 +1538,12 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
   };
 
   if (setupType === "Aggressive") {
-    if (rr < 1.5) {
+    // RR FLOAT-DUST FIX (2026-09-17): TP1 is rounded to 5dp, so the raw
+    // division can yield 1.4999998 for a plan whose published rr is 1.50.
+    // The raw comparison blocked ~40-45% of MPR fires (live funnel 614/1381;
+    // replay: 27/68 raw vs 7/68 with this fix). Compare at the published
+    // precision — identical to the replay's proven semantics.
+    if (Number(rr.toFixed(2)) < 1.5) {
       track("blocked", "rr");
       result.checks.push(`[X] RR 1:${rr.toFixed(1)} < 1:1.5 minimum (Aggressive)`);
       isFailedSetup = true;
@@ -1538,7 +1551,7 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
       result.checks.push(`[OK] RR 1:${rr.toFixed(1)} (Aggressive)`);
     }
   } else {
-    if (rr < 2.0) {
+    if (Number(rr.toFixed(2)) < 2.0) {
       result.checks.push(`[X] RR 1:${rr.toFixed(1)} < 1:2 minimum required`);
       isFailedSetup = true;
     } else {
@@ -2530,6 +2543,8 @@ setTimeout(() => {
 // body field / ?secret= query, for curl convenience) to match ADMIN_SECRET.
 // FAIL-CLOSED: with ADMIN_SECRET unset the server refuses mutations entirely.
 const ADMIN_SECRET = process.env.ADMIN_SECRET || "";
+// Classic-shadow episode tracking: pair+direction -> last fire epoch ms
+const classicEpisodes = new Map<string, number>();
 const MAX_DEVICE_TOKENS = 100;
 
 function secretMatches(provided: unknown): boolean {

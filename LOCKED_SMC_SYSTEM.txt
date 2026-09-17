@@ -1,7 +1,7 @@
 ╔══════════════════════════════════════════════════════════════════╗
 ║                                                                  ║
 ║   SMC SCANNER SYSTEM — LIVE CODE REFERENCE                       ║
-║   Accurate as of: Sep 17, 2026 PM (M15 closed-candle fix live)  ║
+║   Accurate as of: Sep 17, 2026 PM (RR dust fix + M15 fix live) ║
 ║   This document describes what the server ACTUALLY does.         ║
 ║   No aspirational rules. No "should be." Only what runs.         ║
 ║                                                                  ║
@@ -131,9 +131,16 @@ For a trade to open on a pair, every gate below must pass:
     /api/health reports the funnel: patternsDetected, passedFilter,
     blockedWide, blockedStale, noPattern.
 
-  GATE 12: RISK:REWARD
-    RR to TP1 must be ≥ 1:1.5 (lower than the old 1:2 minimum,
-    because aggressive setups have tighter stops and faster targets).
+  GATE 12: RISK:REWARD (FLOAT-DUST FIX 2026-09-17)
+    RR to TP1 must be ≥ 1:1.5, compared at the PUBLISHED precision
+    (Number(rr.toFixed(2)) < 1.5), not the raw float. TP1 is rounded
+    to 5 decimals, so the raw division of two 5dp values can yield
+    1.4999998 for a plan whose published rr is 1.50 — the raw
+    comparison blocked ~40-45% of all MPR fires (live funnel 614/1381
+    on 2026-09-17; replay: 27/68 raw vs 7/68 fixed). Residual ~10%
+    blocks are plans whose TP1 genuinely rounds to 1.49R (odd-tick
+    risk) — correct enforcement; eliminating those requires rounding
+    TP1 away from entry in the module (open design item).
 
 
 ------------------------------------------------------------------------
