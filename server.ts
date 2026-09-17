@@ -128,7 +128,7 @@ const OBS_VERSION = "2026-09-15.2";
 const OPS_VERSION = "2026-09-15.1";
 // 2026-09-16 classic-detector shadow mode: PASSIVE counters only (conf_h1_sweep
 // config), no trades, no signals, no notifications. User-approved.
-const SHADOW_VERSION = "2026-09-16.1";
+const SHADOW_VERSION = "2026-09-17.2";
 // 2026-09-17 admin authentication: all mutating endpoints require the
 // x-admin-secret header to match ADMIN_SECRET (env). FAIL-CLOSED: if the
 // secret is not configured, mutations are refused (503) — protecting the
@@ -1505,8 +1505,10 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
     // replay's once-per-M15-close sampling semantics).
     const epKey = `${pair}:${classicShadow.direction}`;
     const lastFire = classicEpisodes.get(epKey) || 0;
-    if (Date.now() - lastFire > 15 * 60 * 1000) track("classic", "episodes");
+    const isNewEpisode = Date.now() - lastFire > 15 * 60 * 1000;
+    if (isNewEpisode) track("classic", "episodes");
     classicEpisodes.set(epKey, Date.now());
+
     // Would it have traded? Entry-guard + RR parity with the live MPR path.
     const shadowFill = live
       ? (classicShadow.direction === "BUY" ? live.ask : live.bid)
@@ -1519,6 +1521,41 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
       : shadowFill < classicShadow.sl && shadowFill > classicShadow.tp1;
     if (shadowInBand && Number(shadowRr.toFixed(2)) >= 1.5) {
       track("classic", "wouldTrade");
+
+      // SHADOW OUTCOME TRACKING (2026-09-17): on a new wouldTrade episode,
+      // open a passive shadow position tracked forward against live prices
+      // with full trade-management parity (BE at 1:1, staleness 12h/0R,
+      // SL/TP spread-aware, honest R accounting). NO real trade, NO signal,
+      // NO notification. One shadow position per pair (matching the real
+      // one-slot rule); independent of real-trade occupancy (tests the
+      // detector's edge, not the operational constraints).
+      const shadowAlreadyOpen = shadowPositionsMemory.some(sp => sp.pair === pair && sp.status === "open");
+      if (isNewEpisode && !shadowAlreadyOpen) {
+        const risk = Math.abs(shadowFill - classicShadow.sl);
+        const newShadow: ShadowPosition = {
+          id: `shadow_${Date.now()}_${pair.replace("/", "")}`,
+          pair,
+          direction: classicShadow.direction as "BUY" | "SELL",
+          entryPrice: shadowFill,
+          sl: classicShadow.sl,
+          tp1: classicShadow.tp1,
+          initialSl: classicShadow.sl,
+          slDistance: risk,
+          openedAt: new Date().toISOString(),
+          status: "open",
+          breakevenTriggered: false,
+        };
+        const shadows = loadShadowPositions();
+        shadows.push(newShadow);
+        // Cap: keep last 400 resolved + all open
+        if (shadows.length > MAX_SHADOW_POSITIONS) {
+          const resolved = shadows.filter(sp => sp.status !== "open");
+          const stillOpen = shadows.filter(sp => sp.status === "open");
+          shadowPositionsMemory = [...resolved.slice(-400), ...stillOpen];
+        }
+        saveShadowPositions(shadowPositionsMemory);
+        console.log(`[CLASSIC SHADOW] 📊 PASSIVE POSITION OPENED: ${pair} ${classicShadow.direction} @ ${shadowFill} | SL ${classicShadow.sl} | TP1 ${classicShadow.tp1} | risk ${risk.toFixed(5)} | ${classicShadow.slAtr.toFixed(2)}x ATR (${classicShadow.slAnchor} anchor)`);
+      }
     }
     console.log(`[CLASSIC SHADOW] ${pair} ${classicShadow.direction} ${classicShadow.structType} (prior ${classicShadow.structPrior}) — would-fire: entry ${classicShadow.entry}, sl ${classicShadow.sl} (${classicShadow.slAtr.toFixed(2)}x ATR, ${classicShadow.slAnchor} anchor), tp1 ${classicShadow.tp1}. PASSIVE — no trade taken.`);
   }
@@ -1779,6 +1816,68 @@ const Signal: any = mongoose.models.Signal || mongoose.model("Signal", signalSch
 const gateStatSchema = new mongoose.Schema({ _id: String, data: Object }, { minimize: false });
 const GateStat: any = mongoose.models.GateStat || mongoose.model("GateStat", gateStatSchema);
 
+// Shadow position: passive outcome tracking for the classic detector.
+// Created when a wouldTrade episode fires; managed with the same resolution
+// logic as real trades (BE at 1:1, staleness 12h/0R, SL/TP with spread-aware
+// pricing and honest accounting). NO real trades, NO signals, NO pushes.
+interface ShadowPosition {
+  id: string;
+  pair: string;
+  direction: "BUY" | "SELL";
+  entryPrice: number;
+  sl: number;
+  tp1: number;
+  initialSl: number;
+  slDistance: number;
+  openedAt: string;
+  status: "open" | "win" | "loss";
+  resolvedAt?: string;
+  resolvedPrice?: number;
+  r?: number;
+  exitReason?: string;
+  breakevenTriggered: boolean;
+}
+
+const shadowPositionSchema = new mongoose.Schema({
+  id: { type: String, index: true },
+  pair: String,
+  direction: String,
+  entryPrice: Number,
+  sl: Number,
+  tp1: Number,
+  initialSl: Number,
+  slDistance: Number,
+  openedAt: String,
+  status: { type: String, index: true },
+  resolvedAt: String,
+  resolvedPrice: Number,
+  r: Number,
+  exitReason: String,
+  breakevenTriggered: Boolean,
+}, { minimize: false });
+const ShadowPositionModel: any = mongoose.models.ShadowPosition || mongoose.model("ShadowPosition", shadowPositionSchema);
+
+let shadowPositionsMemory: ShadowPosition[] = [];
+const MAX_SHADOW_POSITIONS = 500;
+
+function loadShadowPositions(): ShadowPosition[] {
+  return shadowPositionsMemory;
+}
+
+function saveShadowPositions(positions: ShadowPosition[]) {
+  shadowPositionsMemory = positions;
+  if (isDbReady()) {
+    (async () => {
+      try {
+        await ShadowPositionModel.deleteMany({});
+        if (shadowPositionsMemory.length > 0) await ShadowPositionModel.insertMany(shadowPositionsMemory, { ordered: false });
+      } catch (err) {
+        console.error("[ERROR] Failed to save shadow positions to MongoDB:", err);
+      }
+    })();
+  }
+}
+
 function isDbReady() {
   return mongoose.connection.readyState === 1;
 }
@@ -1850,8 +1949,10 @@ async function hydrateMemoryFromDatabase() {
     ]);
     tradesMemory = (dbTrades || []).map((t: any) => ({ ...t, _id: undefined, __v: undefined })).filter((t: any) => t.id && !String(t.id).startsWith("vtrade_seed"));
     signalsMemory = (dbSignals || []).map((s: any) => ({ ...s, _id: undefined, __v: undefined })).filter((s: any) => s.id);
+    const dbShadows = await ShadowPositionModel.find().sort({ openedAt: 1 }).lean();
+    shadowPositionsMemory = (dbShadows || []).map((sp: any) => ({ ...sp, _id: undefined, __v: undefined })).filter((sp: any) => sp.id);
     dbHydrated = true;
-    console.log(`[INFO] Hydrated memory from MongoDB: ${tradesMemory.length} trades, ${signalsMemory.length} signals.`);
+    console.log(`[INFO] Hydrated memory from MongoDB: ${tradesMemory.length} trades, ${signalsMemory.length} signals, ${shadowPositionsMemory.length} shadow positions.`);
   } catch (err) {
     console.error("[ERROR] Failed to hydrate from MongoDB:", err);
   }
@@ -2321,6 +2422,97 @@ async function runBackgroundCycle() {
         }
       }
       saveTrades(trades);
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // 1.5 SHADOW POSITION MANAGEMENT (classic detector outcome tracking)
+    // Passive: mirrors real trade management — BE at 1:1, staleness 12h/0R,
+    // SL/TP with spread-aware pricing and honest R accounting.
+    // NO real trades, NO signals, NO notifications.
+    // ════════════════════════════════════════════════════════════════
+    const shadowPositions = loadShadowPositions();
+    const openShadowPositions = shadowPositions.filter(sp => sp.status === "open");
+    if (openShadowPositions.length > 0) {
+      console.log(`[SHADOW] Managing ${openShadowPositions.length} open shadow position(s)...`);
+      for (const shadow of openShadowPositions) {
+        try {
+          const live = await getLivePrice(shadow.pair);
+          if (!live) {
+            console.warn(`[SHADOW] No live price for ${shadow.pair}. Skipping this cycle.`);
+            continue;
+          }
+          const checkPrice = shadow.direction === "BUY" ? live.bid : live.ask;
+          const slDist = Math.abs(shadow.entryPrice - shadow.initialSl);
+          const ageHours = (Date.now() - new Date(shadow.openedAt).getTime()) / (60 * 60 * 1000);
+
+          // Staleness (12h, <0R progress, before BE) — same rule as real trades
+          if (ageHours >= STALENESS_HOURS && !shadow.breakevenTriggered && slDist > 0) {
+            const moveInFavor = shadow.direction === "BUY"
+              ? checkPrice - shadow.entryPrice
+              : shadow.entryPrice - checkPrice;
+            const progressR = moveInFavor / slDist;
+            if (progressR < STALENESS_MIN_R) {
+              const exitR = shadow.direction === "BUY"
+                ? (checkPrice - shadow.entryPrice) / slDist
+                : (shadow.entryPrice - checkPrice) / slDist;
+              shadow.status = exitR >= 0 ? "win" : "loss";
+              shadow.r = Number(exitR.toFixed(2));
+              shadow.resolvedPrice = Number(checkPrice.toFixed(5));
+              shadow.resolvedAt = new Date().toISOString();
+              shadow.exitReason = "STALE";
+              console.log(`[SHADOW] ${shadow.pair} STALE after ${ageHours.toFixed(1)}h: ${shadow.r}R (progress was ${progressR.toFixed(2)}R)`);
+              continue;
+            }
+          }
+
+          // BE trigger at +1R (same as real trades)
+          if (!shadow.breakevenTriggered && slDist > 0) {
+            const hitBE = shadow.direction === "BUY"
+              ? checkPrice >= shadow.entryPrice + slDist
+              : checkPrice <= shadow.entryPrice - slDist;
+            if (hitBE) {
+              shadow.sl = shadow.entryPrice;
+              shadow.breakevenTriggered = true;
+              console.log(`[SHADOW] ${shadow.pair} BE triggered (1:1 reached, SL moved to entry ${shadow.entryPrice})`);
+            }
+          }
+
+          // SL check (before TP — conservative, same as real trades)
+          if (shadow.direction === "BUY" ? checkPrice <= shadow.sl : checkPrice >= shadow.sl) {
+            const exitR = slDist > 0
+              ? (shadow.direction === "BUY"
+                  ? (checkPrice - shadow.entryPrice) / slDist
+                  : (shadow.entryPrice - checkPrice) / slDist)
+              : 0;
+            shadow.status = exitR >= 0 ? "win" : "loss";
+            shadow.r = Number(exitR.toFixed(2));
+            shadow.resolvedPrice = Number(checkPrice.toFixed(5));
+            shadow.resolvedAt = new Date().toISOString();
+            shadow.exitReason = shadow.breakevenTriggered ? "BE" : "SL";
+            console.log(`[SHADOW] ${shadow.pair} ${shadow.exitReason} exit: ${shadow.r}R @ ${checkPrice}`);
+            continue;
+          }
+
+          // TP1 check
+          if (shadow.direction === "BUY" ? checkPrice >= shadow.tp1 : checkPrice <= shadow.tp1) {
+            const exitR = slDist > 0
+              ? (shadow.direction === "BUY"
+                  ? (checkPrice - shadow.entryPrice) / slDist
+                  : (shadow.entryPrice - checkPrice) / slDist)
+              : 0;
+            shadow.status = exitR >= 0 ? "win" : "loss";
+            shadow.r = Number(exitR.toFixed(2));
+            shadow.resolvedPrice = Number(checkPrice.toFixed(5));
+            shadow.resolvedAt = new Date().toISOString();
+            shadow.exitReason = "TP1";
+            console.log(`[SHADOW] ${shadow.pair} TP1 exit: ${shadow.r}R @ ${checkPrice}`);
+            continue;
+          }
+        } catch (err) {
+          console.error(`[SHADOW] Error managing shadow position ${shadow.id}:`, err);
+        }
+      }
+      saveShadowPositions(shadowPositions);
     }
 
     // 2. Perform 1-minute scan and automatically enter qualifying setups (A+, A, or B)
@@ -3331,6 +3523,26 @@ app.get("/api/health", (req, res) => {
       config: "conf_h1_sweep (CHOCH/BOS prior = H1 trend, SL anchor = sweep extreme)",
       mode: "PASSIVE — no trades, no signals, no notifications",
       ...gateStats.classic,
+      outcomes: (() => {
+        const sp = loadShadowPositions();
+        const resolved = sp.filter(x => x.status !== "open");
+        const wins = resolved.filter(x => (x.r ?? 0) >= 0);
+        const losses = resolved.filter(x => (x.r ?? 0) < 0);
+        const rSum = resolved.reduce((sum, x) => sum + (x.r ?? 0), 0);
+        const byExit: Record<string, number> = {};
+        resolved.forEach(x => { if (x.exitReason) byExit[x.exitReason] = (byExit[x.exitReason] || 0) + 1; });
+        return {
+          tracked: sp.length,
+          open: sp.filter(x => x.status === "open").length,
+          resolved: resolved.length,
+          wins: wins.length,
+          losses: losses.length,
+          winRate: resolved.length > 0 ? Number((wins.length / resolved.length * 100).toFixed(1)) : 0,
+          rSum: Number(rSum.toFixed(2)),
+          avgR: resolved.length > 0 ? Number((rSum / resolved.length).toFixed(2)) : null,
+          byExit,
+        };
+      })(),
     },
 
     cleanSampleSince: CLEAN_SAMPLE_SINCE,

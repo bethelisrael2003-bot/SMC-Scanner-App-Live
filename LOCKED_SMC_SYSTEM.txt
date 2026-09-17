@@ -1,7 +1,7 @@
 ╔══════════════════════════════════════════════════════════════════╗
 ║                                                                  ║
 ║   SMC SCANNER SYSTEM — LIVE CODE REFERENCE                       ║
-║   Accurate as of: Sep 17, 2026 PM (RR dust fix + M15 fix live) ║
+║   Accurate as of: Sep 17, 2026 PM (shadow outcome tracking)    ║
 ║   This document describes what the server ACTUALLY does.         ║
 ║   No aspirational rules. No "should be." Only what runs.         ║
 ║                                                                  ║
@@ -428,8 +428,18 @@ CLASSIC DETECTOR SHADOW MODE (2026-09-16, deployed, PASSIVE):
     buffer (0.3 ATR floor); TP 1.5R/2.5R.
   - PASSIVE ONLY: no trades, no signals, no notifications. Counters in the
     persisted funnel: classic.confluencePassed / classic.fired /
-    classic.wouldTrade (fired + entry-guard + RR parity). Exposed in
-    /api/health as classicShadow. Unit tests: classic.test.ts (21 checks).
+    classic.wouldTrade / classic.episodes (15-min dedup per pair+direction).
+    Exposed in /api/health as classicShadow. Unit tests: classic.test.ts (21).
+  - OUTCOME TRACKING (2026-09-17.2): every wouldTrade episode opens a
+    SHADOW POSITION tracked forward against live prices with full
+    trade-management parity — BE at 1:1, staleness 12h/0R, SL/TP
+    spread-aware (BUY checks bid, SELL checks ask), honest R from actual
+    market price at resolution. One shadow per pair; independent of
+    real-trade occupancy. Persisted in MongoDB (ShadowPosition collection,
+    capped at 500). /api/health classicShadow.outcomes: tracked / open /
+    resolved / wins / losses / winRate / rSum / avgR / byExit (TP1/SL/BE/
+    STALE). EOD volatility close NOT mirrored (staleness at 12h catches
+    most long-running positions).
   - Live deployment of the classic path as a second setup type is a
     SEPARATE, PENDING decision. Replay evidence lives on branch
     analysis/mpr-vs-classic (conf variants positive, n=14-20;
