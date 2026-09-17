@@ -61,6 +61,28 @@ Replace instant at-market entry with a pending-order lifecycle:
 | Max drawdown | −11.8R | −4.0R |
 | Median SL | 0.49 ATR | 0.36 ATR |
 
+## 3b. VARIANT RUN (2026-09-16): confirmation-fill — touch + M15 close back
+##      beyond the midpoint, market entry at that confirming close
+
+| Metric | At-market | Touch-fill | Confirm-fill |
+|---|---|---|---|
+| Pendings | — | 30 | 29 |
+| Trades | 26 | 12 (40%) | **7 (24%)** |
+| Filled / expired / cancelledSL / guardBlocked | — | 12 / 13 / 5 / 0 | 7 / 13 / 9 / 0 |
+| Win rate | 34.6% | 25.0% | **42.9%** |
+| R sum | −11.20R | −3.50R | **−2.58R** |
+| Avg R / trade | −0.43R | **−0.29R** | −0.37R |
+| Winner R values | 0.23–1.95 (med ~0.5) | 1.50 × 3 | 0.36 / 0.40 / 0.66 |
+| Fill drift | −0.13 ATR | 0 (at the limit) | −0.20 ATR (the bounce is paid for) |
+| Max drawdown | −11.8R | −4.0R | **−2.58R** |
+
+Mechanism (verified trade-by-trade): the confirmation filter kept all 3
+touch-fill winners (same three trades) and removed exactly 5 of the 9
+touch-fill losers — it is a falling-knife filter. But entering at the
+confirming close re-applies the drift tax through a different door
+(−0.20 ATR average fill drift), shrinking winners from 1.5R to 0.36–0.66R.
+n = 7: the WR movement is directionally real, statistically unproven.
+
 ## 4. What the numbers say — honest reading
 
 - **The mechanics work as designed:** limit fills restore winners to the
@@ -109,6 +131,10 @@ Replace instant at-market entry with a pending-order lifecycle:
 
 ## 7. Decision requested
 
-Approve implementation (changes MPR ENTRY MECHANICS — the clean sample
-restarts at that deploy), reject, or request replay variants first
-(fill-with-confirmation, shorter/longer expiry, cancel conditions).
+The fill-with-confirmation variant has been run (§3b). Remaining options:
+approve one of the three execution models (at-market status quo /
+touch-fill / confirm-fill — changes MPR ENTRY MECHANICS; the clean sample
+restarts at that deploy), reject all, or request further variants
+(e.g. touch-fill + N-bar confirmation deadline, tighter pending
+invalidation). Note: all three books were negative in this window — the
+binding problem in this sample is MPR selection, not execution.

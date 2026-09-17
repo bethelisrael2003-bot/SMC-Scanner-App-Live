@@ -142,7 +142,7 @@ function simulateTrade(
 /* ── books ─────────────────────────────────────────────────────────────── */
 
 const CONF_VARIANTS = ["conf_m15_sweep", "conf_h1_sweep", "conf_h1_poi", "conf_m15_poi"] as const;
-const BOOKS = ["mpr", "mpr_limit", "classic_pure", ...CONF_VARIANTS, "combined"] as const;
+const BOOKS = ["mpr", "mpr_limit", "mpr_limit_conf", "classic_pure", ...CONF_VARIANTS, "combined"] as const;
 type BookName = typeof BOOKS[number];
 interface BookState {
   trades: TradeRec[];
@@ -184,12 +184,18 @@ function loadBars(epic: string, tf: string): Bar[] {
 
 function main() {
   const books: Record<BookName, BookState> = Object.fromEntries(
-    (["mpr", "mpr_limit", "classic_pure", ...CONF_VARIANTS, "combined"] as string[]).map(b => [b, newBook()])
+    (["mpr", "mpr_limit", "mpr_limit_conf", "classic_pure", ...CONF_VARIANTS, "combined"] as string[]).map(b => [b, newBook()])
   ) as Record<BookName, BookState>;
   // Staged-limit book state: one pending order per pair (MPR plan entry =
   // pause midpoint, 4h expiry = 16 M15 bars, cancelled if price crosses SL
   // before filling; BUY fills when ask touches the limit, SELL when bid does).
   const mprPending = new Map<string, { idx: number; dir: "BUY" | "SELL"; limit: number; sl: number; tp1: number }>();
+  // Confirmation-fill variant: same pending, but fills only AFTER the limit is
+  // touched AND an M15 candle CLOSES back beyond the midpoint (BUY: bid close >
+  // limit; SELL: ask close < limit). Fill = that confirming candle's close
+  // (market entry), entry-guard checked. Measures whether confirmation lifts
+  // the 25% WR of plain touch-fills.
+  const mprPendingConf = new Map<string, { idx: number; dir: "BUY" | "SELL"; limit: number; sl: number; tp1: number; touched: boolean }>();
   const confFires: Record<string, number> = { conf_m15_sweep: 0, conf_h1_sweep: 0, conf_h1_poi: 0, conf_m15_poi: 0 };
   let overlapFires = 0, mprFires = 0, classicPureFires = 0, overlapConfFires = 0;
 
@@ -348,6 +354,55 @@ function main() {
         if (mpr && !mprPending.has(pair) && (lb.cooldownUntil.get(pair) ?? 0) <= i && mprPlanRr >= 1.5) {
           mprPending.set(pair, { idx: i, dir: direction, limit: mpr.entry, sl: mpr.sl, tp1: mpr.tp1 });
           bump(lb, "pendings");
+        }
+      }
+
+      /* Confirmation-fill MPR book: touch + M15 close back beyond midpoint */
+      {
+        const cb = books.mpr_limit_conf;
+        const pend = mprPendingConf.get(pair);
+        if (pend) {
+          const pbar = m15[i];
+          const age = i - pend.idx;
+          if (age > 16) {
+            mprPendingConf.delete(pair); bump(cb, "expired");
+          } else if (pend.dir === "BUY" ? pbar.l <= pend.sl : pbar.h >= pend.sl) {
+            mprPendingConf.delete(pair); bump(cb, "cancelledSL");
+          } else {
+            const touchedNow = pend.dir === "BUY" ? pbar.al <= pend.limit : pbar.ah >= pend.limit;
+            if (touchedNow) pend.touched = true;
+            const confirmed = pend.touched && (pend.dir === "BUY" ? pbar.c > pend.limit : pbar.ac < pend.limit);
+            if (confirmed) {
+              const fill = pend.dir === "BUY" ? pbar.ac : pbar.c; // market entry at the confirming close
+              const inBand = pend.dir === "BUY"
+                ? fill > pend.sl && fill < pend.tp1
+                : fill < pend.sl && fill > pend.tp1;
+              mprPendingConf.delete(pair);
+              if (!inBand) {
+                bump(cb, "guardBlocked");
+              } else {
+                const sim = simulateTrade(m15, i, pend.dir, fill, pend.sl, pend.tp1);
+                const risk = Math.abs(fill - pend.sl);
+                const drift = hAtr > 0
+                  ? (pend.dir === "BUY" ? (pend.limit - fill) / hAtr : (fill - pend.limit) / hAtr)
+                  : 0;
+                cb.trades.push({
+                  book: "mpr_limit_conf", pair, direction: pend.dir, setup: "MPR",
+                  time: m15[i].t, entry: fill, sl: pend.sl, tp1: pend.tp1, risk,
+                  planEntry: pend.limit, fillDriftAtr: Number(drift.toFixed(3)),
+                  slAtr: Number((risk / hAtr).toFixed(2)),
+                  closeTime: sim.closeTime, exit: sim.exit, r: Number(sim.r.toFixed(2)),
+                  reason: sim.reason, holdH: Number(sim.holdH.toFixed(1)),
+                });
+                cb.cooldownUntil.set(pair, sim.closeIdx + 2);
+                bump(cb, "filled");
+              }
+            }
+          }
+        }
+        if (mpr && !mprPendingConf.has(pair) && (cb.cooldownUntil.get(pair) ?? 0) <= i && mprPlanRr >= 1.5) {
+          mprPendingConf.set(pair, { idx: i, dir: direction, limit: mpr.entry, sl: mpr.sl, tp1: mpr.tp1, touched: false });
+          bump(cb, "pendings");
         }
       }
       if (classicPure && pureDir && (cpBook.cooldownUntil.get(pair) ?? 0) <= i) {
