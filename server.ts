@@ -135,6 +135,9 @@ const SHADOW_VERSION = "2026-09-17.2";
 // secret is not configured, mutations are refused (503) — protecting the
 // dataset outranks convenience. 2026-09-17 audit finding #4.
 const SECURITY_VERSION = "2026-09-17.1";
+// 2026-09-21 market-data cache: centralized candle & live price caching layer
+// to share data across MPR, Classic, Precision, and frontend requests.
+const CACHE_VERSION = "2026-09-21.1";
 // Clean MPR sample boundary — only trades OPENED after this instant count
 // toward the post-fix sample. Moved to the inversion-fix deploy (user
 // decision, 2026-09-16): every prior trade was analyzed on time-inverted
@@ -320,9 +323,50 @@ async function getCapitalHeaders() {
   };
 }
 
-async function getLivePrice(pair: string) {
+// ═══════════════════════════════════════════════════════════════════════
+// CENTRALIZED MARKET DATA CACHE (Shared Infrastructure Layer)
+// ═══════════════════════════════════════════════════════════════════════
+// Caches candles and live prices in memory so MPR, Classic, Precision,
+// and any future strategy systems share the EXACT same data without
+// duplicate network fetches, latency spikes, or Capital.com rate limits.
+
+interface CandleCacheEntry {
+  candles: any[];
+  fetchedAt: number;
+}
+
+interface LivePriceCacheEntry {
+  data: any;
+  fetchedAt: number;
+}
+
+const CANDLE_CACHE_TTL_MS = 50 * 1000;     // 50 seconds (scan cycle is 60s)
+const LIVE_PRICE_CACHE_TTL_MS = 10 * 1000;  // 10 seconds
+
+const candleCache = new Map<string, CandleCacheEntry>();
+const livePriceCache = new Map<string, LivePriceCacheEntry>();
+
+const marketDataTelemetry = {
+  candleHits: 0,
+  candleMisses: 0,
+  livePriceHits: 0,
+  livePriceMisses: 0,
+};
+
+async function getLivePrice(pair: string, forceFresh = false) {
   const epic = EPICS[pair];
   if (!epic) return null;
+
+  const now = Date.now();
+  if (!forceFresh && livePriceCache.has(pair)) {
+    const entry = livePriceCache.get(pair)!;
+    if (now - entry.fetchedAt < LIVE_PRICE_CACHE_TTL_MS) {
+      marketDataTelemetry.livePriceHits++;
+      return { ...entry.data };
+    }
+  }
+
+  marketDataTelemetry.livePriceMisses++;
 
   try {
     const headers = await getCapitalHeaders();
@@ -346,7 +390,7 @@ async function getLivePrice(pair: string) {
       pipMult = 100;
     }
 
-    return {
+    const priceData = {
       bid,
       ask,
       spread: Number(rawSpread.toFixed(5)),
@@ -354,20 +398,43 @@ async function getLivePrice(pair: string) {
       mid: Number(((bid + ask) / 2).toFixed(5)),
       time: p.snapshotTime || "",
     };
+
+    livePriceCache.set(pair, {
+      data: priceData,
+      fetchedAt: now,
+    });
+
+    return { ...priceData };
   } catch (error) {
     console.error(`Error getting live price for ${pair}:`, error);
     return null;
   }
 }
 
-async function getCandles(pair: string, timeframe = "1h", count = 120) {
+async function getCandles(pair: string, timeframe = "1h", count = 120, forceFresh = false) {
   const epic = EPICS[pair];
   const resolution = RESOLUTIONS[timeframe];
   if (!epic || !resolution) return null;
 
+  const cacheKey = `${pair}:${timeframe}`;
+  const now = Date.now();
+
+  // If cached candles exist for this pair/timeframe, are fresh (<50s), and have >= count bars:
+  if (!forceFresh && candleCache.has(cacheKey)) {
+    const entry = candleCache.get(cacheKey)!;
+    if (now - entry.fetchedAt < CANDLE_CACHE_TTL_MS && entry.candles.length >= count) {
+      marketDataTelemetry.candleHits++;
+      return entry.candles.slice(-count);
+    }
+  }
+
+  marketDataTelemetry.candleMisses++;
+
   try {
     const headers = await getCapitalHeaders();
-    const url = `${CAPITAL_REST_URL}/prices/${epic}?resolution=${resolution}&max=${count}`;
+    // Fetch at least 120 bars so subsequent requests for <= 120 bars hit the cache
+    const fetchCount = Math.max(count, 120);
+    const url = `${CAPITAL_REST_URL}/prices/${epic}?resolution=${resolution}&max=${fetchCount}`;
     const res = await fetchWithRetry(url, { headers });
     if (!res.ok) return null;
 
@@ -392,7 +459,12 @@ async function getCandles(pair: string, timeframe = "1h", count = 120) {
       return ta - tb;
     });
 
-    return candles; // ASCENDING (oldest first, last = current in-progress bar) — enforced by sort
+    candleCache.set(cacheKey, {
+      candles,
+      fetchedAt: now,
+    });
+
+    return candles.slice(-count);
   } catch (error) {
     console.error(`Error getting candles for ${pair}:`, error);
     return null;
@@ -934,11 +1006,13 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
     plan: null,
   };
 
-  const weekly = await getCandles(pair, "1week", 30);
-  const daily = await getCandles(pair, "1day", 100);
-  const h4 = await getCandles(pair, "4h", 120);
-  const h1 = await getCandles(pair, "1h", 120);
-  const m15 = await getCandles(pair, "15min", 120);
+  const [weekly, daily, h4, h1, m15] = await Promise.all([
+    getCandles(pair, "1week", 30),
+    getCandles(pair, "1day", 100),
+    getCandles(pair, "4h", 120),
+    getCandles(pair, "1h", 120),
+    getCandles(pair, "15min", 120),
+  ]);
 
   if (!h1 || h1.length < 20) {
     track("blocked", "insufficientData");
@@ -1960,11 +2034,13 @@ function saveClassicSignals(signals: ClassicSignal[]) {
 /** Complete classic setup analysis for one pair (confluence + trigger + plan). */
 async function analyzeClassicPair(pair: string): Promise<any> {
   try {
-    const h4 = await getCandles(pair, "4h", 120);
-    const h1 = await getCandles(pair, "1h", 120);
-    const m15 = await getCandles(pair, "15min", 120);
-    const d1 = await getCandles(pair, "1day", 100);
-    const live = await getLivePrice(pair);
+     const [h4, h1, m15, d1, live] = await Promise.all([
+      getCandles(pair, "4h", 120),
+      getCandles(pair, "1h", 120),
+      getCandles(pair, "15min", 120),
+      getCandles(pair, "1day", 100),
+      getLivePrice(pair),
+    ]);
 
     if (!h4 || !h1 || !m15 || h4.length < 30 || h1.length < 30 || m15.length < 30) {
       return null;
@@ -2557,6 +2633,7 @@ let precisionCycleCounter = 0;
 let eodExitedDate = ""; // YYYY-MM-DD — prevents re-entry loop after EOD exit
 let lastAutoScannerStatus = {
   lastScanTime: "",
+  lastCycleDurationMs: 0,
   isScanning: false,
   message: "SMC Auto-scan scheduler initialized.",
   pairsChecked: [] as any[]
@@ -2570,6 +2647,7 @@ async function runBackgroundCycle() {
   isScanningBackground = true;
   lastAutoScannerStatus.isScanning = true;
   lastAutoScannerStatus.message = "Running background market scan & structure check...";
+  const cycleStartTime = Date.now();
   console.log(`[BACKGROUND ENGINE] Starting background cycle at ${new Date().toISOString()}`);
 
   try {
@@ -3144,7 +3222,8 @@ async function runBackgroundCycle() {
   } finally {
     isScanningBackground = false;
     lastAutoScannerStatus.isScanning = false;
-    console.log(`[BACKGROUND ENGINE] Finished background cycle run at ${new Date().toISOString()}`);
+    lastAutoScannerStatus.lastCycleDurationMs = Date.now() - cycleStartTime;
+    console.log(`[BACKGROUND ENGINE] Finished background cycle run at ${new Date().toISOString()} (${lastAutoScannerStatus.lastCycleDurationMs}ms)`);
   }
 }
 
@@ -4184,6 +4263,23 @@ app.get("/api/health", (req, res) => {
       ops: OPS_VERSION,
       shadow: SHADOW_VERSION,
       security: SECURITY_VERSION,
+      cache: CACHE_VERSION,
+    },
+
+    marketDataCache: {
+      candleTtlSeconds: CANDLE_CACHE_TTL_MS / 1000,
+      livePriceTtlSeconds: LIVE_PRICE_CACHE_TTL_MS / 1000,
+      hits: marketDataTelemetry.candleHits + marketDataTelemetry.livePriceHits,
+      misses: marketDataTelemetry.candleMisses + marketDataTelemetry.livePriceMisses,
+      hitRate: (marketDataTelemetry.candleHits + marketDataTelemetry.livePriceHits + marketDataTelemetry.candleMisses + marketDataTelemetry.livePriceMisses) > 0
+        ? `${(((marketDataTelemetry.candleHits + marketDataTelemetry.livePriceHits) / (marketDataTelemetry.candleHits + marketDataTelemetry.livePriceHits + marketDataTelemetry.candleMisses + marketDataTelemetry.livePriceMisses)) * 100).toFixed(1)}%`
+        : "0.0%",
+      candleHits: marketDataTelemetry.candleHits,
+      candleMisses: marketDataTelemetry.candleMisses,
+      livePriceHits: marketDataTelemetry.livePriceHits,
+      livePriceMisses: marketDataTelemetry.livePriceMisses,
+      cachedEntries: candleCache.size + livePriceCache.size,
+      lastCycleDurationMs: lastAutoScannerStatus.lastCycleDurationMs,
     },
 
     adminAuth: {
