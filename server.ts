@@ -10,6 +10,7 @@ import { initializeApp, cert } from 'firebase-admin';
 import { getMessaging } from 'firebase-admin/messaging';
 import { findMomentumPauseSetup } from "./momentumPauseRetest";
 import { findClassicSetup } from "./classicSetup";
+import { runPrecisionSequence, type Candle as PCandle } from "./precisionEngine";
 
 dotenv.config();
 
@@ -1857,6 +1858,122 @@ const shadowPositionSchema = new mongoose.Schema({
 }, { minimize: false });
 const ShadowPositionModel: any = mongoose.models.ShadowPosition || mongoose.model("ShadowPosition", shadowPositionSchema);
 
+// ═══════════════════════════════════════════════════════════════════════
+// PRECISION INTRADAY TRADING SYSTEM (completely separate from SMC)
+// Implements the 13-step sequence from the 11-module course at
+// omniforgelabs-dev.github.io/precision-intraday-trading/
+// Own signals, own trades, own win rate — ZERO interaction with the SMC
+// scanner, its signals, or its trades.
+// ═══════════════════════════════════════════════════════════════════════
+const PRECISION_VERSION = "2026-09-17.1";
+
+interface PrecisionSignal {
+  id: string;
+  pair: string;
+  direction: "BUY" | "SELL";
+  timestamp: string;
+  entryPrice: number;
+  sl: number;
+  tp: number;
+  rr: number;
+  h4Trend: string;
+  h1Trend: string;
+  zoneType: string;
+  zoneRange: string;
+  sweepLevel: number | null;
+  confirmationType: string;
+  stepsPassed: number;
+  stepsTotal: number;
+  status: "active" | "expired" | "traded";
+}
+
+interface PrecisionTrade {
+  id: string;
+  signalId: string;
+  pair: string;
+  direction: "BUY" | "SELL";
+  openedAt: string;
+  entryPrice: number;
+  sl: number;
+  tp: number;
+  initialSl: number;
+  status: "open" | "win" | "loss";
+  closedAt?: string;
+  closePrice?: number;
+  r?: number;
+  exitReason?: string;
+  breakevenTriggered: boolean;
+}
+
+const precisionSignalSchema = new mongoose.Schema({
+  id: { type: String, index: true },
+  pair: String, direction: String, timestamp: String,
+  entryPrice: Number, sl: Number, tp: Number, rr: Number,
+  h4Trend: String, h1Trend: String, zoneType: String, zoneRange: String,
+  sweepLevel: Number, confirmationType: String,
+  stepsPassed: Number, stepsTotal: Number, status: String,
+}, { minimize: false });
+const PrecisionSignalModel: any = mongoose.models.PrecisionSignal || mongoose.model("PrecisionSignal", precisionSignalSchema);
+
+const precisionTradeSchema = new mongoose.Schema({
+  id: { type: String, index: true },
+  signalId: String, pair: String, direction: String,
+  openedAt: String, entryPrice: Number, sl: Number, tp: Number, initialSl: Number,
+  status: { type: String, index: String },
+  closedAt: String, closePrice: Number, r: Number, exitReason: String,
+  breakevenTriggered: Boolean,
+}, { minimize: false });
+const PrecisionTradeModel: any = mongoose.models.PrecisionTrade || mongoose.model("PrecisionTrade", precisionTradeSchema);
+
+let precisionSignalsMemory: PrecisionSignal[] = [];
+let precisionTradesMemory: PrecisionTrade[] = [];
+
+function savePrecisionSignals(signals: PrecisionSignal[]) {
+  precisionSignalsMemory = signals.slice(-200);
+  if (isDbReady()) {
+    (async () => {
+      try {
+        await PrecisionSignalModel.deleteMany({});
+        if (precisionSignalsMemory.length > 0) await PrecisionSignalModel.insertMany(precisionSignalsMemory, { ordered: false });
+      } catch (err) { console.error("[PRECISION] Failed to save signals:", err); }
+    })();
+  }
+}
+
+function savePrecisionTrades(trades: PrecisionTrade[]) {
+  precisionTradesMemory = trades.slice(-200);
+  if (isDbReady()) {
+    (async () => {
+      try {
+        await PrecisionTradeModel.deleteMany({});
+        if (precisionTradesMemory.length > 0) await PrecisionTradeModel.insertMany(precisionTradesMemory, { ordered: false });
+      } catch (err) { console.error("[PRECISION] Failed to save trades:", err); }
+    })();
+  }
+}
+
+/** Run the Precision sequence for one pair and return the result. */
+async function analyzePrecisionPair(pair: string): Promise<any> {
+  try {
+    const h4 = await getCandles(pair, "4h", 120);
+    const h1 = await getCandles(pair, "1h", 120);
+    const m15 = await getCandles(pair, "15min", 120);
+    if (!h4 || !h1 || !m15 || h4.length < 30 || h1.length < 30 || m15.length < 30) return null;
+
+    // Convert to PCandle format, using only CLOSED M15 candles
+    const toPC = (c: any): PCandle => ({ open: c.o, high: c.h, low: c.l, close: c.c, time: c.t });
+    const h4C = h4.map(toPC);
+    const h1C = h1.map(toPC);
+    const m15All = m15.map(toPC);
+    const m15Closed = m15All.slice(0, -1); // Drop the forming bar
+
+    return runPrecisionSequence(pair, h4C, h1C, m15Closed);
+  } catch (err) {
+    console.error(`[PRECISION] Error analyzing ${pair}:`, err);
+    return null;
+  }
+}
+
 let shadowPositionsMemory: ShadowPosition[] = [];
 const MAX_SHADOW_POSITIONS = 500;
 
@@ -1951,8 +2068,12 @@ async function hydrateMemoryFromDatabase() {
     signalsMemory = (dbSignals || []).map((s: any) => ({ ...s, _id: undefined, __v: undefined })).filter((s: any) => s.id);
     const dbShadows = await ShadowPositionModel.find().sort({ openedAt: 1 }).lean();
     shadowPositionsMemory = (dbShadows || []).map((sp: any) => ({ ...sp, _id: undefined, __v: undefined })).filter((sp: any) => sp.id);
+    const dbPrecisionSignals = await PrecisionSignalModel.find().sort({ timestamp: 1 }).lean();
+    precisionSignalsMemory = (dbPrecisionSignals || []).map((x: any) => ({ ...x, _id: undefined, __v: undefined })).filter((x: any) => x.id);
+    const dbPrecisionTrades = await PrecisionTradeModel.find().sort({ openedAt: 1 }).lean();
+    precisionTradesMemory = (dbPrecisionTrades || []).map((x: any) => ({ ...x, _id: undefined, __v: undefined })).filter((x: any) => x.id);
     dbHydrated = true;
-    console.log(`[INFO] Hydrated memory from MongoDB: ${tradesMemory.length} trades, ${signalsMemory.length} signals, ${shadowPositionsMemory.length} shadow positions.`);
+    console.log(`[INFO] Hydrated memory from MongoDB: ${tradesMemory.length} trades, ${signalsMemory.length} signals, ${shadowPositionsMemory.length} shadow positions, ${precisionSignalsMemory.length} precision signals, ${precisionTradesMemory.length} precision trades.`);
   } catch (err) {
     console.error("[ERROR] Failed to hydrate from MongoDB:", err);
   }
@@ -2220,6 +2341,7 @@ async function checkVolatilityCooldown(pair: string): Promise<{
 }
 
 let isScanningBackground = false;
+let precisionCycleCounter = 0;
 let eodExitedDate = ""; // YYYY-MM-DD — prevents re-entry loop after EOD exit
 let lastAutoScannerStatus = {
   lastScanTime: "",
@@ -2706,6 +2828,103 @@ async function runBackgroundCycle() {
 
     // Persist gate-funnel counters to MongoDB (best-effort, once per cycle)
     flushGateStats().catch((e) => console.error("[GATES] Flush failed:", e));
+
+    // ════════════════════════════════════════════════════════════════
+    // PRECISION INTRADAY SYSTEM (separate — own signals/trades/win rate)
+    // Runs every 5th cycle (~5 minutes): scan + manage trades
+    // ════════════════════════════════════════════════════════════════
+    precisionCycleCounter++;
+    if (precisionCycleCounter % 5 === 0) {
+      try {
+        // Manage open precision trades first
+        const pTrades = precisionTradesMemory;
+        const pOpen = pTrades.filter(t => t.status === "open");
+        for (const trade of pOpen) {
+          const live = await getLivePrice(trade.pair);
+          if (!live) continue;
+          const checkPrice = trade.direction === "BUY" ? live.bid : live.ask;
+          const slDist = Math.abs(trade.entryPrice - trade.initialSl);
+          if (slDist <= 0) continue;
+          if (!trade.breakevenTriggered) {
+            const hitBE = trade.direction === "BUY"
+              ? checkPrice >= trade.entryPrice + slDist
+              : checkPrice <= trade.entryPrice - slDist;
+            if (hitBE) { trade.sl = trade.entryPrice; trade.breakevenTriggered = true; }
+          }
+          if (trade.direction === "BUY" ? checkPrice <= trade.sl : checkPrice >= trade.sl) {
+            const exitR = trade.direction === "BUY"
+              ? (checkPrice - trade.entryPrice) / slDist
+              : (trade.entryPrice - checkPrice) / slDist;
+            trade.status = exitR >= 0 ? "win" : "loss";
+            trade.r = Number(exitR.toFixed(2));
+            trade.closePrice = Number(checkPrice.toFixed(5));
+            trade.closedAt = new Date().toISOString();
+            trade.exitReason = trade.breakevenTriggered ? "BE" : "SL";
+            console.log(`[PRECISION] ${trade.pair} ${trade.exitReason}: ${trade.r}R`);
+            continue;
+          }
+          if (trade.direction === "BUY" ? checkPrice >= trade.tp : checkPrice <= trade.tp) {
+            const exitR = trade.direction === "BUY"
+              ? (checkPrice - trade.entryPrice) / slDist
+              : (trade.entryPrice - checkPrice) / slDist;
+            trade.status = exitR >= 0 ? "win" : "loss";
+            trade.r = Number(exitR.toFixed(2));
+            trade.closePrice = Number(checkPrice.toFixed(5));
+            trade.closedAt = new Date().toISOString();
+            trade.exitReason = "TP";
+            console.log(`[PRECISION] ${trade.pair} TP: ${trade.r}R`);
+            continue;
+          }
+        }
+        if (pOpen.length > 0) savePrecisionTrades(pTrades);
+
+        // Then scan for new precision signals (only during tradeable sessions)
+        if (session.canTrade) {
+          for (const pair of Object.keys(EPICS)) {
+            const result = await analyzePrecisionPair(pair);
+            if (result && result.qualified && result.direction && result.entry) {
+              const existing = precisionSignalsMemory.some(sig =>
+                sig.pair === pair && sig.status === "active" &&
+                Date.now() - new Date(sig.timestamp).getTime() < 4 * 60 * 60 * 1000
+              );
+              if (!existing) {
+                const newSignal: PrecisionSignal = {
+                  id: `psig_${Date.now()}_${pair.replace("/", "")}`,
+                  pair, direction: result.direction,
+                  timestamp: new Date().toISOString(),
+                  entryPrice: result.entry, sl: result.sl!, tp: result.tp!, rr: result.rr!,
+                  h4Trend: result.h4Trend.state, h1Trend: result.h1Trend.state,
+                  zoneType: result.zones[0]?.type ?? "unknown",
+                  zoneRange: result.zones[0] ? `${result.zones[0].low.toFixed(5)}-${result.zones[0].high.toFixed(5)}` : "N/A",
+                  sweepLevel: result.sweep?.level ?? null,
+                  confirmationType: result.confirmation?.candleType ?? "unknown",
+                  stepsPassed: result.steps.filter((s: any) => s.passed).length,
+                  stepsTotal: result.steps.length,
+                  status: "active",
+                };
+                precisionSignalsMemory.push(newSignal);
+                savePrecisionSignals(precisionSignalsMemory);
+                const existingTrade = precisionTradesMemory.some(t => t.pair === pair && t.status === "open");
+                if (!existingTrade) {
+                  const newTrade: PrecisionTrade = {
+                    id: `ptrade_${Date.now()}_${pair.replace("/", "")}`,
+                    signalId: newSignal.id, pair, direction: result.direction,
+                    openedAt: new Date().toISOString(),
+                    entryPrice: result.entry, sl: result.sl!, tp: result.tp!, initialSl: result.sl!,
+                    status: "open", breakevenTriggered: false,
+                  };
+                  precisionTradesMemory.push(newTrade);
+                  savePrecisionTrades(precisionTradesMemory);
+                  console.log(`[PRECISION] 🎯 SIGNAL + TRADE: ${pair} ${result.direction} @ ${result.entry} | SL ${result.sl} | TP ${result.tp} | R:R 1:${result.rr}`);
+                }
+              }
+            }
+          }
+        }
+      } catch (precisionErr) {
+        console.error("[PRECISION] Background cycle error:", precisionErr);
+      }
+    }
 
   } catch (error) {
     console.error("[BACKGROUND ENGINE] Fatal cycle failure:", error);
@@ -3377,6 +3596,180 @@ app.post("/api/performance/restore", async (req, res) => {
     res.json({ success: true, restored: trades.length });
   } catch (err) {
     res.status(500).json({ error: "Restore failed" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// PRECISION INTRADAY TRADING API ENDPOINTS (separate system)
+// ═══════════════════════════════════════════════════════════════════════
+
+// Get full precision analysis for a pair (the 13-step breakdown)
+app.get("/api/precision/:pair", async (req, res) => {
+  try {
+    const pair = decodeURIComponent(req.params.pair);
+    const result = await analyzePrecisionPair(pair);
+    if (!result) return res.status(404).json({ error: "Insufficient data or pair not found" });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: (err as any).message || "Precision analysis failed" });
+  }
+});
+
+// Scan all pairs with the precision engine (background or on-demand)
+app.get("/api/precision/scan", async (req, res) => {
+  try {
+    const results: any[] = [];
+    const pairs = Object.keys(EPICS);
+    for (const pair of pairs) {
+      const result = await analyzePrecisionPair(pair);
+      if (result) {
+        results.push(result);
+        // If qualified → generate a signal
+        if (result.qualified && result.direction && result.entry) {
+          const existing = precisionSignalsMemory.some(sig =>
+            sig.pair === pair && sig.status === "active" &&
+            Date.now() - new Date(sig.timestamp).getTime() < 4 * 60 * 60 * 1000
+          );
+          if (!existing) {
+            const newSignal: PrecisionSignal = {
+              id: `psig_${Date.now()}_${pair.replace("/", "")}`,
+              pair,
+              direction: result.direction,
+              timestamp: new Date().toISOString(),
+              entryPrice: result.entry,
+              sl: result.sl!,
+              tp: result.tp!,
+              rr: result.rr!,
+              h4Trend: result.h4Trend.state,
+              h1Trend: result.h1Trend.state,
+              zoneType: result.zones[0]?.type ?? "unknown",
+              zoneRange: result.zones[0] ? `${result.zones[0].low.toFixed(5)}-${result.zones[0].high.toFixed(5)}` : "N/A",
+              sweepLevel: result.sweep?.level ?? null,
+              confirmationType: result.confirmation?.candleType ?? "unknown",
+              stepsPassed: result.steps.filter((s: any) => s.passed).length,
+              stepsTotal: result.steps.length,
+              status: "active",
+            };
+            precisionSignalsMemory.push(newSignal);
+            savePrecisionSignals(precisionSignalsMemory);
+
+            // Auto-open a precision paper trade
+            const existingTrade = precisionTradesMemory.some(t => t.pair === pair && t.status === "open");
+            if (!existingTrade) {
+              const newTrade: PrecisionTrade = {
+                id: `ptrade_${Date.now()}_${pair.replace("/", "")}`,
+                signalId: newSignal.id,
+                pair,
+                direction: result.direction,
+                openedAt: new Date().toISOString(),
+                entryPrice: result.entry,
+                sl: result.sl!,
+                tp: result.tp!,
+                initialSl: result.sl!,
+                status: "open",
+                breakevenTriggered: false,
+              };
+              precisionTradesMemory.push(newTrade);
+              savePrecisionTrades(precisionTradesMemory);
+              console.log(`[PRECISION] 🎯 SIGNAL + TRADE: ${pair} ${result.direction} @ ${result.entry} | SL ${result.sl} | TP ${result.tp} | R:R 1:${result.rr}`);
+            }
+          }
+        }
+      }
+      await new Promise(r => setTimeout(r, 300));
+    }
+    res.json({ scanned: results.length, qualified: results.filter(r => r.qualified).length, results });
+  } catch (err) {
+    res.status(500).json({ error: (err as any).message || "Precision scan failed" });
+  }
+});
+
+// Get precision signals
+app.get("/api/precision/signals", (req, res) => {
+  const now = Date.now();
+  const tagged = precisionSignalsMemory.map(sig => ({
+    ...sig,
+    expired: now > new Date(sig.timestamp).getTime() + 4 * 60 * 60 * 1000,
+  }));
+  res.json(tagged.reverse());
+});
+
+// Get precision trades + stats
+app.get("/api/precision/stats", (req, res) => {
+  const trades = precisionTradesMemory;
+  const closed = trades.filter(t => t.status !== "open");
+  const wins = closed.filter(t => (t.r ?? 0) >= 0);
+  const losses = closed.filter(t => (t.r ?? 0) < 0);
+  const rSum = closed.reduce((s, t) => s + (t.r ?? 0), 0);
+  res.json({
+    version: PRECISION_VERSION,
+    totalSignals: precisionSignalsMemory.length,
+    activeSignals: precisionSignalsMemory.filter(s => s.status === "active").length,
+    trades: {
+      total: trades.length,
+      open: trades.filter(t => t.status === "open").length,
+      closed: closed.length,
+      wins: wins.length,
+      losses: losses.length,
+      winRate: closed.length > 0 ? Number((wins.length / closed.length * 100).toFixed(1)) : 0,
+      rSum: Number(rSum.toFixed(2)),
+      avgR: closed.length > 0 ? Number((rSum / closed.length).toFixed(2)) : null,
+    },
+    tradeList: [...trades].reverse(),
+  });
+});
+
+// Manage precision trades (called by the background cycle or on-demand)
+app.get("/api/precision/manage", async (req, res) => {
+  try {
+    const trades = precisionTradesMemory;
+    const open = trades.filter(t => t.status === "open");
+    let updates = 0;
+    for (const trade of open) {
+      const live = await getLivePrice(trade.pair);
+      if (!live) continue;
+      const checkPrice = trade.direction === "BUY" ? live.bid : live.ask;
+      const slDist = Math.abs(trade.entryPrice - trade.initialSl);
+      if (slDist <= 0) continue;
+
+      // BE at +1R
+      if (!trade.breakevenTriggered) {
+        const hitBE = trade.direction === "BUY"
+          ? checkPrice >= trade.entryPrice + slDist
+          : checkPrice <= trade.entryPrice - slDist;
+        if (hitBE) { trade.sl = trade.entryPrice; trade.breakevenTriggered = true; updates++; }
+      }
+      // SL check
+      if (trade.direction === "BUY" ? checkPrice <= trade.sl : checkPrice >= trade.sl) {
+        const exitR = trade.direction === "BUY"
+          ? (checkPrice - trade.entryPrice) / slDist
+          : (trade.entryPrice - checkPrice) / slDist;
+        trade.status = exitR >= 0 ? "win" : "loss";
+        trade.r = Number(exitR.toFixed(2));
+        trade.closePrice = Number(checkPrice.toFixed(5));
+        trade.closedAt = new Date().toISOString();
+        trade.exitReason = trade.breakevenTriggered ? "BE" : "SL";
+        updates++;
+        continue;
+      }
+      // TP check
+      if (trade.direction === "BUY" ? checkPrice >= trade.tp : checkPrice <= trade.tp) {
+        const exitR = trade.direction === "BUY"
+          ? (checkPrice - trade.entryPrice) / slDist
+          : (trade.entryPrice - checkPrice) / slDist;
+        trade.status = exitR >= 0 ? "win" : "loss";
+        trade.r = Number(exitR.toFixed(2));
+        trade.closePrice = Number(checkPrice.toFixed(5));
+        trade.closedAt = new Date().toISOString();
+        trade.exitReason = "TP";
+        updates++;
+        continue;
+      }
+    }
+    if (updates > 0) savePrecisionTrades(trades);
+    res.json({ managed: open.length, updates, trades: precisionTradesMemory });
+  } catch (err) {
+    res.status(500).json({ error: (err as any).message || "Precision manage failed" });
   }
 });
 
