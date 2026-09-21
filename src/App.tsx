@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { useScannerState } from "./hooks/useScannerState";
 import { DeepDivePanel } from "./components/DeepDivePanel";
 import { CandlestickChart } from "./components/CandlestickChart";
+import { ClassicTab } from "./components/tabs/ClassicTab";
+import { PrecisionTab } from "./components/tabs/PrecisionTab";
 import { PushNotifications } from '@capacitor/push-notifications';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "https://smc-scanner-backend.onrender.com";
@@ -23,13 +25,15 @@ async function setupPush() {
 }
 
 // ── Types ───────────────────────────────────────────────────────────────────
-type TabId = "signals" | "watchlist" | "trades" | "performance" | "news" | "rules";
+type TabId = "signals" | "watchlist" | "trades" | "performance" | "classic" | "precision" | "news" | "rules";
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "signals", label: "Signals", icon: "⚡" },
   { id: "watchlist", label: "Watchlist", icon: "👁" },
   { id: "trades", label: "Trades", icon: "📊" },
   { id: "performance", label: "Performance", icon: "📈" },
+  { id: "classic", label: "Classic SMC", icon: "🏛" },
+  { id: "precision", label: "Precision", icon: "🎯" },
   { id: "news", label: "News", icon: "📡" },
   { id: "rules", label: "SMC Rules", icon: "📖" },
 ];
@@ -421,6 +425,8 @@ export default function App() {
           {activeTab === "signals" && <SignalsTab signals={s.signals} loading={s.signalsLoading} />}
           {activeTab === "trades" && <TradesTab activeTrades={s.activeTrades} scanData={s.scanData} />}
           {activeTab === "performance" && <PerformanceTab stats={s.performanceStats} loading={s.perfLoading} onRefresh={s.handleFetchPerformance} />}
+          {activeTab === "classic" && <ClassicTab />}
+          {activeTab === "precision" && <PrecisionTab />}
           {activeTab === "news" && <NewsTab news={s.newsData} loading={s.newsLoading} />}
           {activeTab === "rules" && <RulesTab />}
         </div>

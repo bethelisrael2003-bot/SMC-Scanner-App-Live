@@ -416,30 +416,26 @@ Signal ↔ trade linkage (2026-09-15):
     (±10 s) via /api/admin/backfill-signal-links — deterministic, no
     price matching.
 
-CLASSIC DETECTOR SHADOW MODE (2026-09-16, deployed, PASSIVE):
-  - findClassicSetup (classicSetup.ts) runs alongside MPR on every
-    background scan. Config: conf_h1_sweep — CHOCH/BOS prior = H1 trend
-    (live-system semantics), SL anchor = SWEEP EXTREME (user decision,
-    2026-09-16: sweep anchor chosen over POI far edge; replay favored it
-    +5.8 to +6.6R vs +2.5 to +3.3R).
-  - Sequence detected: H4 liquidity sweep (8-bar lookback) → M15 CHOCH/BOS
-    after the sweep (within 24h) → return to H4 OB/FVG → M15 confirmation
-    candle. Entry at confirmation close; SL beyond sweep wick + 0.15 ATR
-    buffer (0.3 ATR floor); TP 1.5R/2.5R.
-  - PASSIVE ONLY: no trades, no signals, no notifications. Counters in the
-    persisted funnel: classic.confluencePassed / classic.fired /
-    classic.wouldTrade / classic.episodes (15-min dedup per pair+direction).
-    Exposed in /api/health as classicShadow. Unit tests: classic.test.ts (21).
-  - OUTCOME TRACKING (2026-09-17.2): every wouldTrade episode opens a
-    SHADOW POSITION tracked forward against live prices with full
-    trade-management parity — BE at 1:1, staleness 12h/0R, SL/TP
-    spread-aware (BUY checks bid, SELL checks ask), honest R from actual
-    market price at resolution. One shadow per pair; independent of
-    real-trade occupancy. Persisted in MongoDB (ShadowPosition collection,
-    capped at 500). /api/health classicShadow.outcomes: tracked / open /
-    resolved / wins / losses / winRate / rSum / avgR / byExit (TP1/SL/BE/
-    STALE). EOD volatility close NOT mirrored (staleness at 12h catches
-    most long-running positions).
+CLASSIC DETECTOR SYSTEM (2026-09-21, DEDICATED VISIBLE PAGE):
+  - Promoted from background-only shadow mode to a dedicated visible
+    tab in the app ("Classic SMC", 🏛 icon) alongside Precision and SMC.
+  - Standard multi-system pattern: completely isolated signals, simulated
+    trades, win-rate, and cumulative R-sum. ZERO shared code paths or
+    trade data with SMC/MPR or Precision.
+  - findClassicSetup (classicSetup.ts) detects the textbook SMC setup:
+    H4 liquidity sweep (8-bar lookback) → M15 CHOCH/BOS after sweep
+    (within 24h) → return to H4 OB/FVG → M15 confirmation candle.
+    Config: conf_h1_sweep (prior = H1 trend, SL = sweep extreme + 0.15×
+    ATR buffer, TP1 = 1.5R, TP2 = 2.5R).
+  - Dedicated API endpoints:
+    * GET /api/classic/:pair — complete 4-phase sequence analysis
+    * GET /api/classic/scan  — on-demand full watchlist scan
+    * GET /api/classic/signals — signal feed
+    * GET /api/classic/stats — simulated trade stats, win rate, R-sum
+  - Dedicated MongoDB models: ClassicSignal (signals) and ShadowPosition
+    (trades). Managed every minute with BE at 1:1, staleness 12h/0R,
+    spread-aware pricing. Simulated paper only: NO live broker orders,
+    NO push notifications.
   - Live deployment of the classic path as a second setup type is a
     SEPARATE, PENDING decision. Replay evidence lives on branch
     analysis/mpr-vs-classic (conf variants positive, n=14-20;

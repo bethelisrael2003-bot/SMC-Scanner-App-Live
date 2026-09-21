@@ -1531,6 +1531,34 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
       // one-slot rule); independent of real-trade occupancy (tests the
       // detector's edge, not the operational constraints).
       const shadowAlreadyOpen = shadowPositionsMemory.some(sp => sp.pair === pair && sp.status === "open");
+      let signalId: string | undefined = undefined;
+
+      if (isNewEpisode) {
+        const newClassicSig: ClassicSignal = {
+          id: `csig_${Date.now()}_${pair.replace("/", "")}`,
+          pair,
+          direction: classicShadow.direction as "BUY" | "SELL",
+          timestamp: new Date().toISOString(),
+          entryPrice: shadowFill,
+          sl: classicShadow.sl,
+          tp1: classicShadow.tp1,
+          tp2: classicShadow.tp2,
+          rr: Number((classicShadow.slDistance > 0 ? Math.abs(classicShadow.tp1 - classicShadow.entry) / classicShadow.slDistance : 1.5).toFixed(2)),
+          structType: classicShadow.structType,
+          sweepLevel: classicShadow.sweepLevel,
+          sweepExtreme: classicShadow.sweepExtreme,
+          sweepTime: classicShadow.sweepTime,
+          poiType: classicShadow.poiType,
+          poiHigh: classicShadow.poiHigh,
+          poiLow: classicShadow.poiLow,
+          slAtr: Number(classicShadow.slAtr.toFixed(2)),
+          status: shadowAlreadyOpen ? "active" : "traded",
+        };
+        classicSignalsMemory.push(newClassicSig);
+        saveClassicSignals(classicSignalsMemory);
+        signalId = newClassicSig.id;
+      }
+
       if (isNewEpisode && !shadowAlreadyOpen) {
         const risk = Math.abs(shadowFill - classicShadow.sl);
         const newShadow: ShadowPosition = {
@@ -1545,6 +1573,7 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
           openedAt: new Date().toISOString(),
           status: "open",
           breakevenTriggered: false,
+          signalId,
         };
         const shadows = loadShadowPositions();
         shadows.push(newShadow);
@@ -1837,6 +1866,7 @@ interface ShadowPosition {
   r?: number;
   exitReason?: string;
   breakevenTriggered: boolean;
+  signalId?: string;
 }
 
 const shadowPositionSchema = new mongoose.Schema({
@@ -1855,8 +1885,188 @@ const shadowPositionSchema = new mongoose.Schema({
   r: Number,
   exitReason: String,
   breakevenTriggered: Boolean,
+  signalId: String,
 }, { minimize: false });
 const ShadowPositionModel: any = mongoose.models.ShadowPosition || mongoose.model("ShadowPosition", shadowPositionSchema);
+
+// ═══════════════════════════════════════════════════════════════════════
+// CLASSIC SMC DETECTOR (BOS/CHOCH + Liquidity Sweep + H4 POI)
+// Completely isolated system: own signals, own simulated trades (ShadowPosition),
+// own win rate and R-sum tracking. ZERO interaction with SMC or Precision.
+// ═══════════════════════════════════════════════════════════════════════
+const CLASSIC_VERSION = "2026-09-17.1";
+
+interface ClassicSignal {
+  id: string;
+  pair: string;
+  direction: "BUY" | "SELL";
+  timestamp: string;
+  entryPrice: number;
+  sl: number;
+  tp1: number;
+  tp2: number;
+  rr: number;
+  structType: "CHOCH" | "BOS";
+  sweepLevel: number;
+  sweepExtreme: number;
+  sweepTime: string;
+  poiType: string;
+  poiHigh: number;
+  poiLow: number;
+  slAtr: number;
+  status: "active" | "expired" | "traded";
+}
+
+const classicSignalSchema = new mongoose.Schema({
+  id: { type: String, index: true },
+  pair: String,
+  direction: String,
+  timestamp: String,
+  entryPrice: Number,
+  sl: Number,
+  tp1: Number,
+  tp2: Number,
+  rr: Number,
+  structType: String,
+  sweepLevel: Number,
+  sweepExtreme: Number,
+  sweepTime: String,
+  poiType: String,
+  poiHigh: Number,
+  poiLow: Number,
+  slAtr: Number,
+  status: String,
+}, { minimize: false });
+const ClassicSignalModel: any = mongoose.models.ClassicSignal || mongoose.model("ClassicSignal", classicSignalSchema);
+
+let classicSignalsMemory: ClassicSignal[] = [];
+
+function loadClassicSignals(): ClassicSignal[] {
+  return classicSignalsMemory;
+}
+
+function saveClassicSignals(signals: ClassicSignal[]) {
+  classicSignalsMemory = signals.slice(-200);
+  if (isDbReady()) {
+    (async () => {
+      try {
+        await ClassicSignalModel.deleteMany({});
+        if (classicSignalsMemory.length > 0) await ClassicSignalModel.insertMany(classicSignalsMemory, { ordered: false });
+      } catch (err) { console.error("[CLASSIC] Failed to save signals:", err); }
+    })();
+  }
+}
+
+/** Complete classic setup analysis for one pair (confluence + trigger + plan). */
+async function analyzeClassicPair(pair: string): Promise<any> {
+  try {
+    const h4 = await getCandles(pair, "4h", 120);
+    const h1 = await getCandles(pair, "1h", 120);
+    const m15 = await getCandles(pair, "15min", 120);
+    const d1 = await getCandles(pair, "1day", 100);
+    const live = await getLivePrice(pair);
+
+    if (!h4 || !h1 || !m15 || h4.length < 30 || h1.length < 30 || m15.length < 30) {
+      return null;
+    }
+
+    const hAtr = atr(h1, 14);
+    if (!hAtr) return null;
+
+    const toCandle = (c: any) => ({ open: c.o, high: c.h, low: c.l, close: c.c, time: c.t });
+    const h4C = h4.map(toCandle);
+    const h1C = h1.map(toCandle);
+    const m15All = m15.map(toCandle);
+    const m15Closed = m15All.slice(0, -1); // Closed candles only
+
+    const h1TrendInfo = classifyTrend(h1, 2);
+    const h1Trend = h1TrendInfo.trend;
+    const dTrend = d1 && d1.length >= 20 ? classifyTrend(d1, 2).trend : "RANGE";
+    const pdZone = getPremiumDiscount(h1, hAtr);
+    const direction: "BUY" | "SELL" = (pdZone.zone === "DISCOUNT" || pdZone.pos <= 0.5) ? "BUY" : "SELL";
+
+    const spreadInfo = live ? verifySpread(pair, live.spread_pips) : { status: "PASS", message: "Normal" };
+    const spreadOk = spreadInfo.status !== "FAIL";
+    const trendOk = h1Trend !== "RANGE" && h1Trend !== "UNCLEAR";
+    const dailyOk = !(dTrend !== "RANGE" && dTrend !== "UNCLEAR" && dTrend !== h1Trend);
+    const pdOk = pdZone.zone !== "COMPRESSED" && pdZone.zone !== "EQ";
+    const tzOk = !((h1Trend === "BULLISH" && pdZone.zone === "PREMIUM") || (h1Trend === "BEARISH" && pdZone.zone === "DISCOUNT"));
+
+    // Real POI check (before derived fallback)
+    const h4Atr = atr(h4, 14) || hAtr;
+    let poi: any = findOrderBlock(h4, h1Trend, h4Atr);
+    let poiSource = "H4_OB";
+    if (!poi || !poi.valid) {
+      const fvgs = findFVG(h4, h1Trend);
+      if (fvgs && fvgs.length > 0) {
+        const best = fvgs[fvgs.length - 1];
+        poi = { type: best.type, direction, high: best.top, low: best.bottom, index: best.index, valid: true };
+        poiSource = "H4_FVG";
+      }
+    }
+    const poiExists = !!(poi && poi.valid);
+    const poiFresh = poiExists ? checkPoiFreshness(h4, poi) !== "DEAD" : false;
+
+    const confluenceOk = spreadOk && trendOk && dailyOk && pdOk && tzOk && poiExists && poiFresh;
+
+    const setup = confluenceOk
+      ? findClassicSetup(h4C, m15Closed, hAtr, direction, { structPriorTrend: h1Trend, slAnchor: "sweep" })
+      : null;
+
+    const checks: string[] = [];
+    checks.push(spreadOk ? `[OK] Spread: ${live ? live.spread_pips : 0} pips` : `[X] Spread too wide`);
+    checks.push(trendOk ? `[OK] H1 Trend: ${h1Trend}` : `[X] H1 Trend: ${h1Trend} (unclear structure)`);
+    checks.push(dailyOk ? `[OK] Daily Alignment: ${dTrend}` : `[X] Daily opposes H1: ${dTrend}`);
+    checks.push(pdOk ? `[OK] Location: ${pdZone.zone} (${(pdZone.pos * 100).toFixed(0)}%)` : `[X] Location: ${pdZone.zone} (EQ/Compressed)`);
+    checks.push(tzOk ? `[OK] Trend-Zone Match: ${h1Trend} in ${pdZone.zone}` : `[X] Trend-Zone Mismatch`);
+    checks.push(poiExists && poiFresh ? `[OK] POI: ${poiSource} ${poi.low ? poi.low.toFixed(5) : 0}-${poi.high ? poi.high.toFixed(5) : 0} (FRESH)` : poiExists ? `[X] POI dead (traded through)` : `[X] No valid H4 POI found`);
+
+    if (setup) {
+      checks.push(`[OK] H4 Liquidity Sweep: ${setup.sweepLevel.toFixed(5)} (wick: ${setup.sweepExtreme.toFixed(5)})`);
+      checks.push(`[OK] M15 Structure Shift: ${setup.structType} (against ${setup.structPrior} trend)`);
+      checks.push(`[OK] Return to POI & Confirmation: entry @ ${setup.entry}`);
+      checks.push(`[OK] Risk:Reward: 1:${((setup.tp1 - setup.entry) / setup.slDistance).toFixed(2)} (SL ${setup.sl}, ${setup.slAtr.toFixed(2)}x ATR)`);
+    } else if (confluenceOk) {
+      checks.push(`[X] Classic Trigger not met: waiting for H4 sweep, M15 CHOCH/BOS, POI return, or confirmation`);
+    }
+
+    const qualified = !!setup;
+
+    return {
+      pair,
+      timestamp: new Date().toISOString(),
+      qualified,
+      direction: qualified ? setup.direction : direction,
+      entry: qualified ? setup.entry : null,
+      sl: qualified ? setup.sl : null,
+      tp1: qualified ? setup.tp1 : null,
+      tp2: qualified ? setup.tp2 : null,
+      rr: qualified ? Number(((setup.tp1 - setup.entry) / setup.slDistance).toFixed(2)) : null,
+      slAtr: qualified ? Number(setup.slAtr.toFixed(2)) : null,
+      confluence: {
+        h1Trend,
+        dailyTrend: dTrend,
+        pdZone: pdZone.zone,
+        poiType: poiSource,
+        passed: confluenceOk,
+      },
+      setup: setup ? {
+        structType: setup.structType,
+        sweepLevel: setup.sweepLevel,
+        sweepExtreme: setup.sweepExtreme,
+        sweepTime: setup.sweepTime,
+        poiType: setup.poiType,
+        poiHigh: setup.poiHigh,
+        poiLow: setup.poiLow,
+      } : null,
+      checks,
+    };
+  } catch (err) {
+    console.error(`[CLASSIC] Error analyzing ${pair}:`, err);
+    return null;
+  }
+}
+
 
 // ═══════════════════════════════════════════════════════════════════════
 // PRECISION INTRADAY TRADING SYSTEM (completely separate from SMC)
@@ -2068,6 +2278,8 @@ async function hydrateMemoryFromDatabase() {
     signalsMemory = (dbSignals || []).map((s: any) => ({ ...s, _id: undefined, __v: undefined })).filter((s: any) => s.id);
     const dbShadows = await ShadowPositionModel.find().sort({ openedAt: 1 }).lean();
     shadowPositionsMemory = (dbShadows || []).map((sp: any) => ({ ...sp, _id: undefined, __v: undefined })).filter((sp: any) => sp.id);
+    const dbClassicSignals = await ClassicSignalModel.find().sort({ timestamp: 1 }).lean();
+    classicSignalsMemory = (dbClassicSignals || []).map((x: any) => ({ ...x, _id: undefined, __v: undefined })).filter((x: any) => x.id);
     const dbPrecisionSignals = await PrecisionSignalModel.find().sort({ timestamp: 1 }).lean();
     precisionSignalsMemory = (dbPrecisionSignals || []).map((x: any) => ({ ...x, _id: undefined, __v: undefined })).filter((x: any) => x.id);
     const dbPrecisionTrades = await PrecisionTradeModel.find().sort({ openedAt: 1 }).lean();
@@ -3603,18 +3815,6 @@ app.post("/api/performance/restore", async (req, res) => {
 // PRECISION INTRADAY TRADING API ENDPOINTS (separate system)
 // ═══════════════════════════════════════════════════════════════════════
 
-// Get full precision analysis for a pair (the 13-step breakdown)
-app.get("/api/precision/:pair", async (req, res) => {
-  try {
-    const pair = decodeURIComponent(req.params.pair);
-    const result = await analyzePrecisionPair(pair);
-    if (!result) return res.status(404).json({ error: "Insufficient data or pair not found" });
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ error: (err as any).message || "Precision analysis failed" });
-  }
-});
-
 // Scan all pairs with the precision engine (background or on-demand)
 app.get("/api/precision/scan", async (req, res) => {
   try {
@@ -3772,6 +3972,88 @@ app.get("/api/precision/manage", async (req, res) => {
     res.status(500).json({ error: (err as any).message || "Precision manage failed" });
   }
 });
+
+// Get full precision analysis for a pair (the 13-step breakdown)
+app.get("/api/precision/:pair", async (req, res) => {
+  try {
+    const pair = decodeURIComponent(req.params.pair);
+    const result = await analyzePrecisionPair(pair);
+    if (!result) return res.status(404).json({ error: "Insufficient data or pair not found" });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: (err as any).message || "Precision analysis failed" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// CLASSIC DETECTOR API ENDPOINTS (separate system)
+// ═══════════════════════════════════════════════════════════════════════
+
+app.get("/api/classic/scan", async (req, res) => {
+  try {
+    const results: any[] = [];
+    const pairs = Object.keys(EPICS);
+    for (const pair of pairs) {
+      const result = await analyzeClassicPair(pair);
+      if (result) results.push(result);
+      await new Promise(r => setTimeout(r, 200));
+    }
+    res.json({ scanned: results.length, qualified: results.filter(r => r.qualified).length, results });
+  } catch (err) {
+    res.status(500).json({ error: (err as any).message || "Classic scan failed" });
+  }
+});
+
+app.get("/api/classic/signals", (req, res) => {
+  const now = Date.now();
+  const tagged = classicSignalsMemory.map(sig => ({
+    ...sig,
+    expired: now > new Date(sig.timestamp).getTime() + 4 * 60 * 60 * 1000,
+  }));
+  res.json(tagged.reverse());
+});
+
+app.get("/api/classic/stats", (req, res) => {
+  const positions = loadShadowPositions();
+  const resolved = positions.filter(sp => sp.status !== "open");
+  const wins = resolved.filter(sp => (sp.r ?? 0) >= 0);
+  const losses = resolved.filter(sp => (sp.r ?? 0) < 0);
+  const rSum = resolved.reduce((sum, sp) => sum + (sp.r ?? 0), 0);
+  const byExit: Record<string, number> = {};
+  resolved.forEach(sp => { if (sp.exitReason) byExit[sp.exitReason] = (byExit[sp.exitReason] || 0) + 1; });
+
+  res.json({
+    version: CLASSIC_VERSION,
+    config: "conf_h1_sweep (prior=H1 trend, SL=sweep extreme, TP=1.5R)",
+    mode: "SIMULATED — isolated from SMC and Precision",
+    totalSignals: classicSignalsMemory.length,
+    activeSignals: classicSignalsMemory.filter(s => s.status === "active").length,
+    trades: {
+      total: positions.length,
+      open: positions.filter(sp => sp.status === "open").length,
+      closed: resolved.length,
+      wins: wins.length,
+      losses: losses.length,
+      winRate: resolved.length > 0 ? Number(((wins.length / resolved.length) * 100).toFixed(1)) : 0,
+      rSum: Number(rSum.toFixed(2)),
+      avgR: resolved.length > 0 ? Number((rSum / resolved.length).toFixed(2)) : null,
+      byExit,
+    },
+    tradeList: [...positions].reverse(),
+  });
+});
+
+app.get("/api/classic/:pair", async (req, res) => {
+  try {
+    const pair = decodeURIComponent(req.params.pair);
+    const result = await analyzeClassicPair(pair);
+    if (!result) return res.status(404).json({ error: "Insufficient data or pair not found" });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: (err as any).message || "Classic analysis failed" });
+  }
+});
+
 
 // Volatility decision log endpoint (Q3) — review ATR decisions over time
 app.get("/api/volatility-log", (req, res) => {
