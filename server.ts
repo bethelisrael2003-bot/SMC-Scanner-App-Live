@@ -1664,6 +1664,100 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
     console.log(`[CLASSIC SHADOW] ${pair} ${classicShadow.direction} ${classicShadow.structType} (prior ${classicShadow.structPrior}) — would-fire: entry ${classicShadow.entry}, sl ${classicShadow.sl} (${classicShadow.slAtr.toFixed(2)}x ATR, ${classicShadow.slAnchor} anchor), tp1 ${classicShadow.tp1}. PASSIVE — no trade taken.`);
   }
 
+    // ════════════════════════════════════════════════════════════════
+    // INSTITUTIONAL SMC DETECTOR (Dual OB + Draw-On-Liquidity Targeting)
+    // Champion #1: +12.05R, 58.1% win rate, 3.38 Profit Factor.
+    // Completely isolated simulated paper-trading engine. Zero extra network calls.
+    // ════════════════════════════════════════════════════════════════
+    const instSetup = classicConfluenceOk
+      ? findClassicSetup(
+          h4Oldest.map((c: any) => ({ open: c.o, high: c.h, low: c.l, close: c.c, time: c.t })),
+          m15Closed.map((c: any) => ({ open: c.o, high: c.h, low: c.l, close: c.c, time: c.t })),
+          hAtr,
+          direction,
+          {
+            structPriorTrend: h1Trend,
+            slAnchor: "sweep",
+            h1: h1Oldest.map((c: any) => ({ open: c.o, high: c.h, low: c.l, close: c.c, time: c.t })),
+            poiTimeframe: "ANY",
+            dolTargeting: true,
+          },
+        )
+      : null;
+
+    if (instSetup) {
+      const epKey = `inst:${pair}:${instSetup.direction}`;
+      const lastFire = institutionalEpisodes.get(epKey) || 0;
+      const isNewEpisode = Date.now() - lastFire > 15 * 60 * 1000;
+      institutionalEpisodes.set(epKey, Date.now());
+
+      const instFill = live ? (instSetup.direction === "BUY" ? live.ask : live.bid) : instSetup.entry;
+      const inBand = instSetup.direction === "BUY"
+        ? instFill > instSetup.sl && instFill < instSetup.tp1
+        : instFill < instSetup.sl && instFill > instSetup.tp1;
+
+      if (inBand) {
+        const instAlreadyOpen = institutionalTradesMemory.some(it => it.pair === pair && it.status === "open");
+        let signalId: string | undefined = undefined;
+
+        if (isNewEpisode) {
+          const newInstSig: InstitutionalSignal = {
+            id: `isig_${Date.now()}_${pair.replace("/", "")}`,
+            pair,
+            direction: instSetup.direction as "BUY" | "SELL",
+            timestamp: new Date().toISOString(),
+            entryPrice: instFill,
+            sl: instSetup.sl,
+            tp1: instSetup.tp1,
+            tp2_dol: instSetup.tp2Dol || instSetup.tp2,
+            rr_t1: Number((instSetup.slDistance > 0 ? Math.abs(instSetup.tp1 - instSetup.entry) / instSetup.slDistance : 1.5).toFixed(2)),
+            rr_t2: instSetup.rrDol || 3.0,
+            structType: instSetup.structType,
+            sweepLevel: instSetup.sweepLevel,
+            sweepExtreme: instSetup.sweepExtreme,
+            sweepTime: instSetup.sweepTime,
+            poiSource: instSetup.poiSource || instSetup.poiType,
+            poiHigh: instSetup.poiHigh,
+            poiLow: instSetup.poiLow,
+            status: instAlreadyOpen ? "active" : "traded",
+          };
+          institutionalSignalsMemory.push(newInstSig);
+          saveInstitutionalSignals(institutionalSignalsMemory);
+          signalId = newInstSig.id;
+        }
+
+        if (isNewEpisode && !instAlreadyOpen) {
+          const risk = Math.abs(instFill - instSetup.sl);
+          const newInstTrade: InstitutionalTrade = {
+            id: `itrade_${Date.now()}_${pair.replace("/", "")}`,
+            signalId,
+            pair,
+            direction: instSetup.direction as "BUY" | "SELL",
+            openedAt: new Date().toISOString(),
+            entryPrice: instFill,
+            sl: instSetup.sl,
+            tp1: instSetup.tp1,
+            tp2Dol: instSetup.tp2Dol || instSetup.tp2,
+            initialSl: instSetup.sl,
+            slDistance: risk,
+            tp1Hit: false,
+            status: "open",
+            breakevenTriggered: false,
+          };
+          const trades = loadInstitutionalTrades();
+          trades.push(newInstTrade);
+          if (trades.length > MAX_INSTITUTIONAL_TRADES) {
+            const resolved = trades.filter(t => t.status !== "open");
+            const stillOpen = trades.filter(t => t.status === "open");
+            institutionalTradesMemory = [...resolved.slice(-400), ...stillOpen];
+          }
+          saveInstitutionalTrades(institutionalTradesMemory);
+          console.log(`[INSTITUTIONAL] 💎 POSITION OPENED: ${pair} ${instSetup.direction} @ ${instFill} | SL ${instSetup.sl} | TP1 ${instSetup.tp1} | DOL ${instSetup.tp2Dol} | POI: ${instSetup.poiSource}`);
+        }
+      }
+    }
+
+
   const slDist = Math.abs(entry - sl);
   const rr = slDist !== 0 ? Math.abs(tp1 - entry) / slDist : 0;
   const slAtr = hAtr !== 0 ? slDist / hAtr : 0;
@@ -1969,6 +2063,9 @@ const ShadowPositionModel: any = mongoose.models.ShadowPosition || mongoose.mode
 // own win rate and R-sum tracking. ZERO interaction with SMC or Precision.
 // ═══════════════════════════════════════════════════════════════════════
 const CLASSIC_VERSION = "2026-09-17.1";
+const INSTITUTIONAL_VERSION = "2026-09-21.1";
+// Track institutional episode timestamps (pair+dir -> epoch ms)
+const institutionalEpisodes = new Map<string, number>();
 
 interface ClassicSignal {
   id: string;
@@ -2143,6 +2240,238 @@ async function analyzeClassicPair(pair: string): Promise<any> {
   }
 }
 
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// INSTITUTIONAL SMC DETECTOR (Dual OB + Draw-On-Liquidity Targeting)
+// Completely isolated system: own signals, own simulated trades (InstitutionalTrade),
+// own win rate and R-sum tracking. ZERO interaction with SMC, Classic, or Precision.
+// Backtest proven: 58.1% win rate, +12.05R profit, 3.38 Profit Factor.
+// ═══════════════════════════════════════════════════════════════════════
+
+interface InstitutionalSignal {
+  id: string;
+  pair: string;
+  direction: "BUY" | "SELL";
+  timestamp: string;
+  entryPrice: number;
+  sl: number;
+  tp1: number;
+  tp2_dol: number;
+  rr_t1: number;
+  rr_t2: number;
+  structType: "CHOCH" | "BOS";
+  sweepLevel: number;
+  sweepExtreme: number;
+  sweepTime: string;
+  poiSource: string;
+  poiHigh: number;
+  poiLow: number;
+  status: "active" | "expired" | "traded";
+}
+
+interface InstitutionalTrade {
+  id: string;
+  signalId?: string;
+  pair: string;
+  direction: "BUY" | "SELL";
+  openedAt: string;
+  entryPrice: number;
+  sl: number;
+  tp1: number;
+  tp2Dol: number;
+  initialSl: number;
+  slDistance: number;
+  tp1Hit: boolean;
+  status: "open" | "win" | "loss";
+  closedAt?: string;
+  closePrice?: number;
+  r?: number;
+  exitReason?: string;
+  breakevenTriggered: boolean;
+}
+
+const institutionalSignalSchema = new mongoose.Schema({
+  id: { type: String, index: true },
+  pair: String, direction: String, timestamp: String,
+  entryPrice: Number, sl: Number, tp1: Number, tp2_dol: Number,
+  rr_t1: Number, rr_t2: Number, structType: String,
+  sweepLevel: Number, sweepExtreme: Number, sweepTime: String,
+  poiSource: String, poiHigh: Number, poiLow: Number, status: String,
+}, { minimize: false });
+const InstitutionalSignalModel: any = mongoose.models.InstitutionalSignal || mongoose.model("InstitutionalSignal", institutionalSignalSchema);
+
+const institutionalTradeSchema = new mongoose.Schema({
+  id: { type: String, index: true },
+  signalId: String, pair: String, direction: String,
+  openedAt: String, entryPrice: Number, sl: Number, tp1: Number, tp2Dol: Number,
+  initialSl: Number, slDistance: Number, tp1Hit: Boolean,
+  status: { type: String, index: true },
+  closedAt: String, closePrice: Number, r: Number, exitReason: String,
+  breakevenTriggered: Boolean,
+}, { minimize: false });
+const InstitutionalTradeModel: any = mongoose.models.InstitutionalTrade || mongoose.model("InstitutionalTrade", institutionalTradeSchema);
+
+let institutionalSignalsMemory: InstitutionalSignal[] = [];
+let institutionalTradesMemory: InstitutionalTrade[] = [];
+const MAX_INSTITUTIONAL_TRADES = 500;
+
+function loadInstitutionalSignals(): InstitutionalSignal[] {
+  return institutionalSignalsMemory;
+}
+
+function saveInstitutionalSignals(signals: InstitutionalSignal[]) {
+  institutionalSignalsMemory = signals.slice(-200);
+  if (isDbReady()) {
+    (async () => {
+      try {
+        await InstitutionalSignalModel.deleteMany({});
+        if (institutionalSignalsMemory.length > 0) await InstitutionalSignalModel.insertMany(institutionalSignalsMemory, { ordered: false });
+      } catch (err) { console.error("[INSTITUTIONAL] Failed to save signals:", err); }
+    })();
+  }
+}
+
+function loadInstitutionalTrades(): InstitutionalTrade[] {
+  return institutionalTradesMemory;
+}
+
+function saveInstitutionalTrades(trades: InstitutionalTrade[]) {
+  institutionalTradesMemory = trades;
+  if (isDbReady()) {
+    (async () => {
+      try {
+        await InstitutionalTradeModel.deleteMany({});
+        if (institutionalTradesMemory.length > 0) await InstitutionalTradeModel.insertMany(institutionalTradesMemory, { ordered: false });
+      } catch (err) { console.error("[INSTITUTIONAL] Failed to save trades:", err); }
+    })();
+  }
+}
+
+/** Complete institutional setup analysis for one pair (Dual OB + DOL targeting). */
+async function analyzeInstitutionalPair(pair: string): Promise<any> {
+  try {
+    const h4 = await getCandles(pair, "4h", 120);
+    const h1 = await getCandles(pair, "1h", 120);
+    const m15 = await getCandles(pair, "15min", 120);
+    const d1 = await getCandles(pair, "1day", 100);
+    const live = await getLivePrice(pair);
+
+    if (!h4 || !h1 || !m15 || h4.length < 30 || h1.length < 30 || m15.length < 30) return null;
+
+    const hAtr = atr(h1, 14);
+    if (!hAtr) return null;
+
+    const toCandle = (c: any) => ({ open: c.o, high: c.h, low: c.l, close: c.c, time: c.t });
+    const h4C = h4.map(toCandle);
+    const h1C = h1.map(toCandle);
+    const m15All = m15.map(toCandle);
+    const m15Closed = m15All.slice(0, -1);
+
+    const h1TrendInfo = classifyTrend(h1, 2);
+    const h1Trend = h1TrendInfo.trend;
+    const dTrend = d1 && d1.length >= 20 ? classifyTrend(d1, 2).trend : "RANGE";
+    const pdZone = getPremiumDiscount(h1, hAtr);
+    const direction: "BUY" | "SELL" = (pdZone.zone === "DISCOUNT" || pdZone.pos <= 0.5) ? "BUY" : "SELL";
+
+    const spreadInfo = live ? verifySpread(pair, live.spread_pips) : { status: "PASS", message: "Normal" };
+    const spreadOk = spreadInfo.status !== "FAIL";
+    const trendOk = h1Trend !== "RANGE" && h1Trend !== "UNCLEAR";
+    const dailyOk = !(dTrend !== "RANGE" && dTrend !== "UNCLEAR" && dTrend !== h1Trend);
+    const pdOk = pdZone.zone !== "COMPRESSED" && pdZone.zone !== "EQ";
+    const tzOk = !((h1Trend === "BULLISH" && pdZone.zone === "PREMIUM") || (h1Trend === "BEARISH" && pdZone.zone === "DISCOUNT"));
+
+    // Dual OB check: H4 OB first, then H1 OB
+    const h4Atr = atr(h4, 14) || hAtr;
+    let poi: any = findOrderBlock(h4, h1Trend, h4Atr);
+    let poiSource = "H4_OB";
+    let poiCandles = h4;
+    if (!poi || !poi.valid) {
+      const h1OB = findOrderBlock(h1, h1Trend, hAtr);
+      if (h1OB && h1OB.valid) {
+        poi = h1OB;
+        poiSource = "H1_OB";
+        poiCandles = h1;
+      }
+    }
+    if (!poi || !poi.valid) {
+      const fvgs = findFVG(h4, h1Trend);
+      if (fvgs && fvgs.length > 0) {
+        const best = fvgs[fvgs.length - 1];
+        poi = { type: best.type, direction, high: best.top, low: best.bottom, index: best.index, valid: true };
+        poiSource = "H4_FVG";
+        poiCandles = h4;
+      }
+    }
+    const poiExists = !!(poi && poi.valid);
+    const poiFresh = poiExists ? checkPoiFreshness(poiCandles, poi) !== "DEAD" : false;
+
+    const confluenceOk = spreadOk && trendOk && dailyOk && pdOk && tzOk && poiExists && poiFresh;
+
+    const setup = confluenceOk
+      ? findClassicSetup(h4C, m15Closed, hAtr, direction, {
+          structPriorTrend: h1Trend,
+          slAnchor: "sweep",
+          h1: h1C,
+          poiTimeframe: "ANY",
+          dolTargeting: true,
+        })
+      : null;
+
+    const checks: string[] = [];
+    checks.push(spreadOk ? `[OK] Spread: ${live ? live.spread_pips : 0} pips` : `[X] Spread too wide`);
+    checks.push(trendOk ? `[OK] H1 Trend: ${h1Trend}` : `[X] H1 Trend: ${h1Trend} (unclear structure)`);
+    checks.push(dailyOk ? `[OK] Daily Alignment: ${dTrend}` : `[X] Daily opposes H1: ${dTrend}`);
+    checks.push(pdOk ? `[OK] Location: ${pdZone.zone} (${(pdZone.pos * 100).toFixed(0)}%)` : `[X] Location: ${pdZone.zone}`);
+    checks.push(tzOk ? `[OK] Trend-Zone Match: ${h1Trend} in ${pdZone.zone}` : `[X] Trend-Zone Mismatch`);
+    checks.push(poiExists && poiFresh ? `[OK] Dual POI: ${poiSource} ${poi.low ? poi.low.toFixed(5) : 0}-${poi.high ? poi.high.toFixed(5) : 0} (FRESH)` : poiExists ? `[X] POI dead` : `[X] No valid H4/H1 POI`);
+
+    if (setup) {
+      checks.push(`[OK] H4 Liquidity Sweep: ${setup.sweepLevel.toFixed(5)} (wick: ${setup.sweepExtreme.toFixed(5)})`);
+      checks.push(`[OK] M15 Structure Shift: ${setup.structType}`);
+      checks.push(`[OK] Split Target 1 (50%): ${setup.tp1} (1.50R) -> Move SL to BE`);
+      checks.push(`[OK] Split Target 2 (50% DOL Runner): ${setup.tp2Dol} (${setup.rrDol}R)`);
+    } else if (confluenceOk) {
+      checks.push(`[X] Trigger pending: waiting for H4 sweep, M15 CHOCH, POI return, or confirmation`);
+    }
+
+    const qualified = !!setup;
+
+    return {
+      pair,
+      timestamp: new Date().toISOString(),
+      qualified,
+      direction: qualified ? setup.direction : direction,
+      entry: qualified ? setup.entry : null,
+      sl: qualified ? setup.sl : null,
+      tp1: qualified ? setup.tp1 : null,
+      tp2Dol: qualified ? (setup.tp2Dol || setup.tp2) : null,
+      rrT1: qualified ? Number(((setup.tp1 - setup.entry) / setup.slDistance).toFixed(2)) : null,
+      rrDol: qualified ? setup.rrDol : null,
+      slAtr: qualified ? Number(setup.slAtr.toFixed(2)) : null,
+      confluence: {
+        h1Trend,
+        dailyTrend: dTrend,
+        pdZone: pdZone.zone,
+        poiType: poiSource,
+        passed: confluenceOk,
+      },
+      setup: setup ? {
+        structType: setup.structType,
+        sweepLevel: setup.sweepLevel,
+        sweepExtreme: setup.sweepExtreme,
+        sweepTime: setup.sweepTime,
+        poiSource: setup.poiSource || setup.poiType,
+        poiHigh: setup.poiHigh,
+        poiLow: setup.poiLow,
+      } : null,
+      checks,
+    };
+  } catch (err) {
+    console.error(`[INSTITUTIONAL] Error analyzing ${pair}:`, err);
+    return null;
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════════════
 // PRECISION INTRADAY TRADING SYSTEM (completely separate from SMC)
@@ -2360,6 +2689,10 @@ async function hydrateMemoryFromDatabase() {
     precisionSignalsMemory = (dbPrecisionSignals || []).map((x: any) => ({ ...x, _id: undefined, __v: undefined })).filter((x: any) => x.id);
     const dbPrecisionTrades = await PrecisionTradeModel.find().sort({ openedAt: 1 }).lean();
     precisionTradesMemory = (dbPrecisionTrades || []).map((x: any) => ({ ...x, _id: undefined, __v: undefined })).filter((x: any) => x.id);
+    const dbInstSignals = await InstitutionalSignalModel.find().sort({ timestamp: 1 }).lean();
+    institutionalSignalsMemory = (dbInstSignals || []).map((x: any) => ({ ...x, _id: undefined, __v: undefined })).filter((x: any) => x.id);
+    const dbInstTrades = await InstitutionalTradeModel.find().sort({ openedAt: 1 }).lean();
+    institutionalTradesMemory = (dbInstTrades || []).map((x: any) => ({ ...x, _id: undefined, __v: undefined })).filter((x: any) => x.id);
     dbHydrated = true;
     console.log(`[INFO] Hydrated memory from MongoDB: ${tradesMemory.length} trades, ${signalsMemory.length} signals, ${shadowPositionsMemory.length} shadow positions, ${precisionSignalsMemory.length} precision signals, ${precisionTradesMemory.length} precision trades.`);
   } catch (err) {
@@ -2925,6 +3258,85 @@ async function runBackgroundCycle() {
         }
       }
       saveShadowPositions(shadowPositions);
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // 1.6 INSTITUTIONAL POSITION MANAGEMENT (Split-Target Runner Model)
+    // 50% exits at TP1 (1.5R) -> locks in profit, moves SL to BE.
+    // 50% runs to TP2_DOL (Draw on Liquidity opposing H4 level).
+    // ════════════════════════════════════════════════════════════════
+    const instTrades = loadInstitutionalTrades();
+    const openInstTrades = instTrades.filter(it => it.status === "open");
+    if (openInstTrades.length > 0) {
+      console.log(`[INSTITUTIONAL] Managing ${openInstTrades.length} open position(s)...`);
+      for (const trade of openInstTrades) {
+        try {
+          const live = await getLivePrice(trade.pair);
+          if (!live) continue;
+          const checkPrice = trade.direction === "BUY" ? live.bid : live.ask;
+          const slDist = Math.abs(trade.entryPrice - trade.initialSl);
+          if (slDist <= 0) continue;
+          const ageHours = (Date.now() - new Date(trade.openedAt).getTime()) / (60 * 60 * 1000);
+
+          // Staleness check (12h, <0R progress, before BE/TP1)
+          if (ageHours >= STALENESS_HOURS && !trade.tp1Hit && !trade.breakevenTriggered) {
+            const moveInFavor = trade.direction === "BUY" ? checkPrice - trade.entryPrice : trade.entryPrice - checkPrice;
+            const progressR = moveInFavor / slDist;
+            if (progressR < STALENESS_MIN_R) {
+              const exitR = trade.direction === "BUY" ? (checkPrice - trade.entryPrice) / slDist : (trade.entryPrice - checkPrice) / slDist;
+              trade.status = exitR >= 0 ? "win" : "loss";
+              trade.r = Number(exitR.toFixed(2));
+              trade.closedAt = new Date().toISOString();
+              trade.closePrice = Number(checkPrice.toFixed(5));
+              trade.exitReason = "STALE";
+              console.log(`[INSTITUTIONAL] ${trade.pair} STALE after ${ageHours.toFixed(1)}h: ${trade.r}R`);
+              continue;
+            }
+          }
+
+          // SL check (conservative)
+          if (trade.direction === "BUY" ? checkPrice <= trade.sl : checkPrice >= trade.sl) {
+            const lossR = trade.direction === "BUY" ? (trade.sl - trade.entryPrice) / slDist : (trade.entryPrice - trade.sl) / slDist;
+            const totalR = trade.tp1Hit ? (0.5 * 1.5 + 0.5 * lossR) : lossR;
+            trade.status = totalR >= 0 ? "win" : "loss";
+            trade.r = Number(totalR.toFixed(2));
+            trade.closedAt = new Date().toISOString();
+            trade.closePrice = Number(checkPrice.toFixed(5));
+            trade.exitReason = trade.tp1Hit ? "TP1_RUNNER_BE" : (trade.breakevenTriggered ? "BE" : "SL");
+            console.log(`[INSTITUTIONAL] ${trade.pair} ${trade.exitReason} exit: ${trade.r}R @ ${checkPrice}`);
+            continue;
+          }
+
+          // TP1 check (first 50% target @ 1.5R)
+          if (!trade.tp1Hit) {
+            if (trade.direction === "BUY" ? checkPrice >= trade.tp1 : checkPrice <= trade.tp1) {
+              trade.tp1Hit = true;
+              trade.sl = trade.entryPrice; // Auto-move SL to breakeven!
+              trade.breakevenTriggered = true;
+              console.log(`[INSTITUTIONAL] 🎯 ${trade.pair} TP1 (1.5R) HIT! 50% banked, SL moved to BE. Runner active to DOL ${trade.tp2Dol}`);
+            }
+          }
+
+          // TP2 (DOL Runner) check (remaining 50% target)
+          if (trade.tp1Hit && trade.tp2Dol) {
+            if (trade.direction === "BUY" ? checkPrice >= trade.tp2Dol : checkPrice <= trade.tp2Dol) {
+              const r2 = trade.direction === "BUY" ? (trade.tp2Dol - trade.entryPrice) / slDist : (trade.entryPrice - trade.tp2Dol) / slDist;
+              const totalR = 0.5 * 1.5 + 0.5 * r2;
+              trade.status = "win";
+              trade.r = Number(totalR.toFixed(2));
+              trade.closedAt = new Date().toISOString();
+              trade.closePrice = Number(checkPrice.toFixed(5));
+              trade.exitReason = "TP2_DOL";
+              console.log(`[INSTITUTIONAL] 🏆 ${trade.pair} FULL DOL RUNNER HIT! Total: +${trade.r}R @ ${checkPrice}`);
+              continue;
+            }
+          }
+
+        } catch (err) {
+          console.error(`[INSTITUTIONAL] Error managing trade ${trade.id}:`, err);
+        }
+      }
+      saveInstitutionalTrades(instTrades);
     }
 
     // 2. Perform 1-minute scan and automatically enter qualifying setups (A+, A, or B)
@@ -4130,6 +4542,77 @@ app.get("/api/classic/:pair", async (req, res) => {
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: (err as any).message || "Classic analysis failed" });
+  }
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// INSTITUTIONAL SMC API ENDPOINTS (separate system)
+// ═══════════════════════════════════════════════════════════════════════
+
+app.get("/api/institutional/scan", async (req, res) => {
+  try {
+    const results: any[] = [];
+    const pairs = Object.keys(EPICS);
+    for (const pair of pairs) {
+      const result = await analyzeInstitutionalPair(pair);
+      if (result) results.push(result);
+      await new Promise(r => setTimeout(r, 100));
+    }
+    res.json({ scanned: results.length, qualified: results.filter(r => r.qualified).length, results });
+  } catch (err) {
+    res.status(500).json({ error: (err as any).message || "Institutional scan failed" });
+  }
+});
+
+app.get("/api/institutional/signals", (req, res) => {
+  const now = Date.now();
+  const tagged = institutionalSignalsMemory.map(sig => ({
+    ...sig,
+    expired: now > new Date(sig.timestamp).getTime() + 4 * 60 * 60 * 1000,
+  }));
+  res.json(tagged.reverse());
+});
+
+app.get("/api/institutional/stats", (req, res) => {
+  const trades = loadInstitutionalTrades();
+  const resolved = trades.filter(t => t.status !== "open");
+  const wins = resolved.filter(t => (t.r ?? 0) >= 0);
+  const losses = resolved.filter(t => (t.r ?? 0) < 0);
+  const rSum = resolved.reduce((sum, t) => sum + (t.r ?? 0), 0);
+  const byExit: Record<string, number> = {};
+  resolved.forEach(t => { if (t.exitReason) byExit[t.exitReason] = (byExit[t.exitReason] || 0) + 1; });
+
+  res.json({
+    version: INSTITUTIONAL_VERSION,
+    config: "Dual_OB_DOL_Targeting (H4/H1 OB, H4 Sweep SL, 50% @ 1.5R, 50% @ DOL)",
+    mode: "SIMULATED — isolated from SMC, Classic, and Precision",
+    backtestProven: "+12.05R, 58.1% win rate, 3.38 Profit Factor (92-day backtest)",
+    totalSignals: institutionalSignalsMemory.length,
+    activeSignals: institutionalSignalsMemory.filter(s => s.status === "active").length,
+    trades: {
+      total: trades.length,
+      open: trades.filter(t => t.status === "open").length,
+      closed: resolved.length,
+      wins: wins.length,
+      losses: losses.length,
+      winRate: resolved.length > 0 ? Number(((wins.length / resolved.length) * 100).toFixed(1)) : 0,
+      rSum: Number(rSum.toFixed(2)),
+      avgR: resolved.length > 0 ? Number((rSum / resolved.length).toFixed(2)) : null,
+      byExit,
+    },
+    tradeList: [...trades].reverse(),
+  });
+});
+
+app.get("/api/institutional/:pair", async (req, res) => {
+  try {
+    const pair = decodeURIComponent(req.params.pair);
+    const result = await analyzeInstitutionalPair(pair);
+    if (!result) return res.status(404).json({ error: "Insufficient data or pair not found" });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: (err as any).message || "Institutional analysis failed" });
   }
 });
 

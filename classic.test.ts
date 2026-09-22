@@ -160,5 +160,22 @@ check("6. SELL direction -> null (no sell-side confirmation)", findClassicSetup(
   check("8. no break + no confirmation -> null", findClassicSetup(h4, m8, ATR, "BUY", { structPriorTrend: "BULLISH" }) === null);
 }
 
+/* 9. Dual OB + DOL Targeting (Champion #1 features) */
+{
+  const s = findClassicSetup(h4, m15, ATR, "BUY", {
+    structPriorTrend: "BULLISH",
+    slAnchor: "sweep",
+    h1: h4, // pass h1 candles
+    poiTimeframe: "ANY",
+    dolTargeting: true,
+  });
+  check("9a. valid with Dual OB + DOL targeting", s !== null);
+  if (s) {
+    check("9b. tp2Dol is defined and > entry for BUY", typeof s.tp2Dol === "number" && s.tp2Dol > s.entry, `tp2Dol=${s.tp2Dol} entry=${s.entry}`);
+    check("9c. rrDol is defined and >= 1.5", typeof s.rrDol === "number" && s.rrDol >= 1.5, `rrDol=${s.rrDol}`);
+    check("9d. poiSource is defined", typeof s.poiSource === "string", `poiSource=${s.poiSource}`);
+  }
+}
+
 console.log(`\n=== RESULT: ${passed} passed, ${failed} failed ===`);
 if (failed > 0) { failures.forEach(f => console.log(`  - ${f}`)); process.exit(1); }

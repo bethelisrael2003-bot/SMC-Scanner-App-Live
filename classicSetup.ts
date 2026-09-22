@@ -61,6 +61,9 @@ export interface ClassicSetup {
   slAtr: number;            // SL distance in ATR units (diagnostics)
   slAnchor: "sweep" | "poi";
   structPrior: string;      // trend the CHOCH/BOS was measured against
+  tp2Dol?: number;          // Draw-On-Liquidity target (opposing H4 pool or range extreme)
+  rrDol?: number;           // R:R to the DOL target
+  poiSource?: string;
 }
 
 /* ── server.ts function copies (verbatim semantics) ─────────────────────── */
@@ -302,7 +305,13 @@ export function findClassicSetup(
   m15: Candle[],
   h1Atr: number,
   direction: Direction,
-  opts: { structPriorTrend?: string; slAnchor?: "sweep" | "poi" } = {},
+  opts: {
+    structPriorTrend?: string;
+    slAnchor?: "sweep" | "poi";
+    h1?: Candle[];
+    poiTimeframe?: "H4" | "H1" | "ANY";
+    dolTargeting?: boolean;
+  } = {},
 ): ClassicSetup | null {
   if (!h4 || h4.length < 50 || !m15 || m15.length < 50) return null;
   if (!(h1Atr > 0)) return null;
@@ -346,21 +355,41 @@ export function findClassicSetup(
   const breakIdx = m15Win.findIndex(c => c.time === struct.bar!.time);
   if (breakIdx < 0 || m15Win.length - 1 - breakIdx > BREAK_MAX_AGE_M15) return null;
 
-  /* 3. POI (H4 OB in setup direction, fallback H4 FVG) — returned-to and fresh */
+  /* 3. POI (H4 OB in setup direction, with optional H1 OB fallback if ANY requested) */
   const synthTrend = isBuy ? "BULLISH" : "BEARISH";
   const h4Atr = atrFn(h4Win, 14) || h1Atr;
-  let poi: any = findOrderBlock(h4Win, synthTrend, h4Atr);
+  let poi: any = null;
   let poiSource = "H4_OB";
+  let poiCandles = h4Win;
+
+  if (opts.poiTimeframe !== "H1") {
+    poi = findOrderBlock(h4Win, synthTrend, h4Atr);
+  }
+
+  // If ANY requested and H4 had no valid OB, check H1 OB
+  if ((!poi || !poi.valid) && (opts.poiTimeframe === "ANY" || opts.poiTimeframe === "H1") && opts.h1) {
+    const h1Win = opts.h1.slice(-120);
+    const h1OB = findOrderBlock(h1Win, synthTrend, h1Atr);
+    if (h1OB && h1OB.valid) {
+      poi = h1OB;
+      poiSource = "H1_OB";
+      poiCandles = h1Win;
+    }
+  }
+
+  // Fallback to H4 FVG
   if (!poi || !poi.valid) {
     const fvgs = findFVG(h4Win, synthTrend);
     if (fvgs.length > 0) {
       const best = fvgs[fvgs.length - 1];
       poi = { type: best.type, direction, high: best.top, low: best.bottom, index: best.index, valid: true };
       poiSource = "H4_FVG";
+      poiCandles = h4Win;
     }
   }
+
   if (!poi || !poi.valid) return null; // classic requires a REAL POI
-  if (checkPoiFreshness(h4Win, poi) === "DEAD") return null;
+  if (checkPoiFreshness(poiCandles, poi) === "DEAD") return null;
 
   // "Return to POI": latest M15 bar overlaps the zone or close near the edge
   const poiHigh = poi.high ?? poi.top;
@@ -400,6 +429,25 @@ export function findClassicSetup(
   const coherent = isBuy ? sl < e && e < tp1 : sl > e && e > tp1;
   if (!coherent || risk <= 0) return null;
 
+  // Optional Draw-On-Liquidity calculation
+  let tp2Dol: number | undefined = undefined;
+  let rrDol: number | undefined = undefined;
+
+  if (opts.dolTargeting) {
+    // Target a major opposing pool beyond TP1 (at least 1.5R away), or default to 3.0R
+    const opposingPools = isBuy
+      ? pools.buyPools.filter(p => p.level > e + 1.5 * risk)
+      : pools.sellPools.filter(p => p.level < e - 1.5 * risk);
+    let dolLevel: number;
+    if (opposingPools.length > 0) {
+      dolLevel = isBuy ? Math.max(...opposingPools.map(p => p.level)) : Math.min(...opposingPools.map(p => p.level));
+    } else {
+      dolLevel = isBuy ? e + 3.0 * risk : e - 3.0 * risk;
+    }
+    tp2Dol = Number(dolLevel.toFixed(5));
+    rrDol = risk > 0 ? Number((Math.abs(dolLevel - e) / risk).toFixed(2)) : undefined;
+  }
+
   return {
     entry: e,
     sl,
@@ -417,6 +465,9 @@ export function findClassicSetup(
     slAtr: risk / h1Atr,
     slAnchor: opts.slAnchor === "poi" ? "poi" : "sweep",
     structPrior: priorTrend,
+    tp2Dol,
+    rrDol,
+    poiSource,
   };
 }
 

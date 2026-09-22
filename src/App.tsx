@@ -3,6 +3,7 @@ import { useScannerState } from "./hooks/useScannerState";
 import { DeepDivePanel } from "./components/DeepDivePanel";
 import { CandlestickChart } from "./components/CandlestickChart";
 import { ClassicTab } from "./components/tabs/ClassicTab";
+import { InstitutionalTab } from "./components/tabs/InstitutionalTab";
 import { PrecisionTab } from "./components/tabs/PrecisionTab";
 import { PushNotifications } from '@capacitor/push-notifications';
 
@@ -25,7 +26,7 @@ async function setupPush() {
 }
 
 // ── Types ───────────────────────────────────────────────────────────────────
-type TabId = "signals" | "watchlist" | "trades" | "performance" | "classic" | "precision" | "news" | "rules";
+type TabId = "signals" | "watchlist" | "trades" | "performance" | "classic" | "institutional" | "precision" | "news" | "rules";
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "signals", label: "Signals", icon: "⚡" },
@@ -33,6 +34,7 @@ const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "trades", label: "Trades", icon: "📊" },
   { id: "performance", label: "Performance", icon: "📈" },
   { id: "classic", label: "Classic SMC", icon: "🏛" },
+  { id: "institutional", label: "SMC Institutional", icon: "💎" },
   { id: "precision", label: "Precision", icon: "🎯" },
   { id: "news", label: "News", icon: "📡" },
   { id: "rules", label: "SMC Rules", icon: "📖" },
@@ -426,6 +428,7 @@ export default function App() {
           {activeTab === "trades" && <TradesTab activeTrades={s.activeTrades} scanData={s.scanData} />}
           {activeTab === "performance" && <PerformanceTab stats={s.performanceStats} loading={s.perfLoading} onRefresh={s.handleFetchPerformance} />}
           {activeTab === "classic" && <ClassicTab />}
+          {activeTab === "institutional" && <InstitutionalTab />}
           {activeTab === "precision" && <PrecisionTab />}
           {activeTab === "news" && <NewsTab news={s.newsData} loading={s.newsLoading} />}
           {activeTab === "rules" && <RulesTab />}

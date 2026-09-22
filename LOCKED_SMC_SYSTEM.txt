@@ -441,6 +441,37 @@ CLASSIC DETECTOR SYSTEM (2026-09-21, DEDICATED VISIBLE PAGE):
     analysis/mpr-vs-classic (conf variants positive, n=14-20;
     classic_pure rejected at -31R).
 
+A19. INSTITUTIONAL SMC DOL SYSTEM (2026-09-21, 4th dedicated system)
+------------------------------------------------------------------------
+Implements the backtest-proven Champion #1 architecture (+12.05R, 58.1%
+win rate, 3.38 Profit Factor, −3.4R max drawdown):
+
+  1. Core Mechanics:
+     - Multi-timeframe trend alignment (H1 + Daily) in Discount (BUY) or
+       Premium (SELL).
+     - H4 Liquidity Sweep of equal highs/lows or session extremes.
+     - M15 Structure Shift (CHOCH/BOS) occurring AFTER the sweep.
+     - Dual Order Block POI: checks H4 Order Block first; if none exists,
+       falls back to H1 Order Block.
+     - M15 Confirmation: closed candle in setup direction.
+     - Stop Loss: anchored beyond the H4 sweep extreme wick + 0.15× ATR.
+
+  2. Split-Target Scaling (Draw On Liquidity Runner):
+     - Target 1 (50% of position): 1.5R. When hit, 50% profit is locked
+       and Stop Loss automatically moves to Breakeven (1:1).
+     - Target 2 (50% of position): Draw On Liquidity (opposing H4 pool
+       or range extreme, minimum 1.5R away, capturing 2.5R to 4.5R).
+
+  3. 4-Way Strict Isolation:
+     - Dedicated MongoDB models: InstitutionalSignal and InstitutionalTrade.
+     - Dedicated endpoints: /api/institutional/* (stats, signals, scan, :pair).
+     - Dedicated UI tab: "SMC Institutional" (💎 icon) with live stats,
+       split-target trade ledger, and 4-phase sequence breakdown.
+     - ZERO interaction with Core SMC, Classic, or Precision.
+     - Simulated paper trading only: NO live broker orders, NO push notifications.
+     - Consumes 0 extra Capital.com API calls by reading from the shared
+       Centralized Market Data Cache.
+
 A18. CENTRALIZED MARKET-DATA CACHE (2026-09-21, infrastructure layer)
 ------------------------------------------------------------------------
 To support multiple concurrent analysis systems (MPR, Classic, Precision,
