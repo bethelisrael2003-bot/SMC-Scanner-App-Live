@@ -1,7 +1,7 @@
 ╔══════════════════════════════════════════════════════════════════╗
 ║                                                                  ║
 ║   SMC SCANNER SYSTEM — LIVE CODE REFERENCE                       ║
-║   Accurate as of: Sep 23, 2026 (Trend Sweep 6th system deploy)  ║
+║   Accurate as of: Sep 23, 2026 (Asian Fade 7th system deploy)    ║
 ║   This document describes what the server ACTUALLY does.         ║
 ║   No aspirational rules. No "should be." Only what runs.         ║
 ║                                                                  ║
@@ -558,6 +558,43 @@ Momentum Rejection architecture (Option A, zero-lookahead audited):
      - Dedicated UI tab: "Trend Sweep" (🌊 icon) with live stats, sweep visualizer,
        signals feed, and simulated trade ledger.
      - ZERO interaction with Core SMC, Classic, Institutional, Asian, or Precision.
+     - Simulated paper trading only: NO live broker orders, NO push notifications.
+     - Consumes 0 extra Capital.com API calls by reading from the shared MarketDataCache.
+
+A22. ASIAN FADE SYSTEM (2026-09-23, 7th dedicated system)
+------------------------------------------------------------------------
+Implements the backtest-proven Asian-Range Liquidity Sweep / Stop-Hunt
+Fade mean-reversion architecture (Option 1, zero-lookahead audited):
+(+5.52R, 75.0% win rate, 2.84 Profit Factor, −1.0R max drawdown):
+
+  1. Core Mechanics:
+     - Universe: All 11 pairs.
+     - Asian Session Range (00:00–07:00 UTC): tracks Asian High and Asian Low.
+     - Coiled Range Gate: Asian range size must be between 0.50× and 1.50×
+       of completed H1 ATR(14).
+     - Early London Fade Window: Weekdays 07:00 to 12:00 UTC.
+     - Completed H1 Macro Trend (Strictly Zero-Lookahead):
+       Uses completed H1 candle (start time <= t - 3600.0s).
+       SELL: Only if NOT in H1 uptrend (EMA50 <= EMA200).
+       BUY:  Only if NOT in H1 downtrend (EMA50 >= EMA200).
+     - Sweep & Rejection Mechanics:
+       Sweep depth >= 0.15× H1 ATR beyond Asian High/Low.
+       Rejection close back inside range by at least 0.10× H1 ATR.
+     - Frequency Limit: Maximum 1 trade per pair per day.
+
+  2. Risk & Scaled Targets:
+     - Stop Loss: anchored at Sweep Wick Extreme +/- 0.05× H1 ATR.
+     - Target 1 (50% of position): Asian Session Midpoint (locks profit, moves SL to BE).
+     - Target 2 (50% of position): 2.5× Asian Range projected beyond opposite extreme.
+     - Staleness: 12 hours (< 0R progress).
+
+  3. 7-Way Strict Isolation:
+     - Dedicated engine: asianFade.ts with 6 unit tests (asianFade.test.ts).
+     - Dedicated MongoDB models: AsianFadeSignal and AsianFadeTrade.
+     - Dedicated endpoints: /api/asianfade/* (stats, signals, scan, :pair).
+     - Dedicated UI tab: "Asian Fade" (🎯 icon) with live stats, fade visualizer,
+       signals feed, and simulated trade ledger.
+     - ZERO interaction with Core SMC, Classic, Institutional, Asian Breakout, Trend Sweep, or Precision.
      - Simulated paper trading only: NO live broker orders, NO push notifications.
      - Consumes 0 extra Capital.com API calls by reading from the shared MarketDataCache.
 

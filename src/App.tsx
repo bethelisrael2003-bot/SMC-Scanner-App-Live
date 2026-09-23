@@ -5,6 +5,7 @@ import { CandlestickChart } from "./components/CandlestickChart";
 import { ClassicTab } from "./components/tabs/ClassicTab";
 import { InstitutionalTab } from "./components/tabs/InstitutionalTab";
 import { AsianBreakoutTab } from "./components/tabs/AsianBreakoutTab";
+import { AsianFadeTab } from "./components/tabs/AsianFadeTab";
 import { TrendSweepTab } from "./components/tabs/TrendSweepTab";
 import { PrecisionTab } from "./components/tabs/PrecisionTab";
 import { PushNotifications } from '@capacitor/push-notifications';
@@ -28,7 +29,7 @@ async function setupPush() {
 }
 
 // ── Types ───────────────────────────────────────────────────────────────────
-type TabId = "signals" | "watchlist" | "trades" | "performance" | "classic" | "institutional" | "asian" | "trendsweep" | "precision" | "news" | "rules";
+type TabId = "signals" | "watchlist" | "trades" | "performance" | "classic" | "institutional" | "asian" | "asianfade" | "trendsweep" | "precision" | "news" | "rules";
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "signals", label: "Signals", icon: "⚡" },
@@ -38,8 +39,9 @@ const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "classic", label: "Classic SMC", icon: "🏛" },
   { id: "institutional", label: "SMC Institutional", icon: "💎" },
   { id: "asian", label: "Asian Breakout", icon: "🚀" },
+  { id: "asianfade", label: "Asian Fade", icon: "🎯" },
   { id: "trendsweep", label: "Trend Sweep", icon: "🌊" },
-  { id: "precision", label: "Precision", icon: "🎯" },
+  { id: "precision", label: "Precision", icon: "📐" },
   { id: "news", label: "News", icon: "📡" },
   { id: "rules", label: "SMC Rules", icon: "📖" },
 ];
@@ -434,6 +436,7 @@ export default function App() {
           {activeTab === "classic" && <ClassicTab />}
           {activeTab === "institutional" && <InstitutionalTab />}
           {activeTab === "asian" && <AsianBreakoutTab />}
+          {activeTab === "asianfade" && <AsianFadeTab />}
           {activeTab === "trendsweep" && <TrendSweepTab />}
           {activeTab === "precision" && <PrecisionTab />}
           {activeTab === "news" && <NewsTab news={s.newsData} loading={s.newsLoading} />}
