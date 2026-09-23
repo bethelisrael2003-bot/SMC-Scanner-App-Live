@@ -1,7 +1,7 @@
 ╔══════════════════════════════════════════════════════════════════╗
 ║                                                                  ║
 ║   SMC SCANNER SYSTEM — LIVE CODE REFERENCE                       ║
-║   Accurate as of: Sep 17, 2026 PM (shadow outcome tracking)    ║
+║   Accurate as of: Sep 23, 2026 (Asian Breakout 5th system deploy)║
 ║   This document describes what the server ACTUALLY does.         ║
 ║   No aspirational rules. No "should be." Only what runs.         ║
 ║                                                                  ║
@@ -491,6 +491,40 @@ win rate, 3.38 Profit Factor, −3.4R max drawdown):
      - Simulated paper trading only: NO live broker orders, NO push notifications.
      - Consumes 0 extra Capital.com API calls by reading from the shared
        Centralized Market Data Cache.
+
+A20. ASIAN SESSION RANGE BREAKOUT SYSTEM (2026-09-23, 5th dedicated system)
+------------------------------------------------------------------------
+Implements the backtest-proven London Open Momentum Breakout architecture
+(+13.11R to +14.35R, 42.9% - 46.4% win rate, 2.61 PF, −3.5R max drawdown):
+
+  1. Core Mechanics:
+     - Restricted Universe: EUR/USD, GBP/USD, USD/JPY, AUD/USD, XAU/USD, GBP/JPY.
+     - Asian Session Range (00:00–07:00 UTC): tracks highest high and lowest low
+       formed by M15 candles across the 7-hour Asian window.
+     - Volatility Regime Gate: Asian range size must be between 0.36× and 1.35×
+       of H1 ATR(14). Rejects compressed dead sessions (< 0.36×) and expanded news sessions (> 1.35×).
+     - London Open Breakout Window (07:00–10:30 UTC): waits for the first M15 candle
+       closing decisively outside the Asian range.
+     - Candle Momentum Gate: M15 bar range (H - L) >= 0.36× Asian Range.
+     - Decisive Extension: Close beyond Asian level by > 0.06× H1 ATR.
+     - Frequency Limit: Maximum 1 trade per pair per day.
+
+  2. Risk & Scaled Targets:
+     - Stop Loss: anchored 0.08× Asian Range beyond the OPPOSITE side of the range.
+     - Target 1 (35% of position): 1.50R. When hit, moves SL to Breakeven.
+     - Target 2 (65% of position): 4.00R runner.
+     - Early Breakeven: moves SL to BE if price reaches +0.80R before Target 1.
+     - Max Staleness: 7 hours (< 0R progress).
+
+  3. 5-Way Strict Isolation:
+     - Dedicated engine: asianBreakout.ts with 33 unit tests (asian.test.ts).
+     - Dedicated MongoDB models: AsianSignal and AsianTrade.
+     - Dedicated endpoints: /api/asian/* (stats, signals, scan, :pair).
+     - Dedicated UI tab: "Asian Breakout" (🚀 icon) with live stats, range visualizer,
+       signals feed, and simulated trade ledger.
+     - ZERO interaction with Core SMC, Classic, Institutional, or Precision.
+     - Simulated paper trading only: NO live broker orders, NO push notifications.
+     - Consumes 0 extra Capital.com API calls by reading from the shared MarketDataCache.
 
 A18. CENTRALIZED MARKET-DATA CACHE (2026-09-21, infrastructure layer)
 ------------------------------------------------------------------------

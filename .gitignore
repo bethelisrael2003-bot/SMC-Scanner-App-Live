@@ -14,3 +14,4 @@ android/local.properties
 capital_session.json
 keystore_pw.txt
 replay/data/
+__pycache__/

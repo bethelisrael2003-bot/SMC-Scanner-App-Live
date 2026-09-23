@@ -1,0 +1,202 @@
+[
+  {
+    "name": "Trend_Pullback_TP2.5R_BE0",
+    "trades": 331,
+    "trades_per_week": 25.2,
+    "wr": 24.5,
+    "r_sum": -56.43,
+    "avg_r": -0.17,
+    "pf": 0.75,
+    "max_dd": -58.6
+  },
+  {
+    "name": "Trend_Pullback_TP2.5R_BE1.0",
+    "trades": 346,
+    "trades_per_week": 26.3,
+    "wr": 18.8,
+    "r_sum": -65.21,
+    "avg_r": -0.19,
+    "pf": 0.67,
+    "max_dd": -68.1
+  },
+  {
+    "name": "Trend_Pullback_TP2.0R_BE0",
+    "trades": 334,
+    "trades_per_week": 25.4,
+    "wr": 27.5,
+    "r_sum": -66.51,
+    "avg_r": -0.2,
+    "pf": 0.7,
+    "max_dd": -67.5
+  },
+  {
+    "name": "Trend_Pullback_TP1.5R_BE0",
+    "trades": 351,
+    "trades_per_week": 26.7,
+    "wr": 34.2,
+    "r_sum": -66.65,
+    "avg_r": -0.19,
+    "pf": 0.69,
+    "max_dd": -66.7
+  },
+  {
+    "name": "Trend_Pullback_TP2.0R_BE1.0",
+    "trades": 348,
+    "trades_per_week": 26.5,
+    "wr": 22.1,
+    "r_sum": -70.78,
+    "avg_r": -0.2,
+    "pf": 0.65,
+    "max_dd": -71.9
+  },
+  {
+    "name": "Trend_Pullback_TP1.5R_BE1.0",
+    "trades": 358,
+    "trades_per_week": 27.2,
+    "wr": 30.2,
+    "r_sum": -72.71,
+    "avg_r": -0.2,
+    "pf": 0.65,
+    "max_dd": -72.7
+  },
+  {
+    "name": "FVG_Retest_TP2.0R_BE0",
+    "trades": 841,
+    "trades_per_week": 64.0,
+    "wr": 31.2,
+    "r_sum": -75.43,
+    "avg_r": -0.09,
+    "pf": 0.86,
+    "max_dd": -93.2
+  },
+  {
+    "name": "FVG_Retest_TP2.0R_BE1.0",
+    "trades": 857,
+    "trades_per_week": 65.2,
+    "wr": 26.3,
+    "r_sum": -76.12,
+    "avg_r": -0.09,
+    "pf": 0.83,
+    "max_dd": -94.1
+  },
+  {
+    "name": "FVG_Retest_TP1.5R_BE0",
+    "trades": 886,
+    "trades_per_week": 67.4,
+    "wr": 36.6,
+    "r_sum": -85.71,
+    "avg_r": -0.1,
+    "pf": 0.83,
+    "max_dd": -99.2
+  },
+  {
+    "name": "FVG_Retest_TP1.5R_BE1.0",
+    "trades": 894,
+    "trades_per_week": 68.0,
+    "wr": 33.4,
+    "r_sum": -86.01,
+    "avg_r": -0.1,
+    "pf": 0.82,
+    "max_dd": -100.5
+  },
+  {
+    "name": "Asian_Sweep_TP2.5R_BE0",
+    "trades": 620,
+    "trades_per_week": 47.2,
+    "wr": 24.8,
+    "r_sum": -112.5,
+    "avg_r": -0.18,
+    "pf": 0.75,
+    "max_dd": -135.4
+  },
+  {
+    "name": "Asian_Sweep_TP2.5R_BE1.0",
+    "trades": 635,
+    "trades_per_week": 48.3,
+    "wr": 18.7,
+    "r_sum": -119.56,
+    "avg_r": -0.19,
+    "pf": 0.69,
+    "max_dd": -131.9
+  },
+  {
+    "name": "Asian_Sweep_TP2.0R_BE1.0",
+    "trades": 641,
+    "trades_per_week": 48.8,
+    "wr": 23.7,
+    "r_sum": -119.94,
+    "avg_r": -0.19,
+    "pf": 0.69,
+    "max_dd": -130.9
+  },
+  {
+    "name": "Asian_Sweep_TP1.5R_BE1.0",
+    "trades": 649,
+    "trades_per_week": 49.4,
+    "wr": 31.6,
+    "r_sum": -123.18,
+    "avg_r": -0.19,
+    "pf": 0.68,
+    "max_dd": -134.1
+  },
+  {
+    "name": "Asian_Sweep_TP1.5R_BE0",
+    "trades": 645,
+    "trades_per_week": 49.1,
+    "wr": 34.6,
+    "r_sum": -126.49,
+    "avg_r": -0.2,
+    "pf": 0.69,
+    "max_dd": -136.9
+  },
+  {
+    "name": "Asian_Sweep_TP2.0R_BE0",
+    "trades": 631,
+    "trades_per_week": 48.0,
+    "wr": 28.2,
+    "r_sum": -130.68,
+    "avg_r": -0.21,
+    "pf": 0.7,
+    "max_dd": -145.6
+  },
+  {
+    "name": "PDH_PDL_Sweep_TP1.5R_BE1.0",
+    "trades": 712,
+    "trades_per_week": 54.2,
+    "wr": 26.7,
+    "r_sum": -172.63,
+    "avg_r": -0.24,
+    "pf": 0.59,
+    "max_dd": -173.6
+  },
+  {
+    "name": "PDH_PDL_Sweep_TP1.5R_BE0",
+    "trades": 700,
+    "trades_per_week": 53.3,
+    "wr": 28.9,
+    "r_sum": -183.94,
+    "avg_r": -0.26,
+    "pf": 0.59,
+    "max_dd": -184.9
+  },
+  {
+    "name": "PDH_PDL_Sweep_TP2.0R_BE1.0",
+    "trades": 696,
+    "trades_per_week": 53.0,
+    "wr": 18.8,
+    "r_sum": -184.66,
+    "avg_r": -0.27,
+    "pf": 0.56,
+    "max_dd": -186.7
+  },
+  {
+    "name": "PDH_PDL_Sweep_TP2.0R_BE0",
+    "trades": 670,
+    "trades_per_week": 51.0,
+    "wr": 22.7,
+    "r_sum": -192.64,
+    "avg_r": -0.29,
+    "pf": 0.58,
+    "max_dd": -194.6
+  }
+]

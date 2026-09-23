@@ -1,0 +1,62 @@
+[
+  {
+    "Model": "1. At-Market (Current Prod)",
+    "Pendings": "—",
+    "Filled / Trades": "26 ",
+    "Trades / Wk": 2,
+    "Win Rate": "34.6%",
+    "R Total": "-11.20R",
+    "Avg R": "-0.43R",
+    "Max DD": "-11.8R",
+    "Winner R Values": "0.23, 0.25, 0.29, 0.35, 0.57...",
+    "Exits (TP/SL/BE/ST)": "9/17/0/0"
+  },
+  {
+    "Model": "2. Limit Touch-Fill (4h Expiry)",
+    "Pendings": 41,
+    "Filled / Trades": "18 (44%)",
+    "Trades / Wk": 1.4,
+    "Win Rate": "27.8%",
+    "R Total": "-4.50R",
+    "Avg R": "-0.25R",
+    "Max DD": "-6.5R",
+    "Winner R Values": "1.5, 1.5, 1.5, 1.5, 1.5",
+    "Exits (TP/SL/BE/ST)": "5/12/1/0"
+  },
+  {
+    "Model": "3. Limit Touch-Fill (2h Expiry)",
+    "Pendings": 42,
+    "Filled / Trades": "17 (40%)",
+    "Trades / Wk": 1.3,
+    "Win Rate": "23.5%",
+    "R Total": "-6.00R",
+    "Avg R": "-0.35R",
+    "Max DD": "-6.5R",
+    "Winner R Values": "1.5, 1.5, 1.5, 1.5",
+    "Exits (TP/SL/BE/ST)": "4/12/1/0"
+  },
+  {
+    "Model": "4. Limit Touch-Fill (6h Expiry)",
+    "Pendings": 40,
+    "Filled / Trades": "19 (48%)",
+    "Trades / Wk": 1.4,
+    "Win Rate": "31.6%",
+    "R Total": "-3.00R",
+    "Avg R": "-0.16R",
+    "Max DD": "-6.5R",
+    "Winner R Values": "1.5, 1.5, 1.5, 1.5, 1.5...",
+    "Exits (TP/SL/BE/ST)": "6/12/1/0"
+  },
+  {
+    "Model": "5. Limit Confirm-Fill (Touch+M15 Close, 4h)",
+    "Pendings": 42,
+    "Filled / Trades": "12 (29%)",
+    "Trades / Wk": 0.9,
+    "Win Rate": "33.3%",
+    "R Total": "-6.08R",
+    "Avg R": "-0.51R",
+    "Max DD": "-6.1R",
+    "Winner R Values": "0.36, 0.4, 0.5, 0.66",
+    "Exits (TP/SL/BE/ST)": "4/8/0/0"
+  }
+]

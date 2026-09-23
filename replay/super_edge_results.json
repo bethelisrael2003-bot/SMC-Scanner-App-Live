@@ -1,0 +1,101 @@
+[
+  {
+    "name": "Dual_OB_Fixed_1.5R_BE1.0",
+    "trades": 31,
+    "trades_per_week": 2.4,
+    "wr": 45.2,
+    "r_sum": 12.21,
+    "avg_r": 0.39,
+    "pf": 2.39,
+    "max_dd": -5.1,
+    "ret_to_dd": 2.4
+  },
+  {
+    "name": "Dual_OB_DOL_Targeting",
+    "trades": 31,
+    "trades_per_week": 2.4,
+    "wr": 58.1,
+    "r_sum": 12.05,
+    "avg_r": 0.39,
+    "pf": 3.38,
+    "max_dd": -3.4,
+    "ret_to_dd": 3.59
+  },
+  {
+    "name": "Dual_OB_Fixed_1.5R_NoBE",
+    "trades": 30,
+    "trades_per_week": 2.3,
+    "wr": 50.0,
+    "r_sum": 11.55,
+    "avg_r": 0.39,
+    "pf": 2.05,
+    "max_dd": -7.1,
+    "ret_to_dd": 1.63
+  },
+  {
+    "name": "Dual_OB_Split_1.5R_3.0R",
+    "trades": 31,
+    "trades_per_week": 2.4,
+    "wr": 45.2,
+    "r_sum": 11.47,
+    "avg_r": 0.37,
+    "pf": 2.3,
+    "max_dd": -5.1,
+    "ret_to_dd": 2.26
+  },
+  {
+    "name": "Dual_OB_Split_1.5R_2.5R",
+    "trades": 31,
+    "trades_per_week": 2.4,
+    "wr": 45.2,
+    "r_sum": 9.97,
+    "avg_r": 0.32,
+    "pf": 2.13,
+    "max_dd": -5.1,
+    "ret_to_dd": 1.96
+  },
+  {
+    "name": "Dual_OB_3Tier_1.5R_2.5R_4.0R",
+    "trades": 31,
+    "trades_per_week": 2.4,
+    "wr": 45.2,
+    "r_sum": 9.82,
+    "avg_r": 0.32,
+    "pf": 2.12,
+    "max_dd": -5.1,
+    "ret_to_dd": 1.93
+  },
+  {
+    "name": "Dual_OB_Killzone_1.5R_BE1.0",
+    "trades": 15,
+    "trades_per_week": 1.1,
+    "wr": 60.0,
+    "r_sum": 9.82,
+    "avg_r": 0.65,
+    "pf": 3.67,
+    "max_dd": -2.0,
+    "ret_to_dd": 4.91
+  },
+  {
+    "name": "Dual_OB_Split_1.5R_3.5R",
+    "trades": 31,
+    "trades_per_week": 2.4,
+    "wr": 45.2,
+    "r_sum": 9.47,
+    "avg_r": 0.31,
+    "pf": 2.08,
+    "max_dd": -5.1,
+    "ret_to_dd": 1.86
+  },
+  {
+    "name": "Dual_OB_Killzone_Split_1.5R_3.0R",
+    "trades": 15,
+    "trades_per_week": 1.1,
+    "wr": 60.0,
+    "r_sum": 8.13,
+    "avg_r": 0.54,
+    "pf": 3.21,
+    "max_dd": -2.0,
+    "ret_to_dd": 4.07
+  }
+]
