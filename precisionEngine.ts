@@ -739,16 +739,28 @@ export function runPrecisionSequence(
   });
 
   // ── STEP 10: Structural Invalidation Point (the stop) ──
+  // HARDENING (2026-09-23 fix): Floor stop distance at minStop = 0.3× ATR
+  // and enforce directional coherence. Prevents sub-pip stop artifacts that
+  // caused division-by-near-zero R values (e.g. +650R on Gold).
   let sl: number | null = null;
-  if (direction && bestZone) {
+  const minStop = 0.3 * atr1h;
+
+  if (direction && bestZone && lastPrice > 0) {
     if (direction === "BUY") {
-      // Stop below the zone low or the sweep low, whichever is lower
       const sweepLow = sweep ? sweep.level : Infinity;
-      const rawStop = Math.min(bestZone.low, sweepLow) - 0.15 * atr1h;
+      let rawStop = Math.min(bestZone.low, sweepLow) - 0.15 * atr1h;
+      // Floor at minStop below entry if stop is too tight or on wrong side
+      if (lastPrice - rawStop < minStop) {
+        rawStop = lastPrice - minStop;
+      }
       sl = Number(rawStop.toFixed(5));
     } else {
       const sweepHigh = sweep ? sweep.level : -Infinity;
-      const rawStop = Math.max(bestZone.high, sweepHigh) + 0.15 * atr1h;
+      let rawStop = Math.max(bestZone.high, sweepHigh) + 0.15 * atr1h;
+      // Floor at minStop above entry if stop is too tight or on wrong side
+      if (rawStop - lastPrice < minStop) {
+        rawStop = lastPrice + minStop;
+      }
       sl = Number(rawStop.toFixed(5));
     }
   }
@@ -756,7 +768,7 @@ export function runPrecisionSequence(
   steps.push({
     step: 10, name: "Structural Stop", question: "At what exact price is my reasoning wrong?",
     passed: step10Passed, mandatory: true,
-    detail: sl !== null ? `SL ${sl} — beyond zone ${direction === "BUY" ? "low" : "high"} / sweep extreme + 0.15× ATR buffer` : "No structural invalidation identified",
+    detail: sl !== null ? `SL ${sl} — beyond zone ${direction === "BUY" ? "low" : "high"} / sweep extreme + 0.15× ATR buffer (floored at 0.3× ATR)` : "No structural invalidation identified",
   });
   if (direction && !step10Passed) noTradeReasons.push("No clear structural invalidation point (Module 8: unclear invalidation)");
 
@@ -791,18 +803,34 @@ export function runPrecisionSequence(
   // ── STEP 12: Reward-to-Risk ≥ 1:2 ──
   const entry = step7Passed && nearZone ? lastPrice : null;
   let rr: number | null = null;
+  let coherent = false;
+
   if (entry !== null && sl !== null && tp !== null) {
-    const risk = Math.abs(entry - sl);
-    const reward = Math.abs(tp - entry);
-    rr = risk > 0 ? Number((reward / risk).toFixed(2)) : null;
+    coherent = direction === "BUY"
+      ? (sl < entry && entry < tp)
+      : (sl > entry && entry > tp);
+
+    if (coherent) {
+      const risk = Math.abs(entry - sl);
+      const reward = Math.abs(tp - entry);
+      if (risk >= minStop) {
+        rr = Number((reward / risk).toFixed(2));
+      }
+    }
   }
-  const step12Passed = rr !== null && rr >= 2.0;
+
+  const step12Passed = coherent && rr !== null && rr >= 2.0;
   steps.push({
     step: 12, name: "Reward-to-Risk", question: "Does the honest arithmetic clear 1:2?",
     passed: step12Passed, mandatory: true,
-    detail: rr !== null ? `R:R 1:${rr.toFixed(2)} ${rr >= 2.0 ? "≥" : "<"} 1:2 minimum` : "Cannot calculate R:R",
+    detail: !coherent && entry !== null
+      ? "Incoherent SL/TP levels (stop must be beyond entry on invalidation side, target towards opposing structure)"
+      : (rr !== null ? `R:R 1:${rr.toFixed(2)} ${rr >= 2.0 ? "≥" : "<"} 1:2 minimum` : "Cannot calculate R:R"),
   });
-  if (direction && !step12Passed && rr !== null) noTradeReasons.push(`R:R 1:${rr} < 1:2 minimum (Module 8: poor R:R)`);
+  if (direction && !step12Passed) {
+    if (!coherent && entry !== null) noTradeReasons.push("Incoherent SL/TP levels (Module 6: stop must be on invalidation side)");
+    else if (rr !== null) noTradeReasons.push(`R:R 1:${rr} < 1:2 minimum (Module 8: poor R:R)`);
+  }
 
   // ── STEP 13: Qualification Decision ──
   const mandatorySteps = steps.filter(s => s.mandatory);

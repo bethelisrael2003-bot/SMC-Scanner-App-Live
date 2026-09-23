@@ -441,6 +441,26 @@ CLASSIC DETECTOR SYSTEM (2026-09-21, DEDICATED VISIBLE PAGE):
     analysis/mpr-vs-classic (conf variants positive, n=14-20;
     classic_pure rejected at -31R).
 
+A20. PRECISION ENGINE STOP-LOSS FLOOR & COHERENCE FIX (2026-09-23)
+------------------------------------------------------------------------
+Incident: on 2026-09-22, an XAU/USD precision trade (ptrade_1790107399019_XAUUSD)
+recorded a +650.24R win due to a division-by-near-zero bug. Step 10
+calculated a stop loss only $0.008 (0.8 cents) away from entry on Gold
+($4,363), on the wrong side of entry for a SELL. When price dropped $5.41,
+dividing by 0.008 yielded +650R.
+
+Fix applied (precisionEngine.ts):
+  1. Step 10 Stop Floor: Stop loss distance is floored at minStop = 0.3× ATR(14).
+     Directional sanity enforced: BUY stop must be strictly < entry − minStop;
+     SELL stop must be strictly > entry + minStop. Sub-pip stops are impossible.
+  2. Step 12 R:R Guard: Enforces directional coherence (BUY: sl < entry < tp;
+     SELL: sl > entry > tp) and risk >= minStop before computing R:R.
+     Incoherent setups are rejected.
+  3. Trade Management Guard: Division by slDist < 0.005 is blocked.
+  4. Database Correction: The historical Gold trade was recalculated with a
+     realistic 1.0× ATR stop ($13.80) -> profit $5.41 / $13.80 = +0.39R,
+     adjusting total Precision R from +649.19R to honest −0.66R (50% win rate).
+
 A19. INSTITUTIONAL SMC DOL SYSTEM (2026-09-21, 4th dedicated system)
 ------------------------------------------------------------------------
 Implements the backtest-proven Champion #1 architecture (+12.05R, 58.1%

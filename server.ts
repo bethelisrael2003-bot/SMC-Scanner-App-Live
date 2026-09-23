@@ -2480,7 +2480,7 @@ async function analyzeInstitutionalPair(pair: string): Promise<any> {
 // Own signals, own trades, own win rate — ZERO interaction with the SMC
 // scanner, its signals, or its trades.
 // ═══════════════════════════════════════════════════════════════════════
-const PRECISION_VERSION = "2026-09-17.1";
+const PRECISION_VERSION = "2026-09-23.1";
 
 interface PrecisionSignal {
   id: string;
@@ -2518,6 +2518,8 @@ interface PrecisionTrade {
   r?: number;
   exitReason?: string;
   breakevenTriggered: boolean;
+  dataQuality?: string;
+  dataQualityNote?: string;
 }
 
 const precisionSignalSchema = new mongoose.Schema({
@@ -2689,6 +2691,24 @@ async function hydrateMemoryFromDatabase() {
     precisionSignalsMemory = (dbPrecisionSignals || []).map((x: any) => ({ ...x, _id: undefined, __v: undefined })).filter((x: any) => x.id);
     const dbPrecisionTrades = await PrecisionTradeModel.find().sort({ openedAt: 1 }).lean();
     precisionTradesMemory = (dbPrecisionTrades || []).map((x: any) => ({ ...x, _id: undefined, __v: undefined })).filter((x: any) => x.id);
+
+    // Correct historical Gold trade with 0.008 sub-pip artifact (2026-09-23 fix)
+    let precisionCorrected = false;
+    for (const t of precisionTradesMemory) {
+      if (t.id === "ptrade_1790107399019_XAUUSD" && (t.r ?? 0) > 50) {
+        // Recalculate with realistic 1.0x ATR Gold stop ($13.80):
+        // Entry 4363.80, Exit 4358.39, Profit $5.41 -> 5.41 / 13.80 = +0.39R
+        t.initialSl = 4377.60;
+        t.sl = 4377.60;
+        t.r = 0.39;
+        t.dataQuality = "corrected-sl-floor";
+        t.dataQualityNote = "Stop loss corrected from 0.008 sub-pip artifact to 1.0x ATR ($13.80). R adjusted from +650.24R to +0.39R.";
+        precisionCorrected = true;
+      }
+    }
+    if (precisionCorrected) {
+      savePrecisionTrades(precisionTradesMemory);
+    }
     const dbInstSignals = await InstitutionalSignalModel.find().sort({ timestamp: 1 }).lean();
     institutionalSignalsMemory = (dbInstSignals || []).map((x: any) => ({ ...x, _id: undefined, __v: undefined })).filter((x: any) => x.id);
     const dbInstTrades = await InstitutionalTradeModel.find().sort({ openedAt: 1 }).lean();
@@ -3275,7 +3295,8 @@ async function runBackgroundCycle() {
           if (!live) continue;
           const checkPrice = trade.direction === "BUY" ? live.bid : live.ask;
           const slDist = Math.abs(trade.entryPrice - trade.initialSl);
-          if (slDist <= 0) continue;
+          // Protect against near-zero sub-pip division artifacts
+          if (slDist < 0.005) continue;
           const ageHours = (Date.now() - new Date(trade.openedAt).getTime()) / (60 * 60 * 1000);
 
           // Staleness check (12h, <0R progress, before BE/TP1)
@@ -4420,8 +4441,9 @@ app.get("/api/precision/manage", async (req, res) => {
       const live = await getLivePrice(trade.pair);
       if (!live) continue;
       const checkPrice = trade.direction === "BUY" ? live.bid : live.ask;
-      const slDist = Math.abs(trade.entryPrice - trade.initialSl);
-      if (slDist <= 0) continue;
+          const slDist = Math.abs(trade.entryPrice - trade.initialSl);
+          // Protect against near-zero sub-pip division artifacts
+          if (slDist < 0.005) continue;
 
       // BE at +1R
       if (!trade.breakevenTriggered) {
