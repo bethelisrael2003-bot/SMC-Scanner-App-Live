@@ -1034,7 +1034,7 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
     getCandles(pair, "1week", 30),
     getCandles(pair, "1day", 100),
     getCandles(pair, "4h", 120),
-    getCandles(pair, "1h", 120),
+    getCandles(pair, "1h", 250),
     getCandles(pair, "15min", 120),
   ]);
 
@@ -1944,7 +1944,7 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
     // Backtest proven: +5.52R, 75.0% WR, 2.84 PF, -1.0R DD (92 days, zero-lookahead)
     // Completely isolated simulated paper-trading engine. Zero extra network calls.
     // ════════════════════════════════════════════════════════════════
-    if (ASIAN_FADE_PAIRS.includes(pair) && m15Closed && m15Closed.length >= 50 && h1Oldest && h1Oldest.length >= 210) {
+    if (ASIAN_FADE_PAIRS.includes(pair) && m15Closed && m15Closed.length >= 50 && h1Oldest && h1Oldest.length >= 200) {
       try {
         const todayStr = new Date().toISOString().slice(0, 10);
         const dayKey = `${pair}:${todayStr}`;
@@ -3104,8 +3104,8 @@ async function analyzeAsianFadePair(pair: string): Promise<any> {
   try {
     if (!ASIAN_FADE_PAIRS.includes(pair)) return null;
     const m15 = await getCandles(pair, "15min", 120);
-    const h1 = await getCandles(pair, "1h", 120);
-    if (!m15 || !h1 || m15.length < 50 || h1.length < 210) return null;
+    const h1 = await getCandles(pair, "1h", 250);
+    if (!m15 || !h1 || m15.length < 50 || h1.length < 200) return null;
 
     const toCandle = (c: any) => ({ open: c.o, high: c.h, low: c.l, close: c.c, time: c.t });
     const m15C = m15.map(toCandle).slice(0, -1); // closed candles only

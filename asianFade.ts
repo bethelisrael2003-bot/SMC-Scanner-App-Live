@@ -156,8 +156,8 @@ export function evaluateAsianFade(
   const checks: string[] = [];
 
   const idx = m15Index !== undefined ? m15Index : m15Candles.length - 1;
-  if (!m15Candles || m15Candles.length < 50 || idx < 30 || !h1Candles || h1Candles.length < 210) {
-    checks.push(`[X] Insufficient historical data (need 50+ M15 and 210+ H1 bars for EMA200)`);
+  if (!m15Candles || m15Candles.length < 50 || idx < 30 || !h1Candles || h1Candles.length < 200) {
+    checks.push(`[X] Insufficient historical data (need 50+ M15 and 200+ H1 bars for EMA200)`);
     return { passed: false, checks, setup: null, asianHigh: null, asianLow: null, asianRange: null, macroTrend: "NEUTRAL" };
   }
 
@@ -206,8 +206,8 @@ export function evaluateAsianFade(
 
   // Find completed H1 bar (Zero Lookahead)
   const h1Idx = findCompletedH1Index(h1Candles, barSec);
-  if (h1Idx < 210) {
-    checks.push(`[X] Insufficient completed H1 bars for EMA200 (need index >= 210)`);
+  if (h1Idx < 200) {
+    checks.push(`[X] Insufficient completed H1 bars for EMA200 (need index >= 200)`);
     return { passed: false, checks, setup: null, asianHigh: asianHi, asianLow: asianLo, asianRange, macroTrend: "NEUTRAL" };
   }
 
