@@ -1,7 +1,7 @@
 ╔══════════════════════════════════════════════════════════════════╗
 ║                                                                  ║
 ║   SMC SCANNER SYSTEM — LIVE CODE REFERENCE                       ║
-║   Accurate as of: Sep 23, 2026 (Asian Breakout 5th system deploy)║
+║   Accurate as of: Sep 23, 2026 (Trend Sweep 6th system deploy)  ║
 ║   This document describes what the server ACTUALLY does.         ║
 ║   No aspirational rules. No "should be." Only what runs.         ║
 ║                                                                  ║
@@ -523,6 +523,41 @@ Implements the backtest-proven London Open Momentum Breakout architecture
      - Dedicated UI tab: "Asian Breakout" (🚀 icon) with live stats, range visualizer,
        signals feed, and simulated trade ledger.
      - ZERO interaction with Core SMC, Classic, Institutional, or Precision.
+     - Simulated paper trading only: NO live broker orders, NO push notifications.
+     - Consumes 0 extra Capital.com API calls by reading from the shared MarketDataCache.
+
+A21. TREND SWEEP SYSTEM (2026-09-23, 6th dedicated system)
+------------------------------------------------------------------------
+Implements the backtest-proven Trend-Following Liquidity Sweep with
+Momentum Rejection architecture (Option A, zero-lookahead audited):
+(+12.78R, 71.4% win rate, 3.83 Profit Factor, −1.0R max drawdown):
+
+  1. Core Mechanics:
+     - Restricted Universe: XAU/USD, XAG/USD, USD/JPY, GBP/JPY, EUR/JPY, USD/CHF (6 pairs).
+     - Completed H1 Macro Trend (Strictly Zero-Lookahead):
+       Uses strictly completed H1 bar (start time <= t - 3600.0s).
+       BUY: EMA10 > EMA20 and completed H1 Close > EMA10.
+       SELL: EMA10 < EMA20 and completed H1 Close < EMA10.
+     - Session Window: Weekdays 08:00 to 15:00 UTC (European London / NY overlap).
+     - M15 Micro Liquidity Sweep:
+       Lookback 20 bars (prior 5 hours).
+       BUY: M15 sweeps below prior 20-bar low, but closes back above it.
+       SELL: M15 sweeps above prior 20-bar high, but closes back below it.
+     - Candle Body Filter: Rejection candle body >= 50% of total candle range.
+
+  2. Risk & Scaled Targets:
+     - Stop Loss: anchored at Sweep Extreme +/- 1.2x M15 ATR(14).
+     - Target 1 (50% of position): 1.00R. When hit, moves SL to Breakeven (+0.50R banked).
+     - Target 2 (50% of position): 2.50R runner.
+     - Staleness: 8 hours (< 0R progress).
+
+  3. 6-Way Strict Isolation:
+     - Dedicated engine: trendSweep.ts with 14 unit tests (trendSweep.test.ts).
+     - Dedicated MongoDB models: TrendSweepSignal and TrendSweepTrade.
+     - Dedicated endpoints: /api/trendsweep/* (stats, signals, scan, :pair).
+     - Dedicated UI tab: "Trend Sweep" (🌊 icon) with live stats, sweep visualizer,
+       signals feed, and simulated trade ledger.
+     - ZERO interaction with Core SMC, Classic, Institutional, Asian, or Precision.
      - Simulated paper trading only: NO live broker orders, NO push notifications.
      - Consumes 0 extra Capital.com API calls by reading from the shared MarketDataCache.
 
