@@ -45,7 +45,14 @@ export interface ScannerState {
  * Lifted out of App() to keep the component tree clean and testable.
  */
 export function useScannerState(): ScannerState {
-  const [scanData, setScanData] = useState<any>(null);
+  const [scanData, setScanData] = useState<any>(() => {
+    try {
+      const saved = localStorage.getItem("smc_last_scan_data");
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
   const [newsData, setNewsData] = useState<any[]>([]);
   const [, setNewsFilter] = useState<"high_medium" | "high" | "all">("high_medium");
   const [selectedPair, setSelectedPair] = useState<string>("EUR/USD");
@@ -113,6 +120,9 @@ export function useScannerState(): ScannerState {
       if (!res.ok) throw new Error("HTTP error scanning the market");
       const data = await res.json();
       setScanData(data);
+      try {
+        localStorage.setItem("smc_last_scan_data", JSON.stringify(data));
+      } catch {}
       setLastScanTime(new Date().toLocaleTimeString());
       handleFetchSignals();
       handleFetchScannerStatus();

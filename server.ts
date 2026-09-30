@@ -4508,6 +4508,19 @@ async function runBackgroundCycle() {
     lastAutoScannerStatus.lastScanTime = new Date().toISOString();
     lastAutoScannerStatus.pairsChecked = scanLogDetails;
 
+    // Cache latest scan response in memory for instantaneous /api/scan delivery
+    const bgResults = pairs.map(p => pairAnalysisCache[p]?.result).filter(Boolean);
+    if (bgResults.length > 0) {
+      const bgPassed = bgResults.filter((r: any) => r.passed);
+      latestScanResponse = {
+        timestamp: new Date().toISOString(),
+        session: checkSessionStatus(),
+        results: bgResults,
+        passed_count: bgPassed.length,
+        conflicts: findCorrelationConflicts(bgPassed),
+      };
+    }
+
     // Persist gate-funnel counters to MongoDB (best-effort, once per cycle)
     flushGateStats().catch((e) => console.error("[GATES] Flush failed:", e));
 
@@ -4908,8 +4921,20 @@ app.get("/api/session", (req, res) => {
   res.json(status);
 });
 
+let latestScanResponse: any = null;
+
 app.get("/api/scan", async (req, res) => {
   const force = req.query.force === "true";
+
+  // Fast in-memory response: if not forced and last scan is fresh (<60s in trade session, <180s off-hours/weekend)
+  if (!force && latestScanResponse) {
+    const ageMs = Date.now() - new Date(latestScanResponse.timestamp).getTime();
+    const maxAge = checkSessionStatus().canTrade ? 60000 : 180000;
+    if (ageMs < maxAge) {
+      return res.json(latestScanResponse);
+    }
+  }
+
   const pairs = Object.keys(EPICS);
   const scanResults: any[] = [];
 
@@ -4936,7 +4961,8 @@ app.get("/api/scan", async (req, res) => {
         range_low: 0
       });
     }
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    // Fast 50ms stagger using in-memory MarketDataCache
+    await new Promise((resolve) => setTimeout(resolve, 50));
   }
 
   // Sort: passed setups first, then higher bonuses
@@ -4953,13 +4979,15 @@ app.get("/api/scan", async (req, res) => {
   }
   const conflicts = findCorrelationConflicts(passedSignals);
 
-  res.json({
+  latestScanResponse = {
     timestamp: new Date().toISOString(),
-    session: checkSessionStatus(),
+    session: currentSession,
     results: scanResults,
     passed_count: passedSignals.length,
     conflicts,
-  });
+  };
+
+  res.json(latestScanResponse);
 });
 
 // Live TradingView-style chart candles for Deep-Dive UI
