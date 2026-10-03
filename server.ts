@@ -4907,8 +4907,8 @@ app.get("/api/performance/stats", (req, res) => {
     const trades = loadTrades();
     // Data-quality-flagged trades stay visible in history but are EXCLUDED
     // from win-rate / R statistics (2026-09-11 decision: annotate, don't delete).
-    const cleanTrades = trades.filter((t: any) => !t.dataQuality);
-    const flagged = trades.filter((t: any) => !!t.dataQuality);
+    const cleanTrades = trades.filter((t: any) => !t.dataQuality || t.dataQuality === "corrected-sl-floor");
+    const flagged = trades.filter((t: any) => !!t.dataQuality && t.dataQuality !== "corrected-sl-floor");
     const closedTrades = cleanTrades.filter((t) => t.status.startsWith("Closed"));
     const totalClosed = closedTrades.length;
 
