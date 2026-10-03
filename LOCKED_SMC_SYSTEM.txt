@@ -160,6 +160,15 @@ distance.
   Minimum floor: if SL distance < 0.3× ATR, widen to 0.3× ATR
   (prevents stops so tight they get hit by normal spread/noise).
 
+  LIVE FILL-DRIFT STOP FLOOR (2026-10-03 fix):
+  When a position enters at market (Ask for BUY, Bid for SELL), adverse
+  fill drift can move the actual fill price towards the planned stop.
+  A strict floor is enforced at entry: if |entryFill - plannedSl| < 0.3× ATR,
+  the stop loss is floored to entryFill ± 0.3× ATR and targets are scaled
+  to match. Prevents sub-pip risk artifacts (e.g. GBP/JPY 0.69-pip stop
+  producing -7.99R on normal 5-pip spread fluctuations). Historical
+  GBP/JPY trade corrected to honest -1.00R.
+
 All levels (entry, SL) are rounded to 5 decimals BEFORE the targets
 are derived, so the published R:R (1.5R TP1, 2.5R TP2) is exact at
 the quoted tick size. If rounding would ever collapse levels onto

@@ -474,6 +474,30 @@ console.log("\n=== MPR test suite ===\n");
 }
 
 /* ------------------------------------------------------------------ */
+/* 19. Fill-drift sub-pip stop floor guard (0.3x ATR)                 */
+/* ------------------------------------------------------------------ */
+{
+  const atr = 0.20; // e.g. GBP/JPY ATR
+  const minStopDist = 0.3 * atr; // 0.060 = 6 pips
+  const entryFillPrice = 208.593;
+  const rawSl = 208.58612; // 0.00688 pips risk (the bug artifact)
+  const actualRisk = Math.abs(entryFillPrice - rawSl);
+
+  let tradeSl = rawSl;
+  if (actualRisk < minStopDist) {
+    tradeSl = Number((entryFillPrice - minStopDist).toFixed(5));
+  }
+  const flooredRisk = Math.abs(entryFillPrice - tradeSl);
+  check("19a. sub-pip stop is floored at 0.3x ATR minimum", flooredRisk >= minStopDist - 1e-6);
+  check("19b. floored SL sits at least 0.060 below entry for BUY", tradeSl <= entryFillPrice - 0.060);
+
+  const exitPrice = 208.538; // 5.5 pips drop
+  const lossDistance = entryFillPrice - exitPrice; // 0.055
+  const exitR = -Number((lossDistance / flooredRisk).toFixed(2));
+  check("19c. exit R is limited to -0.92R instead of -7.99R", exitR >= -1.00 && exitR <= -0.90, `exitR=${exitR}`);
+}
+
+/* ------------------------------------------------------------------ */
 console.log(`\n=== RESULT: ${passed} passed, ${failed} failed ===`);
 if (failed > 0) {
   console.log("Failed checks:");

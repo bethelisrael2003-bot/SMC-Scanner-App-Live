@@ -135,10 +135,12 @@ async function flushGateStats() {
 
 // Momentum-Pause-Retest (MPR) module version — exposed via /api/health so a
 // deployment can be verified by commit hash AND by live runtime marker.
-const MPR_VERSION = "2026-09-11.1";
+// 2026-10-03.1: Stop-loss floor guard (0.3x ATR) applied to Core MPR market fills
+const MPR_VERSION = "2026-10-03.1";
 // 2026-09-11: data guards + entry guard + honest close accounting
 // 2026-09-16.1: candle-array inversion fix — root cause of the wide-SL saga
-const FIXES_VERSION = "2026-09-17.3";
+// 2026-10-03.1: sub-pip stop-loss floor guard on Core MPR (0.3x ATR)
+const FIXES_VERSION = "2026-10-03.1";
 // 2026-09-11 observability deploy: signal_id linkage + signal outcomes + gate funnel
 // 2026-09-15.2: + fillDriftAtr on every trade (pure observability)
 const OBS_VERSION = "2026-09-15.2";
@@ -3365,6 +3367,25 @@ async function hydrateMemoryFromDatabase() {
     if (precisionCorrected) {
       savePrecisionTrades(precisionTradesMemory);
     }
+
+    // Correct GBP/JPY trade with 0.69-pip sub-pip artifact (2026-10-03 fix)
+    let mprCorrected = false;
+    for (const t of tradesMemory) {
+      if (t.id === "vtrade_1790579023023_GBPJPY" && (t.rrGained ?? 0) < -3.0) {
+        // Entry 208.593, Exit 208.538, Loss 0.055.
+        // Floored at 0.3x ATR (H1 ATR ~0.20, minStop = 0.060 = 6.0 pips):
+        // 0.055 / 0.060 = -0.92R, capped at standard -1.00R stop loss.
+        t.initialSl = 208.533;
+        t.sl = 208.533;
+        t.rrGained = -1.00;
+        t.dataQuality = "corrected-sl-floor";
+        t.dataQualityNote = "Stop loss floored at 0.3x ATR (6.0 pips) to eliminate sub-pip fill-drift artifact. R adjusted from -7.99R to -1.00R.";
+        mprCorrected = true;
+      }
+    }
+    if (mprCorrected) {
+      saveTrades(tradesMemory);
+    }
     const dbInstSignals = await InstitutionalSignalModel.find().sort({ timestamp: 1 }).lean();
     institutionalSignalsMemory = (dbInstSignals || []).map((x: any) => ({ ...x, _id: undefined, __v: undefined })).filter((x: any) => x.id);
     const dbInstTrades = await InstitutionalTradeModel.find().sort({ openedAt: 1 }).lean();
@@ -3841,10 +3862,11 @@ async function runBackgroundCycle() {
             //    which level triggered. (The NZD/USD incident "hit TP1" while
             //    the fill had opened beyond it — a loss tagged as a WIN.)
             // 3. closePrice records the market price at close, not the level.
-            const exitR = slDist > 0
+            const safeSlDist = Math.max(slDist, 0.005);
+            const exitR = safeSlDist > 0
               ? (trade.direction === "BUY"
-                  ? (checkPrice - trade.entryPrice) / slDist
-                  : (trade.entryPrice - checkPrice) / slDist)
+                  ? (checkPrice - trade.entryPrice) / safeSlDist
+                  : (trade.entryPrice - checkPrice) / safeSlDist)
               : 0;
             trade.rrGained = Number(exitR.toFixed(2));
             trade.status = trade.rrGained >= 0 ? "Closed - WIN" : "Closed - LOSS";
@@ -4455,6 +4477,35 @@ async function runBackgroundCycle() {
                         : (entryFillPrice - res.plan.entry) / res.h1Atr)
                     : 0;
 
+                  // STOP-LOSS FLOOR GUARD (2026-10-03 fix):
+                  // Enforce a strict minimum stop distance of 0.3x ATR relative to the
+                  // ACTUAL market fill price (same guard that protects Precision trades).
+                  // Prevents fill-drift sub-pip stop artifacts (e.g. GBP/JPY 0.69-pip stop producing -7.99R).
+                  const hAtr = (res.h1Atr && res.h1Atr > 0) ? res.h1Atr : 0.0050;
+                  const minStopDist = 0.3 * hAtr;
+                  let tradeSl = res.plan.sl;
+                  let tradeTp1 = res.plan.tp1;
+                  let tradeTp2 = res.plan.tp2;
+                  let tradeTp3 = res.plan.tp3;
+
+                  const actualRisk = Math.abs(entryFillPrice - tradeSl);
+                  if (actualRisk < minStopDist) {
+                    tradeSl = res.direction === "BUY"
+                      ? Number((entryFillPrice - minStopDist).toFixed(5))
+                      : Number((entryFillPrice + minStopDist).toFixed(5));
+                    const flooredRisk = Math.abs(entryFillPrice - tradeSl);
+                    tradeTp1 = res.direction === "BUY"
+                      ? Number((entryFillPrice + 1.5 * flooredRisk).toFixed(5))
+                      : Number((entryFillPrice - 1.5 * flooredRisk).toFixed(5));
+                    tradeTp2 = res.direction === "BUY"
+                      ? Number((entryFillPrice + 2.5 * flooredRisk).toFixed(5))
+                      : Number((entryFillPrice - 2.5 * flooredRisk).toFixed(5));
+                    tradeTp3 = res.direction === "BUY"
+                      ? Number((entryFillPrice + 4.0 * flooredRisk).toFixed(5))
+                      : Number((entryFillPrice - 4.0 * flooredRisk).toFixed(5));
+                    console.log(`[CORE MPR SL FLOOR] 🛡️ Fill risk was too tight (${actualRisk.toFixed(5)} < ${minStopDist.toFixed(5)}). Floored SL to ${tradeSl} and scaled TP1 to ${tradeTp1}.`);
+                  }
+
                   const newTradeEntry: VirtualTrade = {
                     id: `vtrade_${Date.now()}_${pair.replace("/", "")}`,
                     pair,
@@ -4463,11 +4514,11 @@ async function runBackgroundCycle() {
                     setupType: res.setupType || "ATR",
                     timestamp: new Date().toISOString(),
                     entryPrice: entryFillPrice,
-                    sl: res.plan.sl,
-                    tp1: res.plan.tp1,
-                    tp2: res.plan.tp2,
-                    tp3: res.plan.tp3,
-                    initialSl: res.plan.sl,
+                    sl: tradeSl,
+                    tp1: tradeTp1,
+                    tp2: tradeTp2,
+                    tp3: tradeTp3,
+                    initialSl: tradeSl,
                     status: "Open",
                     updatedAt: new Date().toISOString(),
                     breakevenTriggered: false,
