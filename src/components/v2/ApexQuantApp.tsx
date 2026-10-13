@@ -18,13 +18,14 @@ import {
   Radio,
   Settings,
   Sliders,
-  X,
-  Sparkles,
-  SlidersHorizontal,
-  Layers
+  Layers,
+  ArrowRight,
+  Sparkles
 } from "lucide-react";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "https://smc-scanner-backend.onrender.com";
+
+export type BottomTabId = "command" | "sizer" | "briefing" | "settings";
 
 interface PairStrategyProfile {
   pair: string;
@@ -118,9 +119,9 @@ function fmtPrice(pair: string, price: number | null | undefined): string {
 }
 
 export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => void }) {
+  const [activeTab, setActiveTab] = useState<BottomTabId>("command");
   const [selectedPairIndex, setSelectedPairIndex] = useState<number>(0);
   const [copiedTradeId, setCopiedTradeId] = useState<string | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Live Nigeria (WAT) Time & Telemetry
   const [watTime, setWatTime] = useState("");
@@ -227,7 +228,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
   };
 
   return (
-    <div className="min-h-screen bg-[#070a12] text-zinc-100 flex flex-col font-sans select-none pb-12">
+    <div className="min-h-screen bg-[#070a12] text-zinc-100 flex flex-col font-sans select-none pb-24">
       {/* ── Top Header Bar ────────────────────────────────────────── */}
       <header className="sticky top-0 z-40 bg-[#070a12]/95 backdrop-blur-md border-b border-zinc-800/80 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
@@ -237,7 +238,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
           <div>
             <div className="flex items-center gap-1.5">
               <span className="font-bold text-sm tracking-tight text-white font-mono">APEX INSTITUTIONAL</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-400 font-mono font-bold border border-amber-500/30">PRO v2.5</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-400 font-mono font-bold border border-amber-500/30">PRO</span>
             </div>
             <div className="text-[10px] text-zinc-400 font-mono flex items-center gap-1">
               <Clock className="w-2.5 h-2.5 text-cyan-400" />
@@ -247,16 +248,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Settings Trigger */}
-          <button
-            onClick={() => setSettingsOpen(true)}
-            className="p-2 rounded-xl bg-zinc-900 border border-zinc-700/80 hover:border-zinc-500 text-zinc-300 transition-all cursor-pointer"
-            title="Open Settings & Mode Switcher"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
-
-          {/* Quick Scan Refresh */}
+          {/* Quick Refresh */}
           <button
             onClick={fetchAllData}
             disabled={loading}
@@ -277,359 +269,542 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
           </span>
         </div>
         <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-900 text-cyan-400 border border-zinc-800 shrink-0 font-bold">
-          Dedicated 3-Pair
+          3-Pair Core
         </span>
       </div>
 
-      {/* ── Main Command Body ─────────────────────────────────────── */}
+      {/* ── Main Body (Switched via Bottom Nav) ───────────────────── */}
       <main className="flex-1 max-w-4xl w-full mx-auto p-4 space-y-4">
-        {/* ── 1. Dedicated Pair Switcher with Grade A Strategy Badges ── */}
-        <div>
-          <div className="text-[11px] uppercase font-mono text-zinc-400 mb-2 flex items-center justify-between">
-            <span>Target Pair &amp; Dedicated Model</span>
-            <span className="text-emerald-400 font-bold">180-Day Proven Expectancy</span>
-          </div>
+        {/* ========================================================== */}
+        {/* TAB 1: COMMAND CENTER (LIVE PAIR MONITORS)                 */}
+        {/* ========================================================== */}
+        {activeTab === "command" && (
+          <div className="space-y-4">
+            {/* Pair Switcher with Dedicated Grade A Badges */}
+            <div>
+              <div className="text-[11px] uppercase font-mono text-zinc-400 mb-2 flex items-center justify-between">
+                <span>Select Primary Asset</span>
+                <span className="text-emerald-400 font-bold">Grade A Dedicated Model</span>
+              </div>
 
-          <div className="grid grid-cols-3 gap-2 sm:gap-3">
-            {DEDICATED_PROFILES.map((p, idx) => {
-              const active = selectedPairIndex === idx;
-              return (
-                <button
-                  key={p.pair}
-                  onClick={() => setSelectedPairIndex(idx)}
-                  className={`p-3 sm:p-3.5 rounded-2xl border transition-all text-left cursor-pointer relative overflow-hidden ${
-                    active
-                      ? "bg-amber-500/15 border-amber-500/60 shadow-[0_0_25px_rgba(245,158,11,0.2)] text-white"
-                      : "bg-zinc-900/60 border-zinc-800/80 text-zinc-400 hover:border-zinc-700"
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-lg">{p.icon}</span>
-                    <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold ${active ? "bg-amber-500 text-black" : "bg-zinc-950 text-zinc-400 border border-zinc-800"}`}>
-                      {p.sixMonthWr}
+              <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                {DEDICATED_PROFILES.map((p, idx) => {
+                  const active = selectedPairIndex === idx;
+                  return (
+                    <button
+                      key={p.pair}
+                      onClick={() => setSelectedPairIndex(idx)}
+                      className={`p-3 sm:p-3.5 rounded-2xl border transition-all text-left cursor-pointer relative overflow-hidden ${
+                        active
+                          ? "bg-amber-500/15 border-amber-500/60 shadow-[0_0_25px_rgba(245,158,11,0.2)] text-white"
+                          : "bg-zinc-900/60 border-zinc-800/80 text-zinc-400 hover:border-zinc-700"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-lg">{p.icon}</span>
+                        <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold ${active ? "bg-amber-500 text-black" : "bg-zinc-950 text-zinc-400 border border-zinc-800"}`}>
+                          {p.sixMonthWr}
+                        </span>
+                      </div>
+                      <div className="font-mono text-sm font-bold text-white tracking-tight">{p.pair}</div>
+                      <div className="font-mono text-[10px] text-amber-400/90 font-semibold truncate mt-0.5">
+                        {p.dedicatedIcon} {p.dedicatedGradeA}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Active Pair Live Setup & Confluence Card */}
+            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 relative overflow-hidden">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                <div className="flex items-center gap-2.5">
+                  <span className="text-2xl">{activeProfile.icon}</span>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-lg font-bold font-mono text-white">{activeProfile.pair}</h2>
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-950 text-cyan-400 font-mono border border-zinc-800">
+                        {activeProfile.category}
+                      </span>
+                    </div>
+                    <div className="text-xs font-mono text-zinc-400 mt-0.5">
+                      Macro H1 Trend: <span className={pairBriefing?.macroTrend === "BULLISH" ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>{pairBriefing?.macroTrend || "CALCULATING"}</span>
+                      {" · "}Spread: <span className="text-zinc-300 font-bold">{currentConf?.livePrice?.spread_pips || pairBriefing?.livePrice?.spread_pips || 0.8} pips</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-right p-2 rounded-xl bg-zinc-950 border border-zinc-800 font-mono">
+                  <div className="text-[9px] uppercase text-zinc-500">Live Bid / Ask</div>
+                  <div className="text-sm font-bold text-white">
+                    <span className="text-cyan-400">{currentConf?.livePrice?.bid || pairBriefing?.livePrice?.bid || "--"}</span>
+                    <span className="text-zinc-600 mx-1">/</span>
+                    <span className="text-zinc-400">{currentConf?.livePrice?.ask || pairBriefing?.livePrice?.ask || "--"}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Active Signal Banner OR Waiting Card */}
+              {isTradeActive ? (
+                <div className="space-y-3">
+                  <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold ${currentConf.confluenceGrade === "A+" ? "bg-amber-400 text-black animate-pulse" : "bg-emerald-500 text-black"}`}>
+                          ⭐ GRADE {currentConf.confluenceGrade}
+                        </span>
+                        <span className="font-mono text-xs font-bold text-emerald-400">
+                          {currentConf.direction} SIGNAL CONFIRMED
+                        </span>
+                      </div>
+                      <div className="font-mono text-xs text-zinc-300 mt-1">
+                        Entry: {fmtPrice(activeProfile.pair, currentConf.entryPrice)} · SL: {fmtPrice(activeProfile.pair, currentConf.sl)} ({currentConf.slPips || activeProfile.defaultSl} pips)
+                      </div>
+                      <div className="font-mono text-[10px] text-zinc-400 mt-0.5">
+                        {currentConf.reasoning}
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => copyTrade(
+                        `ROBOFOREX CENT ORDER\nPair: ${activeProfile.pair}\nGrade: ${currentConf.confluenceGrade}\nAction: ${currentConf.direction}\nEntry: ${currentConf.entryPrice}\nSL: ${currentConf.sl}\nTP1: ${currentConf.tp1} (Scale 50% & Auto-BE)\nTP2: ${currentConf.tp2}\nLot: ${recommendedLot} Lots\nRisk: $${cashRisk.toFixed(2)} (${effectiveRiskPct}%)`,
+                        "trade-copy"
+                      )}
+                      className="px-4 py-2.5 rounded-xl bg-emerald-500 text-black font-mono text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-emerald-400 transition-all cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.3)] shrink-0"
+                    >
+                      {copiedTradeId === "trade-copy" ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                      <span>{copiedTradeId === "trade-copy" ? "ORDER COPIED!" : "COPY TO METATRADER"}</span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-center">
+                    <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800">
+                      <div className="text-[9px] text-zinc-500">TP1 (AUTO-BE)</div>
+                      <div className="text-xs font-bold text-blue-400">{fmtPrice(activeProfile.pair, currentConf.tp1)}</div>
+                    </div>
+                    <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800">
+                      <div className="text-[9px] text-zinc-500">TP2 (RUNNER)</div>
+                      <div className="text-xs font-bold text-emerald-400">{fmtPrice(activeProfile.pair, currentConf.tp2)}</div>
+                    </div>
+                    <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800">
+                      <div className="text-[9px] text-zinc-500">RECOMMENDED LOT</div>
+                      <div className="text-xs font-bold text-amber-400">{recommendedLot.toFixed(2)} Lots</div>
+                    </div>
+                    <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800">
+                      <div className="text-[9px] text-zinc-500">MAX CASH RISK</div>
+                      <div className="text-xs font-bold text-rose-400">${cashRisk.toFixed(2)} ({effectiveRiskPct}%)</div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 rounded-xl bg-zinc-950/70 border border-zinc-800/80 space-y-2">
+                  <div className="flex items-center justify-between font-mono text-xs">
+                    <span className="text-zinc-400 flex items-center gap-1.5">
+                      <Eye className="w-3.5 h-3.5 text-cyan-400" />
+                      M15 20-Bar Range: [{fmtPrice(activeProfile.pair, currentConf?.m15Low || pairBriefing?.m15Low)} – {fmtPrice(activeProfile.pair, currentConf?.m15High || pairBriefing?.m15High)}]
+                    </span>
+                    <span className="text-amber-400 font-bold px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-[10px]">
+                      STATUS: WAITING FOR DEDICATED SETUP
                     </span>
                   </div>
-                  <div className="font-mono text-sm font-bold text-white tracking-tight">{p.pair}</div>
-                  <div className="font-mono text-[10px] text-amber-400/90 font-semibold truncate mt-0.5">
-                    {p.dedicatedIcon} {p.dedicatedGradeA}
+                  <p className="font-mono text-[11px] text-zinc-400">
+                    {currentConf?.reasoning || `Primary model (${activeProfile.dedicatedGradeA}) is monitoring ${activeProfile.pair} for structural alignment during active Kill Zones.`}
+                  </p>
+                </div>
+              )}
+
+              {/* Hierarchy Strategy Breakdown for Selected Pair */}
+              <div className="mt-3.5 pt-3 border-t border-zinc-800/80 grid grid-cols-1 sm:grid-cols-3 gap-2 font-mono text-[11px]">
+                <div className="p-2 rounded-lg bg-zinc-950 border border-amber-500/20 flex justify-between items-center">
+                  <div>
+                    <span className="text-amber-400 font-bold">⭐ Grade A: </span>
+                    <span className="text-zinc-200">{activeProfile.dedicatedGradeA}</span>
                   </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* ── 2. Live Setup & Confluence Command Card ────────────────── */}
-        <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 relative overflow-hidden">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-            <div className="flex items-center gap-2.5">
-              <span className="text-2xl">{activeProfile.icon}</span>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-lg font-bold font-mono text-white">{activeProfile.pair}</h2>
-                  <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-950 text-cyan-400 font-mono border border-zinc-800">
-                    {activeProfile.category}
-                  </span>
+                  <span className="text-[10px] text-zinc-500">Primary</span>
                 </div>
-                <div className="text-xs font-mono text-zinc-400 mt-0.5">
-                  Macro H1 Trend: <span className={pairBriefing?.macroTrend === "BULLISH" ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>{pairBriefing?.macroTrend || "CALCULATING"}</span>
-                  {" · "}Spread: <span className="text-zinc-300 font-bold">{currentConf?.livePrice?.spread_pips || pairBriefing?.livePrice?.spread_pips || 0.8} pips</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Live Quotes Display */}
-            <div className="text-right p-2 rounded-xl bg-zinc-950 border border-zinc-800 font-mono">
-              <div className="text-[9px] uppercase text-zinc-500">Live Bid / Ask</div>
-              <div className="text-sm font-bold text-white">
-                <span className="text-cyan-400">{currentConf?.livePrice?.bid || pairBriefing?.livePrice?.bid || "--"}</span>
-                <span className="text-zinc-600 mx-1">/</span>
-                <span className="text-zinc-400">{currentConf?.livePrice?.ask || pairBriefing?.livePrice?.ask || "--"}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Active Trade Banner (If Signal Active) */}
-          {isTradeActive ? (
-            <div className="space-y-3">
-              <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold ${currentConf.confluenceGrade === "A+" ? "bg-amber-400 text-black animate-pulse" : "bg-emerald-500 text-black"}`}>
-                      ⭐ GRADE {currentConf.confluenceGrade}
-                    </span>
-                    <span className="font-mono text-xs font-bold text-emerald-400">
-                      {currentConf.direction} SIGNAL CONFIRMED
-                    </span>
+                <div className="p-2 rounded-lg bg-zinc-950 border border-zinc-800 flex justify-between items-center">
+                  <div>
+                    <span className="text-blue-400 font-bold">🥈 Grade B: </span>
+                    <span className="text-zinc-300">{activeProfile.alternativeGradeB}</span>
                   </div>
-                  <div className="font-mono text-xs text-zinc-300 mt-1">
-                    Entry: {fmtPrice(activeProfile.pair, currentConf.entryPrice)} · SL: {fmtPrice(activeProfile.pair, currentConf.sl)} ({currentConf.slPips || activeProfile.defaultSl} pips)
+                  <span className="text-[10px] text-zinc-500">Alternative</span>
+                </div>
+                <div className="p-2 rounded-lg bg-zinc-950 border border-zinc-800 flex justify-between items-center">
+                  <div>
+                    <span className="text-emerald-400 font-bold">🥉 Grade C: </span>
+                    <span className="text-zinc-300">{activeProfile.confluenceGradeC}</span>
                   </div>
-                  <div className="font-mono text-[10px] text-zinc-400 mt-0.5">
-                    {currentConf.reasoning}
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => copyTrade(
-                    `ROBOFOREX CENT ORDER\nPair: ${activeProfile.pair}\nGrade: ${currentConf.confluenceGrade}\nAction: ${currentConf.direction}\nEntry: ${currentConf.entryPrice}\nSL: ${currentConf.sl}\nTP1: ${currentConf.tp1} (Scale 50% & Auto-BE)\nTP2: ${currentConf.tp2}\nLot: ${recommendedLot} Lots\nRisk: $${cashRisk.toFixed(2)} (${effectiveRiskPct}%)`,
-                    "trade-copy"
-                  )}
-                  className="px-4 py-2.5 rounded-xl bg-emerald-500 text-black font-mono text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-emerald-400 transition-all cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.3)] shrink-0"
-                >
-                  {copiedTradeId === "trade-copy" ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  <span>{copiedTradeId === "trade-copy" ? "ORDER COPIED!" : "COPY TO METATRADER"}</span>
-                </button>
-              </div>
-
-              {/* Targets Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-center">
-                <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800">
-                  <div className="text-[9px] text-zinc-500">TP1 (AUTO-BE)</div>
-                  <div className="text-xs font-bold text-blue-400">{fmtPrice(activeProfile.pair, currentConf.tp1)}</div>
-                </div>
-                <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800">
-                  <div className="text-[9px] text-zinc-500">TP2 (RUNNER)</div>
-                  <div className="text-xs font-bold text-emerald-400">{fmtPrice(activeProfile.pair, currentConf.tp2)}</div>
-                </div>
-                <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800">
-                  <div className="text-[9px] text-zinc-500">RECOMMENDED LOT</div>
-                  <div className="text-xs font-bold text-amber-400">{recommendedLot.toFixed(2)} Lots</div>
-                </div>
-                <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800">
-                  <div className="text-[9px] text-zinc-500">MAX CASH RISK</div>
-                  <div className="text-xs font-bold text-rose-400">${cashRisk.toFixed(2)} ({effectiveRiskPct}%)</div>
+                  <span className="text-[10px] text-zinc-500">Confluence</span>
                 </div>
               </div>
             </div>
-          ) : (
-            <div className="p-4 rounded-xl bg-zinc-950/70 border border-zinc-800/80 space-y-2">
-              <div className="flex items-center justify-between font-mono text-xs">
-                <span className="text-zinc-400 flex items-center gap-1.5">
-                  <Eye className="w-3.5 h-3.5 text-cyan-400" />
-                  M15 20-Bar Range: [{fmtPrice(activeProfile.pair, currentConf?.m15Low || pairBriefing?.m15Low)} – {fmtPrice(activeProfile.pair, currentConf?.m15High || pairBriefing?.m15High)}]
-                </span>
-                <span className="text-amber-400 font-bold px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-[10px]">
-                  STATUS: WAITING FOR DEDICATED SETUP
-                </span>
-              </div>
-              <p className="font-mono text-[11px] text-zinc-400">
-                {currentConf?.reasoning || `Primary model (${activeProfile.dedicatedGradeA}) is monitoring ${activeProfile.pair} for structural alignment during active Kill Zones.`}
-              </p>
-            </div>
-          )}
 
-          {/* Hierarchy Strategy Breakdown for Selected Pair */}
-          <div className="mt-3.5 pt-3 border-t border-zinc-800/80 grid grid-cols-1 sm:grid-cols-3 gap-2 font-mono text-[11px]">
-            <div className="p-2 rounded-lg bg-zinc-950 border border-amber-500/20 flex justify-between items-center">
-              <div>
-                <span className="text-amber-400 font-bold">⭐ Grade A: </span>
-                <span className="text-zinc-200">{activeProfile.dedicatedGradeA}</span>
-              </div>
-              <span className="text-[10px] text-zinc-500">Primary</span>
-            </div>
-            <div className="p-2 rounded-lg bg-zinc-950 border border-zinc-800 flex justify-between items-center">
-              <div>
-                <span className="text-blue-400 font-bold">🥈 Grade B: </span>
-                <span className="text-zinc-300">{activeProfile.alternativeGradeB}</span>
-              </div>
-              <span className="text-[10px] text-zinc-500">Alternative</span>
-            </div>
-            <div className="p-2 rounded-lg bg-zinc-950 border border-zinc-800 flex justify-between items-center">
-              <div>
-                <span className="text-emerald-400 font-bold">🥉 Grade C: </span>
-                <span className="text-zinc-300">{activeProfile.confluenceGradeC}</span>
-              </div>
-              <span className="text-[10px] text-zinc-500">Confluence</span>
-            </div>
-          </div>
-        </div>
-
-        {/* ── 3. Interactive RoboForex Cent Lot Sizer ──────────────── */}
-        <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 space-y-3.5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Calculator className="w-4 h-4 text-amber-400" />
-              <h3 className="font-mono text-sm font-bold text-white">RoboForex Cent Lot Sizer ({activeProfile.pair})</h3>
-            </div>
-            <span className="font-mono text-[10px] text-zinc-500">${activeProfile.pipVal} / 0.01 lot</span>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-xs">
-            <div>
-              <label className="text-[10px] text-zinc-500 block mb-1">Equity ($ USD)</label>
-              <input
-                type="number"
-                value={calcBalance}
-                onChange={(e) => setCalcBalance(Number(e.target.value))}
-                className="w-full p-2 rounded-lg bg-zinc-950 border border-zinc-800 text-cyan-400 font-bold focus:outline-none focus:border-cyan-500"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] text-zinc-500 block mb-1">Risk Allocation</label>
-              <div className="w-full p-2 rounded-lg bg-zinc-950 border border-zinc-800 text-amber-400 font-bold text-center">
-                {effectiveRiskPct}% {currentConf?.confluenceGrade === "A+" ? "(A+)" : currentConf?.confluenceGrade === "A" ? "(A)" : "(Manual)"}
-              </div>
-            </div>
-            <div>
-              <label className="text-[10px] text-zinc-500 block mb-1">SL Pips</label>
-              <input
-                type="number"
-                step="0.5"
-                value={calcSlPips}
-                onChange={(e) => setCalcSlPips(Number(e.target.value))}
-                className="w-full p-2 rounded-lg bg-zinc-950 border border-zinc-800 text-rose-400 font-bold focus:outline-none focus:border-rose-500"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] text-zinc-500 block mb-1">Recommended Lots</label>
-              <div className="p-2 rounded-lg bg-zinc-950 border border-emerald-500/30 text-emerald-400 font-extrabold text-sm text-center">
-                {recommendedLot.toFixed(2)} Lots
-              </div>
-            </div>
-          </div>
-
-          <div className="p-3 rounded-xl bg-zinc-950 flex flex-wrap items-center justify-between gap-2 font-mono text-xs">
-            <div>
-              <span className="text-zinc-500 text-[10px]">MAX RISK: </span>
-              <span className="text-amber-400 font-bold">${cashRisk.toFixed(2)}</span>
-              <span className="text-zinc-600 mx-2">|</span>
-              <span className="text-zinc-500 text-[10px]">GAIN @ TP1: </span>
-              <span className="text-blue-400 font-bold">+${gainTp1.toFixed(2)}</span>
-              <span className="text-zinc-600 mx-2">|</span>
-              <span className="text-zinc-500 text-[10px]">GAIN @ TP2: </span>
-              <span className="text-emerald-400 font-bold">+${gainTp2.toFixed(2)}</span>
-            </div>
-
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(
-                  `ROBOFOREX CENT ORDER TICKET\nPair: ${activeProfile.pair}\nEquity: $${calcBalance}\nRisk: ${effectiveRiskPct}% ($${cashRisk.toFixed(2)})\nSL Pips: ${calcSlPips} pips\nRecommended Lots: ${recommendedLot.toFixed(2)} Lots`
-                );
-                setCopiedCalc(true);
-                setTimeout(() => setCopiedCalc(false), 2500);
-              }}
-              className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[11px] flex items-center gap-1 cursor-pointer"
-            >
-              {copiedCalc ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-              <span>{copiedCalc ? "COPIED" : "COPY SIZING"}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* ── 4. 180-Day Audited Proof Card (Rule 11a Compliant) ───── */}
-        <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 space-y-3 font-mono">
-          <div className="flex items-center gap-2">
-            <Award className="w-4 h-4 text-emerald-400" />
-            <h3 className="text-xs font-bold text-white uppercase">
-              180-Day Audited Proof (April 14 – October 13, 2026)
-            </h3>
-          </div>
-
-          <div className="grid grid-cols-3 gap-2 text-center text-xs">
-            <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-              <div className="text-[9px] uppercase text-zinc-400">WIN RATE (11A)</div>
-              <div className="text-base font-bold text-emerald-400">63.2%</div>
-              <div className="text-[10px] text-emerald-300 font-bold">12W / 7L</div>
-            </div>
-            <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20">
-              <div className="text-[9px] uppercase text-zinc-400">NET RETURN</div>
-              <div className="text-base font-bold text-cyan-400">+34.5%</div>
-              <div className="text-[10px] text-cyan-300 font-bold">$677 → $910.30</div>
-            </div>
-            <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20">
-              <div className="text-[9px] uppercase text-zinc-400">MAX DRAWDOWN</div>
-              <div className="text-base font-bold text-rose-400">-14.4%</div>
-              <div className="text-[10px] text-rose-300 font-bold">Controlled Risk</div>
-            </div>
-          </div>
-
-          <div className="space-y-1 text-[11px] pt-1">
-            {DEDICATED_PROFILES.map(dp => (
-              <div key={dp.pair} className="flex justify-between p-2 rounded-lg bg-zinc-950 border border-zinc-800/40">
-                <span className="text-zinc-300">{dp.pair} ({dp.dedicatedGradeA})</span>
-                <span className="text-emerald-400 font-bold">{dp.sixMonthProfit}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </main>
-
-      {/* ── Settings & Terminal View Switcher Modal ────────────────── */}
-      {settingsOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-up">
-          <div className="bg-[#0c101d] border border-zinc-800 rounded-3xl max-w-md w-full p-6 space-y-5 shadow-2xl font-mono text-zinc-200">
-            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+            {/* 180-Day Audited Proof Card (Rule 11a Compliant) */}
+            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 space-y-3 font-mono">
               <div className="flex items-center gap-2">
-                <Settings className="w-5 h-5 text-amber-400" />
-                <h3 className="font-bold text-base text-white">Terminal Settings</h3>
+                <Award className="w-4 h-4 text-emerald-400" />
+                <h3 className="text-xs font-bold text-white uppercase">
+                  180-Day Dedicated Model Verification (April 14 – October 13, 2026)
+                </h3>
               </div>
-              <button
-                onClick={() => setSettingsOpen(false)}
-                className="p-1 rounded-lg bg-zinc-900 text-zinc-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
 
-            {/* Mode Switcher */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-white uppercase block">Terminal Interface Mode</label>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <button
-                  onClick={() => setSettingsOpen(false)}
-                  className="p-3 rounded-xl border border-amber-500/60 bg-amber-500/20 text-white font-bold text-left flex flex-col justify-between"
-                >
-                  <span className="text-amber-400">⚡ Apex Pro</span>
-                  <span className="text-[10px] text-zinc-400 mt-1 font-normal">Dedicated 3-Pair Confluence Terminal</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setSettingsOpen(false);
-                    onSwitchToClassic();
-                  }}
-                  className="p-3 rounded-xl border border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:border-zinc-700 text-left flex flex-col justify-between"
-                >
-                  <span className="text-white">🖥️ Classic</span>
-                  <span className="text-[10px] text-zinc-500 mt-1 font-normal">Original 8-Strategy Multi-Tab Platform</span>
-                </button>
+              <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                  <div className="text-[9px] uppercase text-zinc-400">WIN RATE (11A)</div>
+                  <div className="text-base font-bold text-emerald-400">63.2%</div>
+                  <div className="text-[10px] text-emerald-300 font-bold">12W / 7L</div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20">
+                  <div className="text-[9px] uppercase text-zinc-400">NET RETURN</div>
+                  <div className="text-base font-bold text-cyan-400">+34.5%</div>
+                  <div className="text-[10px] text-cyan-300 font-bold">$677 → $910.30</div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20">
+                  <div className="text-[9px] uppercase text-zinc-400">MAX DRAWDOWN</div>
+                  <div className="text-base font-bold text-rose-400">-14.4%</div>
+                  <div className="text-[10px] text-rose-300 font-bold">Controlled Risk</div>
+                </div>
               </div>
-            </div>
 
-            {/* Capital Presets */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-white uppercase block">Default Account Balance ($ USD)</label>
-              <div className="grid grid-cols-4 gap-2 text-xs">
-                {[200, 500, 677, 1000].map(amt => (
-                  <button
-                    key={amt}
-                    onClick={() => setCalcBalance(amt)}
-                    className={`p-2 rounded-xl border text-center ${calcBalance === amt ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/40 font-bold" : "bg-zinc-950 text-zinc-400 border-zinc-800"}`}
-                  >
-                    ${amt}
-                  </button>
+              <div className="space-y-1 text-[11px] pt-1">
+                {DEDICATED_PROFILES.map(dp => (
+                  <div key={dp.pair} className="flex justify-between p-2 rounded-lg bg-zinc-950 border border-zinc-800/40">
+                    <span className="text-zinc-300">{dp.pair} ({dp.dedicatedGradeA})</span>
+                    <span className="text-emerald-400 font-bold">{dp.sixMonthProfit}</span>
+                  </div>
                 ))}
               </div>
             </div>
+          </div>
+        )}
 
-            {/* Timezone Information */}
-            <div className="p-3 rounded-xl bg-zinc-950 border border-zinc-800 text-[11px] text-zinc-400 space-y-1">
-              <div className="text-white font-bold">Timezone Standard: Nigeria (WAT / UTC+1)</div>
-              <div>London Open: 09:00 - 12:00 WAT</div>
-              <div>US Pre-Market: 01:30 - 03:30 PM WAT</div>
-              <div>NY Open: 03:30 - 07:00 PM WAT</div>
+        {/* ========================================================== */}
+        {/* TAB 2: FULL-SCREEN ROBOFOREX CENT LOT SIZER                */}
+        {/* ========================================================== */}
+        {activeTab === "sizer" && (
+          <div className="space-y-4">
+            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 sm:p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Calculator className="w-5 h-5 text-amber-400" />
+                  <div>
+                    <h2 className="text-base font-bold text-white font-mono">RoboForex Cent Lot Sizer</h2>
+                    <p className="text-xs text-zinc-400 font-mono">Precision Risk Allocation · Floored Down to 0.01 Lots</p>
+                  </div>
+                </div>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                  ROBOFOREX CENT
+                </span>
+              </div>
+
+              {/* Balance Quick Presets */}
+              <div>
+                <label className="text-[10px] font-mono uppercase text-zinc-400 mb-1.5 block">Account Equity Presets ($ USD)</label>
+                <div className="grid grid-cols-5 gap-2 font-mono text-xs">
+                  {[200, 500, 677, 1000, 2000].map(amt => (
+                    <button
+                      key={amt}
+                      onClick={() => setCalcBalance(amt)}
+                      className={`p-2 rounded-xl border text-center transition-all cursor-pointer ${
+                        calcBalance === amt
+                          ? "bg-amber-500/20 text-amber-400 border-amber-500/40 font-bold"
+                          : "bg-zinc-950 text-zinc-400 border-zinc-800 hover:border-zinc-700"
+                      }`}
+                    >
+                      ${amt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Risk Percentage Toggle */}
+              <div>
+                <label className="text-[10px] font-mono uppercase text-zinc-400 mb-1.5 block">Risk Allocation Per Trade</label>
+                <div className="grid grid-cols-3 gap-2 font-mono text-xs">
+                  {[
+                    { pct: 2.0, label: "2.0% (Grade B+)" },
+                    { pct: 4.0, label: "4.0% (Grade A)" },
+                    { pct: 6.0, label: "6.0% (Grade A+)" }
+                  ].map(r => (
+                    <button
+                      key={r.pct}
+                      onClick={() => setCalcRiskPct(r.pct)}
+                      className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
+                        calcRiskPct === r.pct
+                          ? "bg-amber-500/20 text-amber-400 border-amber-500/40 font-bold"
+                          : "bg-zinc-950 text-zinc-400 border-zinc-800 hover:border-zinc-700"
+                      }`}
+                    >
+                      {r.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Inputs */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 font-mono">
+                <div>
+                  <label className="text-[10px] uppercase text-zinc-400 block mb-1">Target Instrument</label>
+                  <select
+                    value={activeProfile.pair}
+                    onChange={(e) => {
+                      const idx = DEDICATED_PROFILES.findIndex(p => p.pair === e.target.value);
+                      if (idx !== -1) setSelectedPairIndex(idx);
+                    }}
+                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white text-xs focus:outline-none focus:border-amber-500"
+                  >
+                    {DEDICATED_PROFILES.map(p => (
+                      <option key={p.pair} value={p.pair}>{p.icon} {p.pair} ({p.name})</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase text-zinc-400 block mb-1">Stop Loss Distance (Pips)</label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={calcSlPips}
+                    onChange={(e) => setCalcSlPips(Number(e.target.value))}
+                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-rose-400 text-xs focus:outline-none focus:border-rose-500 font-bold"
+                  />
+                </div>
+              </div>
+
+              {/* Big Hero Position Size Output Display */}
+              <div className="bg-zinc-950 border border-amber-500/30 rounded-2xl p-4 sm:p-5 relative overflow-hidden">
+                <div className="text-[10px] font-mono uppercase text-zinc-400 mb-1">RECOMMENDED POSITION SIZE</div>
+                <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-2">
+                  <div className="text-3xl sm:text-4xl font-mono font-black text-emerald-400">
+                    {recommendedLot.toFixed(2)} Lots
+                  </div>
+                  <div className="text-xs font-mono text-zinc-400">
+                    ({(recommendedLot * 100).toFixed(0)} Cent Lots on RoboForex MT4/MT5)
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-4 pt-4 border-t border-zinc-800/80 font-mono text-center">
+                  <div className="bg-zinc-900/60 p-2.5 rounded-xl border border-zinc-800">
+                    <div className="text-[9px] text-zinc-500">MAX CASH RISK</div>
+                    <div className="text-sm font-bold text-amber-400">${cashRisk.toFixed(2)}</div>
+                  </div>
+                  <div className="bg-zinc-900/60 p-2.5 rounded-xl border border-zinc-800">
+                    <div className="text-[9px] text-zinc-500">PIP VALUE</div>
+                    <div className="text-sm font-bold text-white">${activeProfile.pipVal.toFixed(2)} / 0.01L</div>
+                  </div>
+                  <div className="bg-zinc-900/60 p-2.5 rounded-xl border border-zinc-800">
+                    <div className="text-[9px] text-zinc-500">GAIN @ TP1 (1.0R)</div>
+                    <div className="text-sm font-bold text-blue-400">+${gainTp1.toFixed(2)}</div>
+                  </div>
+                  <div className="bg-zinc-900/60 p-2.5 rounded-xl border border-zinc-800">
+                    <div className="text-[9px] text-zinc-500">GAIN @ TP2 (2.5R)</div>
+                    <div className="text-sm font-bold text-emerald-400">+${gainTp2.toFixed(2)}</div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(
+                      `ROBOFOREX CENT SIZING\nEquity: $${calcBalance}\nRisk: ${effectiveRiskPct}% ($${cashRisk.toFixed(2)})\nPair: ${activeProfile.pair}\nSL Pips: ${calcSlPips} pips\nRecommended: ${recommendedLot.toFixed(2)} Lots`
+                    );
+                    setCopiedCalc(true);
+                    setTimeout(() => setCopiedCalc(false), 2500);
+                  }}
+                  className="w-full mt-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-mono text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-[0_0_15px_rgba(245,158,11,0.2)]"
+                >
+                  {copiedCalc ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  <span>{copiedCalc ? "PARAMETERS COPIED TO CLIPBOARD" : "COPY SIZING FOR ORDER TICKET"}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================== */}
+        {/* TAB 3: 3x DAILY BRIEFINGS & SESSIONS                       */}
+        {/* ========================================================== */}
+        {activeTab === "briefing" && (
+          <div className="space-y-4 font-mono">
+            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 space-y-3">
+              <h3 className="text-xs font-bold text-white uppercase flex items-center gap-1.5">
+                <Clock className="w-4 h-4 text-cyan-400" />
+                The 3 Daily Institutional Windows (Nigeria WAT)
+              </h3>
+              <div className="space-y-2 text-xs">
+                <div className="p-3 rounded-xl bg-zinc-950 border border-emerald-500/30 flex justify-between items-center bg-emerald-500/5">
+                  <div>
+                    <div className="text-emerald-400 font-bold">1. London Open Morning Window</div>
+                    <div className="text-[10px] text-zinc-400">09:00 AM - 12:00 PM WAT · Asian Sweep &amp; London Breakouts</div>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold">ACTIVE</span>
+                </div>
+
+                <div className="p-3 rounded-xl bg-zinc-950 border border-cyan-500/30 flex justify-between items-center bg-cyan-500/5">
+                  <div>
+                    <div className="text-cyan-400 font-bold">2. US Pre-Market &amp; Economic Releases</div>
+                    <div className="text-[10px] text-zinc-400">01:30 PM - 03:30 PM WAT · High Impact US Data &amp; Pre-NY Setup</div>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-400 font-bold">CRUCIAL</span>
+                </div>
+
+                <div className="p-3 rounded-xl bg-zinc-950 border border-amber-500/30 flex justify-between items-center bg-amber-500/5">
+                  <div>
+                    <div className="text-amber-400 font-bold">3. New York Open Peak Volatility</div>
+                    <div className="text-[10px] text-zinc-400">03:30 PM - 07:00 PM WAT · Maximum Expansion on Silver &amp; Yen</div>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 font-bold">MAX VOL</span>
+                </div>
+              </div>
             </div>
 
-            <button
-              onClick={() => setSettingsOpen(false)}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 text-black font-bold text-xs uppercase shadow-lg shadow-amber-500/20"
-            >
-              Save &amp; Close Settings
-            </button>
+            {/* Current Market State Breakdown */}
+            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 space-y-3">
+              <h3 className="text-xs font-bold text-white uppercase flex items-center gap-1.5">
+                <Radio className="w-4 h-4 text-emerald-400" />
+                Live Market Analysis Summary
+              </h3>
+              <div className="space-y-2 text-xs">
+                {DEDICATED_PROFILES.map(dp => {
+                  const bItem = briefingData?.pairs?.find((x: any) => x.pair === dp.pair);
+                  return (
+                    <div key={dp.pair} className="p-3 rounded-xl bg-zinc-950 border border-zinc-800 flex justify-between items-center">
+                      <div>
+                        <div className="text-white font-bold">{dp.icon} {dp.pair} ({dp.name})</div>
+                        <div className="text-[10px] text-zinc-400">
+                          H1 Trend: <span className={bItem?.macroTrend === "BULLISH" ? "text-emerald-400" : "text-rose-400"}>{bItem?.macroTrend || "CALCULATING"}</span>
+                          {" · "}Range: [{bItem?.m15Low || "--"} – {bItem?.m15High || "--"}]
+                        </div>
+                      </div>
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-900 text-amber-400 font-bold border border-zinc-800">
+                        {dp.dedicatedGradeA}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
+        )}
+
+        {/* ========================================================== */}
+        {/* TAB 4: SETTINGS & TERMINAL VIEW SWITCHER                   */}
+        {/* ========================================================== */}
+        {activeTab === "settings" && (
+          <div className="space-y-4 font-mono">
+            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 sm:p-6 space-y-5">
+              <div className="flex items-center gap-2 border-b border-zinc-800 pb-3">
+                <Settings className="w-5 h-5 text-amber-400" />
+                <div>
+                  <h2 className="text-base font-bold text-white">Terminal Settings &amp; Platform Switcher</h2>
+                  <p className="text-xs text-zinc-400">Switch between focused and multi-tab modes anytime</p>
+                </div>
+              </div>
+
+              {/* Mode Switcher Buttons */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-white uppercase block">Select Interface View</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div className="p-4 rounded-xl border border-amber-500/60 bg-amber-500/10 text-white flex flex-col justify-between">
+                    <div>
+                      <div className="font-bold text-amber-400 text-sm flex items-center gap-1.5">
+                        <Zap className="w-4 h-4" />
+                        Apex Pro Command (Active)
+                      </div>
+                      <p className="text-[11px] text-zinc-300 mt-1">
+                        Dedicated 3-Pair Terminal (Silver, GBP/JPY, EUR/USD). Zero clutter, Grade A models, and A+ confluence grading.
+                      </p>
+                    </div>
+                    <span className="mt-3 text-[10px] text-emerald-400 font-bold">CURRENT ACTIVE VIEW</span>
+                  </div>
+
+                  <button
+                    onClick={onSwitchToClassic}
+                    className="p-4 rounded-xl border border-zinc-800 bg-zinc-950 hover:border-zinc-600 text-zinc-300 text-left flex flex-col justify-between cursor-pointer transition-all"
+                  >
+                    <div>
+                      <div className="font-bold text-white text-sm flex items-center gap-1.5">
+                        <Layers className="w-4 h-4 text-cyan-400" />
+                        Classic Multi-Tab Terminal
+                      </div>
+                      <p className="text-[11px] text-zinc-400 mt-1">
+                        Original view with all 8 strategy tabs, deep dive panels, candle charts, and news advisories.
+                      </p>
+                    </div>
+                    <div className="mt-3 text-xs text-cyan-400 font-bold flex items-center gap-1">
+                      <span>Switch to Classic</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Account Capital Presets */}
+              <div className="space-y-2 pt-2 border-t border-zinc-800">
+                <label className="text-xs font-bold text-white uppercase block">Default Account Balance ($ USD)</label>
+                <div className="grid grid-cols-4 gap-2 text-xs">
+                  {[200, 500, 677, 1000].map(amt => (
+                    <button
+                      key={amt}
+                      onClick={() => setCalcBalance(amt)}
+                      className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
+                        calcBalance === amt
+                          ? "bg-amber-500/20 text-amber-400 border-amber-500/50 font-bold"
+                          : "bg-zinc-950 text-zinc-400 border-zinc-800 hover:border-zinc-700"
+                      }`}
+                    >
+                      ${amt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Confluence Hierarchy Guide */}
+              <div className="p-3.5 rounded-xl bg-zinc-950 border border-zinc-800 text-[11px] space-y-1.5">
+                <div className="text-white font-bold text-xs uppercase flex items-center gap-1.5">
+                  <Shield className="w-4 h-4 text-amber-400" />
+                  Confluence Confidence Hierarchy
+                </div>
+                <div className="text-emerald-400">⭐ Grade A+ Signal: 6.0% Aggressive Risk (Grade A + B/C Agree)</div>
+                <div className="text-amber-400">⭐ Grade A Signal: 4.0% Standard Risk (Dedicated Model Solo)</div>
+                <div className="text-cyan-400">🥈 Grade B+ Signal: 2.0% Controlled Risk (Grade B + C Agree)</div>
+                <div className="text-zinc-500">🚫 Conflict / Dead Zone: 0.0% Risk (Output WAIT)</div>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* ── Fixed Bottom Navigation Bar (4 Ergonomic Mobile Hubs) ── */}
+      <nav
+        className="fixed bottom-0 left-0 right-0 z-50 bg-[#070a12]/95 backdrop-blur-lg border-t border-zinc-800/90 px-3 pt-2"
+        style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom, 16px))" }}
+      >
+        <div className="max-w-md mx-auto grid grid-cols-4 gap-1">
+          {[
+            { id: "command", label: "Command", icon: Zap },
+            { id: "sizer", label: "Lot Sizer", icon: Calculator },
+            { id: "briefing", label: "Briefing", icon: Radio },
+            { id: "settings", label: "Settings", icon: Settings },
+          ].map(hub => {
+            const active = activeTab === hub.id;
+            const IconComponent = hub.icon;
+            return (
+              <button
+                key={hub.id}
+                onClick={() => setActiveTab(hub.id as BottomTabId)}
+                className={`py-2 px-2 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer ${
+                  active
+                    ? "text-amber-400 font-bold"
+                    : "text-zinc-500 hover:text-zinc-300 font-normal"
+                }`}
+              >
+                <IconComponent className={`w-5 h-5 mb-1 ${active ? "text-amber-400 stroke-[2.5]" : "text-zinc-500"}`} />
+                <span className="text-[11px] font-mono tracking-tight">{hub.label}</span>
+              </button>
+            );
+          })}
         </div>
-      )}
+      </nav>
     </div>
   );
 }
