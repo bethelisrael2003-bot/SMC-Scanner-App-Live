@@ -159,7 +159,8 @@ export function evaluateTrendSweep(
   pair: string,
   m15Candles: Candle[],
   h1Candles: Candle[],
-  m15Index?: number
+  m15Index?: number,
+  d1Candles?: Candle[]
 ): TrendSweepCheckResult {
   const checks: string[] = [];
 
@@ -266,12 +267,28 @@ export function evaluateTrendSweep(
 
       if (risk > 0) {
         const tp1 = roundToPairTick(pair, entry + 1.0 * risk);
-        const tp2 = roundToPairTick(pair, entry + 2.50 * risk);
+        let tp2 = roundToPairTick(pair, entry + 2.50 * risk);
+        let tp2Note = "2.50R Runner";
+
+        if (d1Candles && d1Candles.length >= 2) {
+          const lastD1 = d1Candles[d1Candles.length - 1];
+          const H = lastD1.high, L = lastD1.low, C = lastD1.close;
+          const P = (H + L + C) / 3.0;
+          const R1 = (2.0 * P) - L;
+          const R2 = P + (H - L);
+          if (R1 - entry >= 1.5 * risk) {
+            tp2 = roundToPairTick(pair, R1);
+            tp2Note = `Daily R1 Pivot (${tp2})`;
+          } else if (R2 - entry >= 1.5 * risk) {
+            tp2 = roundToPairTick(pair, R2);
+            tp2Note = `Daily R2 Pivot (${tp2})`;
+          }
+        }
 
         checks.push(`[OK] 🔥 LIQUIDITY SWEEP BUY: Swept Low ${roundToPairTick(pair, priorLow)} -> Rejection Wick ${roundToPairTick(pair, bar.low)}`);
         checks.push(`[OK] Entry: ${entry} | SL: ${sl} (Wick - 1.2x ATR) | Risk: ${risk}`);
         checks.push(`[OK] Target 1 (50%): ${tp1} (1.00R) -> Move SL to BE`);
-        checks.push(`[OK] Target 2 (50%): ${tp2} (2.50R Runner)`);
+        checks.push(`[OK] Target 2 (50%): ${tp2} (${tp2Note})`);
 
         const setup: TrendSweepSetup = {
           pair,
@@ -310,12 +327,28 @@ export function evaluateTrendSweep(
 
       if (risk > 0) {
         const tp1 = roundToPairTick(pair, entry - 1.0 * risk);
-        const tp2 = roundToPairTick(pair, entry - 2.50 * risk);
+        let tp2 = roundToPairTick(pair, entry - 2.50 * risk);
+        let tp2Note = "2.50R Runner";
+
+        if (d1Candles && d1Candles.length >= 2) {
+          const lastD1 = d1Candles[d1Candles.length - 1];
+          const H = lastD1.high, L = lastD1.low, C = lastD1.close;
+          const P = (H + L + C) / 3.0;
+          const S1 = (2.0 * P) - H;
+          const S2 = P - (H - L);
+          if (entry - S1 >= 1.5 * risk) {
+            tp2 = roundToPairTick(pair, S1);
+            tp2Note = `Daily S1 Pivot (${tp2})`;
+          } else if (entry - S2 >= 1.5 * risk) {
+            tp2 = roundToPairTick(pair, S2);
+            tp2Note = `Daily S2 Pivot (${tp2})`;
+          }
+        }
 
         checks.push(`[OK] 🔥 LIQUIDITY SWEEP SELL: Swept High ${roundToPairTick(pair, priorHigh)} -> Rejection Wick ${roundToPairTick(pair, bar.high)}`);
         checks.push(`[OK] Entry: ${entry} | SL: ${sl} (Wick + 1.2x ATR) | Risk: ${risk}`);
         checks.push(`[OK] Target 1 (50%): ${tp1} (1.00R) -> Move SL to BE`);
-        checks.push(`[OK] Target 2 (50%): ${tp2} (2.50R Runner)`);
+        checks.push(`[OK] Target 2 (50%): ${tp2} (${tp2Note})`);
 
         const setup: TrendSweepSetup = {
           pair,

@@ -161,7 +161,8 @@ const CACHE_VERSION = "2026-09-21.1";
 // 2026-09-23 Asian Breakout engine: London Open momentum confirmation
 const ASIAN_VERSION = "2026-09-23.1";
 // 2026-09-23 Trend Sweep engine: H1 trend liquidity sweep & momentum rejection (Option A)
-const TREND_SWEEP_VERSION = "2026-09-23.1";
+// 2026-10-03.2: Daily Pivot (R1/S1) settlement target enhancement
+const TREND_SWEEP_VERSION = "2026-10-03.2";
 // 2026-09-23 Asian Fade engine: early London stop-hunt mean-reversion
 const ASIAN_FADE_VERSION = "2026-09-23.1";
 // Clean MPR sample boundary — only trades OPENED after this instant count
@@ -1705,6 +1706,7 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
             structPriorTrend: h1Trend,
             slAnchor: "sweep",
             h1: h1Oldest.map((c: any) => ({ open: c.o, high: c.h, low: c.l, close: c.c, time: c.t })),
+            d1: d1Oldest ? d1Oldest.map((c: any) => ({ open: c.o, high: c.h, low: c.l, close: c.c, time: c.t })) : undefined,
             poiTimeframe: "ANY",
             dolTargeting: true,
           },
@@ -1871,7 +1873,8 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
       try {
         const m15C = m15Closed.map((c: any) => ({ open: c.o, high: c.h, low: c.l, close: c.c, time: c.t }));
         const h1C = h1Oldest.map((c: any) => ({ open: c.o, high: c.h, low: c.l, close: c.c, time: c.t }));
-        const sweepCheck = evaluateTrendSweep(pair, m15C, h1C);
+        const d1C = d1Oldest ? d1Oldest.map((c: any) => ({ open: c.o, high: c.h, low: c.l, close: c.c, time: c.t })) : undefined;
+        const sweepCheck = evaluateTrendSweep(pair, m15C, h1C, undefined, d1C);
 
         if (sweepCheck.passed && sweepCheck.setup) {
           const setup = sweepCheck.setup;
@@ -2327,7 +2330,8 @@ const ShadowPositionModel: any = mongoose.models.ShadowPosition || mongoose.mode
 // own win rate and R-sum tracking. ZERO interaction with SMC or Precision.
 // ═══════════════════════════════════════════════════════════════════════
 const CLASSIC_VERSION = "2026-09-17.1";
-const INSTITUTIONAL_VERSION = "2026-09-21.1";
+// 2026-10-03.2: Daily Pivot (R1/S1) intermediate settlement milestone targeting
+const INSTITUTIONAL_VERSION = "2026-10-03.2";
 // Track institutional episode timestamps (pair+dir -> epoch ms)
 const institutionalEpisodes = new Map<string, number>();
 
@@ -2677,6 +2681,7 @@ async function analyzeInstitutionalPair(pair: string): Promise<any> {
           structPriorTrend: h1Trend,
           slAnchor: "sweep",
           h1: h1C,
+          d1: d1 ? d1.map(toCandle) : undefined,
           poiTimeframe: "ANY",
           dolTargeting: true,
         })
@@ -2975,13 +2980,15 @@ async function analyzeTrendSweepPair(pair: string): Promise<any> {
     if (!TREND_SWEEP_PAIRS.includes(pair)) return null;
     const m15 = await getCandles(pair, "15min", 120);
     const h1 = await getCandles(pair, "1h", 120);
+    const d1 = await getCandles(pair, "1day", 50);
     if (!m15 || !h1 || m15.length < 35 || h1.length < 25) return null;
 
     const toCandle = (c: any) => ({ open: c.o, high: c.h, low: c.l, close: c.c, time: c.t });
     const m15C = m15.map(toCandle).slice(0, -1); // closed candles only
     const h1C = h1.map(toCandle);
+    const d1C = d1 ? d1.map(toCandle) : undefined;
 
-    const result = evaluateTrendSweep(pair, m15C, h1C);
+    const result = evaluateTrendSweep(pair, m15C, h1C, undefined, d1C);
     return {
       pair,
       timestamp: new Date().toISOString(),

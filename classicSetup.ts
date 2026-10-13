@@ -309,6 +309,7 @@ export function findClassicSetup(
     structPriorTrend?: string;
     slAnchor?: "sweep" | "poi";
     h1?: Candle[];
+    d1?: Candle[];
     poiTimeframe?: "H4" | "H1" | "ANY";
     dolTargeting?: boolean;
   } = {},
@@ -434,13 +435,42 @@ export function findClassicSetup(
   let rrDol: number | undefined = undefined;
 
   if (opts.dolTargeting) {
-    // Target a major opposing pool beyond TP1 (at least 1.5R away), or default to 3.0R
+    // 1. Calculate Daily Pivot target if D1 data is provided
+    let dailyPivotTarget: number | null = null;
+    if (opts.d1 && opts.d1.length >= 2) {
+      const lastD1 = opts.d1[opts.d1.length - 1];
+      const H = lastD1.high, L = lastD1.low, C = lastD1.close;
+      const P = (H + L + C) / 3.0;
+      const R1 = (2.0 * P) - L;
+      const S1 = (2.0 * P) - H;
+      const R2 = P + (H - L);
+      const S2 = P - (H - L);
+      if (isBuy) {
+        if (R1 - e >= 1.5 * risk) dailyPivotTarget = R1;
+        else if (R2 - e >= 1.5 * risk) dailyPivotTarget = R2;
+      } else {
+        if (e - S1 >= 1.5 * risk) dailyPivotTarget = S1;
+        else if (e - S2 >= 1.5 * risk) dailyPivotTarget = S2;
+      }
+    }
+
+    // 2. Target a major opposing pool beyond TP1 (at least 1.5R away), or fallback to Daily Pivot / 3.0R
     const opposingPools = isBuy
       ? pools.buyPools.filter(p => p.level > e + 1.5 * risk)
       : pools.sellPools.filter(p => p.level < e - 1.5 * risk);
     let dolLevel: number;
     if (opposingPools.length > 0) {
       dolLevel = isBuy ? Math.max(...opposingPools.map(p => p.level)) : Math.min(...opposingPools.map(p => p.level));
+      // If daily pivot is closer than pool and provides >= 1.5R, favor daily pivot to bank runner faster
+      if (dailyPivotTarget !== null) {
+        const pivotDist = Math.abs(dailyPivotTarget - e);
+        const poolDist = Math.abs(dolLevel - e);
+        if (pivotDist < poolDist && pivotDist >= 1.5 * risk) {
+          dolLevel = dailyPivotTarget;
+        }
+      }
+    } else if (dailyPivotTarget !== null) {
+      dolLevel = dailyPivotTarget;
     } else {
       dolLevel = isBuy ? e + 3.0 * risk : e - 3.0 * risk;
     }

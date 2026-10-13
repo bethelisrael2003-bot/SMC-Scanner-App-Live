@@ -1,7 +1,7 @@
 ╔══════════════════════════════════════════════════════════════════╗
 ║                                                                  ║
 ║   SMC SCANNER SYSTEM — LIVE CODE REFERENCE                       ║
-║   Accurate as of: Sep 23, 2026 (Asian Fade 7th system deploy)    ║
+║   Accurate as of: Oct 03, 2026 (Daily Pivot settlement targets)  ║
 ║   This document describes what the server ACTUALLY does.         ║
 ║   No aspirational rules. No "should be." Only what runs.         ║
 ║                                                                  ║
@@ -488,8 +488,9 @@ win rate, 3.38 Profit Factor, −3.4R max drawdown):
   2. Split-Target Scaling (Draw On Liquidity Runner):
      - Target 1 (50% of position): 1.5R. When hit, 50% profit is locked
        and Stop Loss automatically moves to Breakeven (1:1).
-     - Target 2 (50% of position): Draw On Liquidity (opposing H4 pool
-       or range extreme, minimum 1.5R away, capturing 2.5R to 4.5R).
+     - Target 2 (50% of position): Draw On Liquidity (opposing H4 pool,
+       Daily R1/S1 Pivot settlement magnet, or range extreme, minimum 1.5R away,
+       capturing 2.5R to 4.5R).
 
   3. 4-Way Strict Isolation:
      - Dedicated MongoDB models: InstitutionalSignal and InstitutionalTrade.
@@ -557,7 +558,8 @@ Momentum Rejection architecture (Option A, zero-lookahead audited):
   2. Risk & Scaled Targets:
      - Stop Loss: anchored at Sweep Extreme +/- 1.2x M15 ATR(14).
      - Target 1 (50% of position): 1.00R. When hit, moves SL to Breakeven (+0.50R banked).
-     - Target 2 (50% of position): 2.50R runner.
+     - Target 2 (50% of position): 2.50R runner, or Daily R1/S1 settlement magnet
+       level if providing >= 1.50R reward-to-risk.
      - Staleness: 8 hours (< 0R progress).
 
   3. 6-Way Strict Isolation:
