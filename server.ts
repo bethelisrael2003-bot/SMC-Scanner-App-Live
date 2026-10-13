@@ -35,6 +35,7 @@ import {
   calculateCentLotSize,
   getPipSize,
   getPipValuePer001Lot,
+  computeEma,
 } from "./aggressiveSmcEngine";
 
 dotenv.config();
