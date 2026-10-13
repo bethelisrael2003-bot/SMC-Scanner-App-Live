@@ -3282,7 +3282,7 @@ async function analyzeAggressivePair(pair: string): Promise<any> {
     const h4Bars = h4 ? h4.map(toBar) : [];
 
     const livePrice = getLivePrice(pair);
-    const curPrice = livePrice ? livePrice.bid : (m15Bars[m15Bars.length - 1]?.close || 0);
+    const curPrice = (livePrice && livePrice.bid) ? livePrice.bid : (m15Bars[m15Bars.length - 1]?.close || 0);
 
     const result = analyzeSmcChart({
       pair,
@@ -6180,7 +6180,7 @@ app.get("/api/daily-briefing", async (req, res) => {
         ]);
 
         if (!m15 || !h1 || m15.length < 15 || h1.length < 15) {
-          return { pair, livePrice, status: "INSUFFICIENT_DATA" };
+          return { pair, livePrice: { bid: 0, ask: 0, spread_pips: 0 }, status: "INSUFFICIENT_DATA" };
         }
 
         const h1Closes = h1.map((b: any) => b.c);
@@ -6194,11 +6194,15 @@ app.get("/api/daily-briefing", async (req, res) => {
         const m15Low = Math.min(...m15Recent.map((b: any) => b.l));
         const lastM15 = m15[m15.length - 1];
 
+        const curBid = (livePrice && livePrice.bid) ? livePrice.bid : (lastM15 ? lastM15.c : 0);
+        const curAsk = (livePrice && livePrice.ask) ? livePrice.ask : (lastM15 ? (lastM15.ac || lastM15.c) : 0);
+        const curSpread = (livePrice && livePrice.spread_pips) ? livePrice.spread_pips : (lastM15 && lastM15.ac ? Math.round(Math.abs(lastM15.ac - lastM15.c) / (pair.includes("JPY") || pair.includes("XAG") ? 0.01 : 0.0001) * 10) / 10 : 0.8);
+
         const analysisRes = await analyzeAggressivePair(pair);
 
         return {
           pair,
-          livePrice: livePrice || { bid: lastM15.c, ask: lastM15.c, spread_pips: 0 },
+          livePrice: { bid: curBid, ask: curAsk, spread_pips: curSpread },
           macroTrend: trend,
           h1Ema10: e10[lastH1Idx],
           h1Ema20: e20[lastH1Idx],
