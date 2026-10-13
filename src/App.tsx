@@ -16,6 +16,8 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || "https://smc-scanner-backen
 // ── Push Setup ──────────────────────────────────────────────────────────────
 async function setupPush() {
   try {
+    const isNative = typeof window !== 'undefined' && (window as any).Capacitor && typeof (window as any).Capacitor.isNativePlatform === 'function' && (window as any).Capacitor.isNativePlatform();
+    if (!isNative) return;
     let perm = await PushNotifications.checkPermissions();
     if (perm.receive === 'prompt') perm = await PushNotifications.requestPermissions();
     if (perm.receive !== 'granted') return;

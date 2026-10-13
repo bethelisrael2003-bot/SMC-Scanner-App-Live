@@ -5430,34 +5430,19 @@ app.get("/manifest.json", (req, res) => {
 
 app.get("/sw.js", (req, res) => {
   res.setHeader("Content-Type", "application/javascript");
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
   res.send(`
-    const CACHE_NAME = 'smc-pwa-v2';
-    const ASSETS_TO_CACHE = [
-      '/',
-      '/index.html',
-      '/manifest.json',
-      '/icon.png'
-    ];
-
+    const CACHE_NAME = 'smc-pwa-v5';
     self.addEventListener('install', (event) => {
-      event.waitUntil(
-        caches.open(CACHE_NAME).then((cache) => {
-          return cache.addAll(ASSETS_TO_CACHE).catch(() => {});
-        })
-      );
       self.skipWaiting();
     });
 
     self.addEventListener('activate', (event) => {
       event.waitUntil(
         caches.keys().then((keys) => {
-          return Promise.all(
-            keys.map((key) => {
-              if (key !== CACHE_NAME) {
-                return caches.delete(key);
-              }
-            })
-          );
+          return Promise.all(keys.map((key) => caches.delete(key)));
         })
       );
       self.clients.claim();
@@ -5465,21 +5450,10 @@ app.get("/sw.js", (req, res) => {
 
     self.addEventListener('fetch', (event) => {
       const url = new URL(event.request.url);
-      if (url.pathname.startsWith('/api/')) {
-        // Direct pass-through to network for API queries
-        return;
-      }
+      if (url.pathname.startsWith('/api/')) return;
+      // Network first, fallback to cache
       event.respondWith(
-        caches.match(event.request).then((cachedResponse) => {
-          if (cachedResponse) {
-            return cachedResponse;
-          }
-          return fetch(event.request).catch(() => {
-            if (event.request.mode === 'navigate') {
-              return caches.match('/');
-            }
-          });
-        })
+        fetch(event.request).catch(() => caches.match(event.request))
       );
     });
   `);
@@ -5505,7 +5479,16 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
+
+    // Never return index.html for missing assets
+    app.get("/assets/*", (req, res) => {
+      res.status(404).send("Asset not found");
+    });
+
     app.get("*", (req, res) => {
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
