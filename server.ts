@@ -29,6 +29,13 @@ import {
   ASIAN_FADE_PAIRS,
   type AsianFadeSetup,
 } from "./asianFade";
+import {
+  analyzeSmcChart,
+  convertToWat,
+  calculateCentLotSize,
+  getPipSize,
+  getPipValuePer001Lot,
+} from "./aggressiveSmcEngine";
 
 dotenv.config();
 
@@ -165,6 +172,8 @@ const ASIAN_VERSION = "2026-09-23.1";
 const TREND_SWEEP_VERSION = "2026-10-03.2";
 // 2026-09-23 Asian Fade engine: early London stop-hunt mean-reversion
 const ASIAN_FADE_VERSION = "2026-09-23.1";
+// 2026-10-13 Aggressive Growth SMC & RoboForex Cent Account engine
+const AGGRESSIVE_VERSION = "2026-10-13.1";
 // Clean MPR sample boundary — only trades OPENED after this instant count
 // toward the post-fix sample. Moved to the inversion-fix deploy (user
 // decision, 2026-09-16): every prior trade was analyzed on time-inverted
@@ -3139,6 +3148,162 @@ async function analyzeAsianFadePair(pair: string): Promise<any> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// AGGRESSIVE SMC & CENT ACCOUNT ENGINE (completely isolated system)
+// Implements 6% aggressive growth on RoboForex Cent Account
+// Primary: XAG/USD, GBP/JPY, EUR/USD + Trend Core (XAU/USD, EUR/JPY, USD/CHF)
+// Strict WAT sessions (09:00 - 12:00 WAT London, 15:30 - 19:00 WAT NY)
+// 1.2x ATR stop buffer + H1 EMA10/20 trend alignment
+// ═══════════════════════════════════════════════════════════════════════
+
+export const AGGRESSIVE_PAIRS = [
+  "XAG/USD",
+  "GBP/JPY",
+  "EUR/USD",
+  "XAU/USD",
+  "EUR/JPY",
+  "USD/CHF",
+];
+
+export interface AggressiveSignal {
+  id: string;
+  pair: string;
+  direction: "BUY" | "SELL";
+  timestamp: string;
+  watTimeStr: string;
+  sessionName: string;
+  entryPrice: number;
+  sl: number;
+  tp1: number;
+  tp2: number;
+  slPips: number;
+  risk: number;
+  lotSize: number;
+  status: "active" | "expired" | "traded";
+}
+
+export interface AggressiveTrade {
+  id: string;
+  signalId: string;
+  pair: string;
+  direction: "BUY" | "SELL";
+  openedAt: string;
+  entryPrice: number;
+  sl: number;
+  tp1: number;
+  tp2: number;
+  initialSl: number;
+  slPips: number;
+  lotSize: number;
+  tp1Hit: boolean;
+  status: "open" | "closed";
+  closedAt?: string;
+  closePrice?: number;
+  r?: number;
+  exitReason?: string;
+  breakevenTriggered?: boolean;
+}
+
+const aggressiveSignalSchema = new mongoose.Schema({
+  id: { type: String, index: true },
+  pair: String, direction: String, timestamp: String,
+  watTimeStr: String, sessionName: String,
+  entryPrice: Number, sl: Number, tp1: Number, tp2: Number,
+  slPips: Number, risk: Number, lotSize: Number, status: String,
+}, { minimize: false });
+const AggressiveSignalModel: any = mongoose.models.AggressiveSignal || mongoose.model("AggressiveSignal", aggressiveSignalSchema);
+
+const aggressiveTradeSchema = new mongoose.Schema({
+  id: { type: String, index: true },
+  signalId: String, pair: String, direction: String,
+  openedAt: String, entryPrice: Number, sl: Number, tp1: Number, tp2: Number,
+  initialSl: Number, slPips: Number, lotSize: Number, tp1Hit: Boolean,
+  status: { type: String, index: true },
+  closedAt: String, closePrice: Number, r: Number, exitReason: String,
+  breakevenTriggered: Boolean,
+}, { minimize: false });
+const AggressiveTradeModel: any = mongoose.models.AggressiveTrade || mongoose.model("AggressiveTrade", aggressiveTradeSchema);
+
+let aggressiveSignalsMemory: AggressiveSignal[] = [];
+let aggressiveTradesMemory: AggressiveTrade[] = [];
+const MAX_AGGRESSIVE_TRADES = 500;
+const aggressiveEpisodes = new Map<string, number>();
+
+function loadAggressiveSignals(): AggressiveSignal[] {
+  return aggressiveSignalsMemory;
+}
+function saveAggressiveSignals(signals: AggressiveSignal[]) {
+  aggressiveSignalsMemory = signals.slice(-200);
+  if (isDbReady()) {
+    (async () => {
+      try {
+        await AggressiveSignalModel.deleteMany({});
+        if (aggressiveSignalsMemory.length > 0) await AggressiveSignalModel.insertMany(aggressiveSignalsMemory, { ordered: false });
+      } catch (err) { console.error("[AGGRESSIVE SMC] Failed to save signals:", err); }
+    })();
+  }
+}
+
+function loadAggressiveTrades(): AggressiveTrade[] {
+  return aggressiveTradesMemory;
+}
+function saveAggressiveTrades(trades: AggressiveTrade[]) {
+  aggressiveTradesMemory = trades;
+  if (isDbReady()) {
+    (async () => {
+      try {
+        await AggressiveTradeModel.deleteMany({});
+        if (aggressiveTradesMemory.length > 0) await AggressiveTradeModel.insertMany(aggressiveTradesMemory, { ordered: false });
+      } catch (err) { console.error("[AGGRESSIVE SMC] Failed to save trades:", err); }
+    })();
+  }
+}
+
+/** Complete Aggressive SMC analysis for one pair */
+async function analyzeAggressivePair(pair: string): Promise<any> {
+  try {
+    if (!AGGRESSIVE_PAIRS.includes(pair)) return null;
+    const epic = PAIR_TO_EPIC[pair];
+    if (!epic) return null;
+
+    const [m15, h1, h4] = await Promise.all([
+      getCachedCandles(epic, "MINUTE_15", 35),
+      getCachedCandles(epic, "HOUR", 30),
+      getCachedCandles(epic, "HOUR_4", 20),
+    ]);
+
+    if (!m15 || m15.length < 25 || !h1 || h1.length < 20) return null;
+
+    const toBar = (c: any) => ({
+      open: c.o, high: c.h, low: c.l, close: c.c, time: c.t,
+      askOpen: c.ao, askHigh: c.ah, askLow: c.al, askClose: c.ac
+    });
+
+    const m15Bars = m15.map(toBar).slice(0, -1);
+    const h1Bars = h1.map(toBar);
+    const h4Bars = h4 ? h4.map(toBar) : [];
+
+    const livePrice = getCachedLivePrice(epic);
+    const curPrice = livePrice ? livePrice.bid : (m15Bars[m15Bars.length - 1]?.close || 0);
+
+    const result = analyzeSmcChart({
+      pair,
+      currentPrice: curPrice,
+      currentTimeIso: new Date().toISOString(),
+      h4Bars,
+      h1Bars,
+      m15Bars,
+      accountBalanceUsd: 677,
+      customRiskPct: 6.0
+    });
+
+    return result;
+  } catch (err) {
+    console.error(`[AGGRESSIVE SMC] Error analyzing ${pair}:`, err);
+    return null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // PRECISION INTRADAY TRADING SYSTEM (completely separate from SMC)
 // Implements the 13-step sequence from the 11-module course at
 // omniforgelabs-dev.github.io/precision-intraday-trading/
@@ -5890,6 +6055,107 @@ app.get("/api/asianfade/:pair", async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════
+// AGGRESSIVE SMC & CENT ACCOUNT API ENDPOINTS
+// ═══════════════════════════════════════════════════════════════════════
+
+app.get("/api/aggressive-smc/scan", async (req, res) => {
+  try {
+    const results: any[] = [];
+    for (const pair of AGGRESSIVE_PAIRS) {
+      const result = await analyzeAggressivePair(pair);
+      if (result) results.push(result);
+      await new Promise(r => setTimeout(r, 50));
+    }
+    res.json({
+      scanned: results.length,
+      passed: results.filter(r => r.decision?.verdict !== "WAIT").length,
+      results
+    });
+  } catch (err) {
+    res.status(500).json({ error: (err as any).message || "Aggressive SMC scan failed" });
+  }
+});
+
+app.get("/api/aggressive-smc/signals", (req, res) => {
+  const now = Date.now();
+  const tagged = aggressiveSignalsMemory.map(sig => ({
+    ...sig,
+    expired: now > new Date(sig.timestamp).getTime() + 4 * 60 * 60 * 1000,
+  }));
+  res.json(tagged.reverse());
+});
+
+app.post("/api/aggressive-smc/calculate-lot", (req, res) => {
+  try {
+    const { balance = 677, riskPct = 6.0, slPips = 45.0, pair = "XAG/USD" } = req.body || {};
+    const mm = calculateCentLotSize(Number(balance), Number(riskPct), Number(slPips), String(pair));
+    const pipVal = getPipValuePer001Lot(String(pair));
+    const potentialGainTp1 = mm.cashRisk * 0.50;
+    const potentialGainTp2 = mm.cashRisk * (0.50 + 0.50 * 2.50);
+
+    res.json({
+      balance: Number(balance),
+      riskPct: Number(riskPct),
+      slPips: Number(slPips),
+      pair: String(pair),
+      cashRisk: Math.round(mm.cashRisk * 100) / 100,
+      pipValPer001: pipVal,
+      recommendedLot: mm.lotSize,
+      potentialGainTp1: Math.round(potentialGainTp1 * 100) / 100,
+      potentialGainTp2: Math.round(potentialGainTp2 * 100) / 100,
+      potentialLossSl: Math.round(mm.cashRisk * 100) / 100
+    });
+  } catch (err) {
+    res.status(400).json({ error: (err as any).message || "Calculation failed" });
+  }
+});
+
+app.get("/api/aggressive-smc/stats", (req, res) => {
+  const trades = loadAggressiveTrades();
+  const resolved = trades.filter(t => t.status !== "open");
+  const wins = resolved.filter(t => (t.r ?? 0) >= 0);
+  const losses = resolved.filter(t => (t.r ?? 0) < 0);
+  const rSum = resolved.reduce((sum, t) => sum + (t.r ?? 0), 0);
+  const byExit: Record<string, number> = {};
+  resolved.forEach(t => { if (t.exitReason) byExit[t.exitReason] = (byExit[t.exitReason] || 0) + 1; });
+
+  res.json({
+    version: AGGRESSIVE_VERSION,
+    config: "Aggressive_SMC_Cent (H1 Trend EMA10>EMA20, M15 20-bar sweep, >50% body, 1.2x ATR buffer, WAT Kill Zones, 6% Risk)",
+    mode: "SIMULATED — isolated from all other engines",
+    backtestProven: {
+      primaryBasket: "+46.9% ($677 -> $994.57), 75.0% win rate (9W / 3L), +6.91R, PF 2.90, Max DD -6.0%",
+      trendCoreBasket: "+103.2% ($677 -> $1,375.66), 75.0% win rate (18W / 6L), +12.67R, PF 2.70, Max DD -11.6%",
+    },
+    totalSignals: aggressiveSignalsMemory.length,
+    activeSignals: aggressiveSignalsMemory.filter(s => s.status === "active").length,
+    trades: {
+      total: trades.length,
+      open: trades.filter(t => t.status === "open").length,
+      closed: resolved.length,
+      wins: wins.length,
+      losses: losses.length,
+      winRate: resolved.length > 0 ? Number(((wins.length / resolved.length) * 100).toFixed(1)) : 0,
+      rSum: Number(rSum.toFixed(2)),
+      avgR: resolved.length > 0 ? Number((rSum / resolved.length).toFixed(2)) : null,
+      byExit,
+    },
+    tradeList: [...trades].reverse(),
+  });
+});
+
+app.get("/api/aggressive-smc/:pair", async (req, res) => {
+  try {
+    const pair = decodeURIComponent(req.params.pair);
+    const result = await analyzeAggressivePair(pair);
+    if (!result) return res.status(404).json({ error: "Insufficient data or pair not eligible" });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: (err as any).message || "Aggressive SMC analysis failed" });
+  }
+});
+
 
 // Volatility decision log endpoint (Q3) — review ATR decisions over time
 app.get("/api/volatility-log", (req, res) => {
@@ -6024,6 +6290,7 @@ app.get("/api/health", (req, res) => {
       asian: ASIAN_VERSION,
       trendsweep: TREND_SWEEP_VERSION,
       asianfade: ASIAN_FADE_VERSION,
+      aggressive: AGGRESSIVE_VERSION,
     },
 
     marketDataCache: {

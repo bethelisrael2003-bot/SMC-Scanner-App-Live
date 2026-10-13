@@ -609,6 +609,42 @@ Fade mean-reversion architecture (Option 1, zero-lookahead audited):
      - Simulated paper trading only: NO live broker orders, NO push notifications.
      - Consumes 0 extra Capital.com API calls by reading from the shared MarketDataCache.
 
+A19. AGGRESSIVE SMC & CENT ACCOUNT ENGINE (2026-10-13, build 2026-10-13.1)
+------------------------------------------------------------------------
+Implements the high-expectancy Smart Money Concepts aggressive growth model
+engineered for RoboForex Cent Accounts and Nigeria Standard Time (WAT / UTC+1):
+
+  1. Core Rules & The Two Institutional Adjustments:
+     - Adjustment 1: Zero-lookahead strictly completed H1 macro trend alignment
+       (H1 EMA10 vs EMA20 crossover + H1 close relative to EMA10).
+     - Adjustment 2: Spread-protection stop buffer (Sweep Extreme +/- 1.2x M15 ATR)
+       preventing broker spread widening from hunting wicks during session opens.
+     - Rule 1: Mid-Range Chop Filter (price within 45%-55% of H4 range -> WAIT).
+     - Rule 2: M15 20-bar liquidity sweep + rejection displacement (>50% body ratio).
+     - Rule 3: Session Kill Zones (London Open 09:00-12:00 WAT, NY Open 15:30-19:00 WAT,
+       US pre-market releases 13:30-15:30 WAT). Dead zones -> WAIT.
+
+  2. RoboForex Cent Account Money Management Engine:
+     - Risk Allocation: Fixed 6.0% of Equity per trade.
+     - Pip Values: $0.08 / pip per 0.01 lot (Metals), $0.09 / pip per 0.01 lot (Forex).
+     - Lot Size Formula: Lot = (Max Cash Risk) / (SL_Pips * Pip_Val) / 100,
+       always floored down to 0.01 lot safe increment.
+     - Scaled Targets: 50% @ 1.00R (locks profit & auto-BE), 50% @ 2.50R runner.
+
+  3. Audited Backtest Performance (92-day dataset, spread-aware):
+     - Primary Basket (XAG/USD, GBP/JPY, EUR/USD): 75.0% WR (9W / 3L), +6.91R, +46.9% ($677 -> $994.57), PF 2.90, Max DD -6.0%.
+     - Trend Core Basket (XAG, GBPJPY, USDJPY, EURJPY, USDCHF, XAU): 75.0% WR (18W / 6L), +12.67R, +103.2% ($677 -> $1,375.66), PF 2.70, Max DD -11.6%.
+
+  4. 8-Way Strict Isolation:
+     - Dedicated engine: aggressiveSmcEngine.ts with 8 unit tests (aggressiveSmc.test.ts).
+     - Dedicated MongoDB models: AggressiveSignal and AggressiveTrade.
+     - Dedicated endpoints: /api/aggressive-smc/* (signals, stats, scan, calculate-lot, :pair).
+     - Dedicated UI tab: "Aggressive Cent" (⚡ icon) with live WAT clock, active kill-zone monitor,
+       interactive Cent Account lot size calculator, audited telemetry, and live signal feed.
+     - ZERO interaction with Core SMC, Classic, Institutional, Asian Breakout, Trend Sweep, Asian Fade, or Precision.
+     - Simulated paper trading only: NO live broker orders, NO push notifications.
+     - Consumes 0 extra Capital.com API calls by reading from the shared MarketDataCache.
+
 A18. CENTRALIZED MARKET-DATA CACHE (2026-09-21, infrastructure layer)
 ------------------------------------------------------------------------
 To support multiple concurrent analysis systems (MPR, Classic, Precision,

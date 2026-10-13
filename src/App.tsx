@@ -7,6 +7,7 @@ import { InstitutionalTab } from "./components/tabs/InstitutionalTab";
 import { AsianBreakoutTab } from "./components/tabs/AsianBreakoutTab";
 import { AsianFadeTab } from "./components/tabs/AsianFadeTab";
 import { TrendSweepTab } from "./components/tabs/TrendSweepTab";
+import { AggressiveTab } from "./components/tabs/AggressiveTab";
 import { PrecisionTab } from "./components/tabs/PrecisionTab";
 import { PushNotifications } from '@capacitor/push-notifications';
 
@@ -29,7 +30,7 @@ async function setupPush() {
 }
 
 // ── Types ───────────────────────────────────────────────────────────────────
-type TabId = "signals" | "watchlist" | "trades" | "performance" | "classic" | "institutional" | "asian" | "asianfade" | "trendsweep" | "precision" | "news" | "rules";
+type TabId = "signals" | "watchlist" | "trades" | "performance" | "classic" | "institutional" | "asian" | "asianfade" | "trendsweep" | "aggressive" | "precision" | "news" | "rules";
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "signals", label: "Signals", icon: "⚡" },
@@ -41,6 +42,7 @@ const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "asian", label: "Asian Breakout", icon: "🚀" },
   { id: "asianfade", label: "Asian Fade", icon: "🎯" },
   { id: "trendsweep", label: "Trend Sweep", icon: "🌊" },
+  { id: "aggressive", label: "Aggressive Cent", icon: "⚡" },
   { id: "precision", label: "Precision", icon: "📐" },
   { id: "news", label: "News", icon: "📡" },
   { id: "rules", label: "SMC Rules", icon: "📖" },
@@ -438,6 +440,7 @@ export default function App() {
           {activeTab === "asian" && <AsianBreakoutTab />}
           {activeTab === "asianfade" && <AsianFadeTab />}
           {activeTab === "trendsweep" && <TrendSweepTab />}
+          {activeTab === "aggressive" && <AggressiveTab />}
           {activeTab === "precision" && <PrecisionTab />}
           {activeTab === "news" && <NewsTab news={s.newsData} loading={s.newsLoading} />}
           {activeTab === "rules" && <RulesTab />}
