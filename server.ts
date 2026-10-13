@@ -6137,6 +6137,88 @@ app.get("/api/aggressive-smc/:pair", async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════
+// 3-PAIR DAILY BRIEFING COMMAND CENTER (EUR/USD, GBP/JPY, XAG/USD)
+// Updates 3 times daily: London (09:00 WAT), US Pre-Market (13:30 WAT), NY (15:30 WAT)
+// ═══════════════════════════════════════════════════════════════════════
+
+app.get("/api/daily-briefing", async (req, res) => {
+  try {
+    const pairs = ["XAG/USD", "GBP/JPY", "EUR/USD"];
+    const now = new Date();
+    const wat = new Date(now.getTime() + 1 * 60 * 60 * 1000);
+    const watHour = wat.getUTCHours();
+    const watMinute = wat.getUTCMinutes();
+    const totalMinutes = watHour * 60 + watMinute;
+
+    let briefingPhase = "Session 1: London Open Live Briefing (09:00 - 12:00 WAT)";
+    let isKillZone = false;
+    if (totalMinutes >= 9 * 60 && totalMinutes <= 12 * 60) {
+      briefingPhase = "Session 1: London Open Live Briefing (09:00 - 12:00 WAT)";
+      isKillZone = true;
+    } else if (totalMinutes >= 13 * 60 + 30 && totalMinutes < 15 * 60 + 30) {
+      briefingPhase = "Session 2: US Pre-Market & Economic Data Briefing (01:30 - 03:30 PM WAT)";
+      isKillZone = true;
+    } else if (totalMinutes >= 15 * 60 + 30 && totalMinutes <= 19 * 60) {
+      briefingPhase = "Session 3: New York Open Peak Volatility Briefing (03:30 - 07:00 PM WAT)";
+      isKillZone = true;
+    } else if (totalMinutes >= 0 && totalMinutes < 8 * 60) {
+      briefingPhase = "Overnight: Asian Session (Midnight - 08:00 AM WAT) — Preparing for London";
+      isKillZone = false;
+    } else {
+      briefingPhase = "Midday Lull: Preparing for US Pre-Market & NY Open (12:00 - 01:30 PM WAT)";
+      isKillZone = false;
+    }
+
+    const pairBriefings = await Promise.all(
+      pairs.map(async (pair) => {
+        const livePrice = getLivePrice(pair);
+        const [m15, h1] = await Promise.all([
+          getCandles(pair, "15min", 30),
+          getCandles(pair, "1h", 25),
+        ]);
+
+        if (!m15 || !h1 || m15.length < 15 || h1.length < 15) {
+          return { pair, livePrice, status: "INSUFFICIENT_DATA" };
+        }
+
+        const h1Closes = h1.map((b: any) => b.c);
+        const e10 = computeEma(h1Closes, 10);
+        const e20 = computeEma(h1Closes, 20);
+        const lastH1Idx = h1.length - 1;
+        const trend = e10[lastH1Idx] > e20[lastH1Idx] ? "BULLISH" : "BEARISH";
+
+        const m15Recent = m15.slice(-20);
+        const m15High = Math.max(...m15Recent.map((b: any) => b.h));
+        const m15Low = Math.min(...m15Recent.map((b: any) => b.l));
+        const lastM15 = m15[m15.length - 1];
+
+        const analysisRes = await analyzeAggressivePair(pair);
+
+        return {
+          pair,
+          livePrice: livePrice || { bid: lastM15.c, ask: lastM15.c, spread_pips: 0 },
+          macroTrend: trend,
+          h1Ema10: e10[lastH1Idx],
+          h1Ema20: e20[lastH1Idx],
+          m15High,
+          m15Low,
+          analysis: analysisRes
+        };
+      })
+    );
+
+    res.json({
+      watTimeStr: `${String(watHour > 12 ? watHour - 12 : (watHour === 0 ? 12 : watHour)).padStart(2, "0")}:${String(watMinute).padStart(2, "0")} ${watHour >= 12 ? "PM" : "AM"} WAT`,
+      briefingPhase,
+      isKillZone,
+      pairs: pairBriefings
+    });
+  } catch (err) {
+    res.status(500).json({ error: (err as any).message || "Briefing failed" });
+  }
+});
+
 
 // Volatility decision log endpoint (Q3) — review ATR decisions over time
 app.get("/api/volatility-log", (req, res) => {

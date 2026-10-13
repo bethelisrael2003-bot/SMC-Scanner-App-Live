@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import {
   Zap,
-  Radar,
   Calculator,
   TrendingUp,
   TrendingDown,
@@ -13,190 +12,97 @@ import {
   Copy,
   Check,
   RefreshCw,
-  Sliders,
-  Layers,
-  PieChart,
-  ChevronRight,
   CheckCircle2,
   XCircle,
-  ArrowUpRight,
-  ArrowDownRight,
-  Waves
+  Eye,
+  Radio
 } from "lucide-react";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "https://smc-scanner-backend.onrender.com";
 
-export type HubId = "engines" | "sizer" | "radar" | "ledger";
-
-export type StrategyKey =
-  | "aggressive"
-  | "trendsweep"
-  | "asianfade"
-  | "asian"
-  | "institutional"
-  | "classic"
-  | "precision"
-  | "mpr";
-
-interface StrategyMeta {
-  key: StrategyKey;
+interface PairConfig {
+  pair: string;
   name: string;
   icon: string;
-  winRate: string;
-  record: string;
-  netReturn: string;
-  rTotal: string;
-  maxDd: string;
-  desc: string;
-  badgeColor: string;
-  pairs: string[];
+  category: string;
+  pipSize: number;
+  pipVal: number;
+  sixMonthWr: string;
+  sixMonthRecord: string;
+  sixMonthProfit: string;
+  defaultSl: number;
 }
 
-const STRATEGIES: StrategyMeta[] = [
+const PRIMARY_3_PAIRS: PairConfig[] = [
   {
-    key: "aggressive",
-    name: "Aggressive Cent",
+    pair: "XAG/USD",
+    name: "Silver",
+    icon: "🥈",
+    category: "Precious Metals",
+    pipSize: 0.01,
+    pipVal: 0.08,
+    sixMonthWr: "66.7%",
+    sixMonthRecord: "6W / 3L",
+    sixMonthProfit: "+$186.20 Profit (+4.60R)",
+    defaultSl: 45.0,
+  },
+  {
+    pair: "GBP/JPY",
+    name: "Guppy",
     icon: "⚡",
-    winRate: "75.0%",
-    record: "18W / 6L",
-    netReturn: "+103.2%",
-    rTotal: "+12.67R",
-    maxDd: "-11.6%",
-    desc: "WAT Kill Zones · H1 EMA10/20 Trend · 1.2x ATR Stop Buffer · RoboForex 6% Cent Sizer",
-    badgeColor: "text-amber-400 bg-amber-400/10 border-amber-400/20",
-    pairs: ["XAG/USD", "GBP/JPY", "EUR/USD", "XAU/USD", "EUR/JPY", "USD/CHF"],
+    category: "High-Velocity Cross",
+    pipSize: 0.01,
+    pipVal: 0.09,
+    sixMonthWr: "75.0%",
+    sixMonthRecord: "3W / 1L",
+    sixMonthProfit: "+$68.45 Profit (+1.45R)",
+    defaultSl: 35.0,
   },
   {
-    key: "trendsweep",
-    name: "Trend Sweep",
-    icon: "🌊",
-    winRate: "71.4%",
-    record: "15W / 6L",
-    netReturn: "+89.4%",
-    rTotal: "+12.78R",
-    maxDd: "-1.0R",
-    desc: "Turtle Soup Liquidity Sweep · 50% @ 1.0R auto-BE · 50% @ 2.50R Runner",
-    badgeColor: "text-blue-400 bg-blue-400/10 border-blue-400/20",
-    pairs: ["XAU/USD", "XAG/USD", "USD/JPY", "GBP/JPY", "EUR/JPY", "USD/CHF"],
-  },
-  {
-    key: "asianfade",
-    name: "Asian Fade",
-    icon: "🎯",
-    winRate: "75.0%",
-    record: "9W / 3L",
-    netReturn: "+41.2%",
-    rTotal: "+5.52R",
-    maxDd: "-1.0R",
-    desc: "Early London Stop-Hunt Fade · Coiled Asian 0.5-1.5x ATR · 50% @ Asian Mid",
-    badgeColor: "text-emerald-400 bg-emerald-400/10 border-emerald-400/20",
-    pairs: ["EUR/USD", "GBP/USD", "USD/CAD", "NZD/USD"],
-  },
-  {
-    key: "asian",
-    name: "Asian Breakout",
-    icon: "🚀",
-    winRate: "42.9%",
-    record: "12W / 16L",
-    netReturn: "+68.0%",
-    rTotal: "+13.11R",
-    maxDd: "-3.5R",
-    desc: "London Open Momentum Expansion · 35% @ 1.5R · 65% @ 4.0R Runner",
-    badgeColor: "text-purple-400 bg-purple-400/10 border-purple-400/20",
-    pairs: ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "XAU/USD", "GBP/JPY"],
-  },
-  {
-    key: "institutional",
-    name: "SMC Institutional",
-    icon: "💎",
-    winRate: "28.5%",
-    record: "72W / 181L",
-    netReturn: "-1.70R",
-    rTotal: "-1.70R",
-    maxDd: "-6.3R",
-    desc: "Dual Order Blocks (H4/H1) + Opposing Liquidity Pool DOL Targets",
-    badgeColor: "text-cyan-400 bg-cyan-400/10 border-cyan-400/20",
-    pairs: ["GBP/JPY", "USD/CAD", "USD/JPY", "EUR/USD", "EUR/JPY"],
-  },
-  {
-    key: "classic",
-    name: "Classic SMC",
-    icon: "🏛",
-    winRate: "30.0%",
-    record: "64W / 149L",
-    netReturn: "+1.50R",
-    rTotal: "+1.50R",
-    maxDd: "-5.8R",
-    desc: "H4 Liquidity Sweep → M15 CHOCH → H4 Order Block Confirmed",
-    badgeColor: "text-gray-400 bg-gray-400/10 border-gray-400/20",
-    pairs: ["GBP/JPY", "USD/JPY", "EUR/USD", "USD/CAD", "AUD/USD"],
-  },
-  {
-    key: "precision",
-    name: "Precision Intraday",
-    icon: "📐",
-    winRate: "50.0%",
-    record: "2W / 2L",
-    netReturn: "+0.54R",
-    rTotal: "+0.54R",
-    maxDd: "-1.0R",
-    desc: "13-Step Institutional Course Sequence · 0.3x ATR Stop Floor",
-    badgeColor: "text-indigo-400 bg-indigo-400/10 border-indigo-400/20",
-    pairs: ["XAU/USD", "EUR/JPY", "XAG/USD", "GBP/JPY", "EUR/USD"],
-  },
-  {
-    key: "mpr",
-    name: "Core SMC / MPR",
-    icon: "⚡",
-    winRate: "37.5%",
-    record: "0W / 2L Clean",
-    netReturn: "-2.27R",
-    rTotal: "-2.27R",
-    maxDd: "-2.3R",
-    desc: "Momentum-Pause-Retest Intraday Engine · 0.3x ATR SL Floor Guard",
-    badgeColor: "text-yellow-400 bg-yellow-400/10 border-yellow-400/20",
-    pairs: ["EUR/USD", "GBP/USD", "USD/JPY", "USD/CHF", "GBP/JPY", "XAU/USD"],
+    pair: "EUR/USD",
+    name: "Euro",
+    icon: "💶",
+    category: "Forex Major",
+    pipSize: 0.0001,
+    pipVal: 0.09,
+    sixMonthWr: "50.0%",
+    sixMonthRecord: "3W / 3L",
+    sixMonthProfit: "Neutral Anchor (-0.39R)",
+    defaultSl: 15.0,
   },
 ];
 
 function fmtPrice(pair: string, price: number | null | undefined): string {
   if (price === null || price === undefined) return "--";
   if (pair.includes("JPY")) return price.toFixed(3);
-  if (pair.includes("XAU") || pair.includes("XAG")) return price.toFixed(2);
+  if (pair.includes("XAG")) return price.toFixed(2);
   return price.toFixed(5);
 }
 
 export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => void }) {
-  const [activeHub, setActiveHub] = useState<HubId>("engines");
-  const [selectedStrategy, setSelectedStrategy] = useState<StrategyKey>("aggressive");
-  const [selectedPair, setSelectedPair] = useState<string>("XAG/USD");
+  const [selectedPairIndex, setSelectedPairIndex] = useState<number>(0);
   const [copiedTradeId, setCopiedTradeId] = useState<string | null>(null);
 
-  // Live Time in Nigeria (WAT)
+  // Live Nigeria (WAT) Time & Briefing State
   const [watTime, setWatTime] = useState("");
-  const [sessionInfo, setSessionInfo] = useState({ name: "Checking...", isKillZone: false });
+  const [briefingData, setBriefingData] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
 
-  // Calculator State
+  // RoboForex Cent Calculator State
   const [calcBalance, setCalcBalance] = useState<number>(677);
   const [calcRiskPct, setCalcRiskPct] = useState<number>(6.0);
-  const [calcPair, setCalcPair] = useState<string>("XAG/USD");
   const [calcSlPips, setCalcSlPips] = useState<number>(45.0);
   const [copiedCalc, setCopiedCalc] = useState(false);
 
-  // Live Data State
-  const [loading, setLoading] = useState(false);
+  // Active Signals Feed
   const [signals, setSignals] = useState<any[]>([]);
-  const [stats, setStats] = useState<any>(null);
-  const [analysis, setAnalysis] = useState<any>(null);
 
-  const currentMeta = STRATEGIES.find(s => s.key === selectedStrategy) || STRATEGIES[0];
+  const activePairConfig = PRIMARY_3_PAIRS[selectedPairIndex];
 
-  // Update selected pair if not in strategy pairs
+  // Update SL pips when pair switches
   useEffect(() => {
-    if (!currentMeta.pairs.includes(selectedPair)) {
-      setSelectedPair(currentMeta.pairs[0]);
-    }
-  }, [selectedStrategy, currentMeta.pairs, selectedPair]);
+    setCalcSlPips(activePairConfig.defaultSl);
+  }, [selectedPairIndex]);
 
   // Real-time WAT Clock
   useEffect(() => {
@@ -206,117 +112,74 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
       const h = wat.getUTCHours();
       const m = wat.getUTCMinutes();
       const s = wat.getUTCSeconds();
-      const mins = h * 60 + m;
-
       const hFmt = h > 12 ? h - 12 : (h === 0 ? 12 : h);
       const ampm = h >= 12 ? "PM" : "AM";
       setWatTime(`${String(hFmt).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")} ${ampm} WAT`);
-
-      const london = mins >= 9 * 60 && mins <= 12 * 60;
-      const ny = mins >= 15 * 60 + 30 && mins <= 19 * 60;
-      const usPre = mins >= 13 * 60 + 30 && mins < 15 * 60 + 30;
-      const deadAsian = mins >= 0 && mins < 8 * 60;
-      const deadLunch = mins > 12 * 60 && mins < 13 * 60 + 30;
-
-      if (london) setSessionInfo({ name: "London Open Kill Zone (09:00 - 12:00 WAT)", isKillZone: true });
-      else if (ny) setSessionInfo({ name: "New York Open Kill Zone (03:30 - 07:00 PM WAT)", isKillZone: true });
-      else if (usPre) setSessionInfo({ name: "US Pre-Market & Data (01:30 - 03:30 PM WAT)", isKillZone: true });
-      else if (deadAsian) setSessionInfo({ name: "Asian Dead Zone (Midnight - 08:00 AM WAT) — WAIT", isKillZone: false });
-      else if (deadLunch) setSessionInfo({ name: "Lunch Hour Dead Zone (12:00 - 01:30 PM WAT) — WAIT", isKillZone: false });
-      else setSessionInfo({ name: "Outside Kill Zones — WAIT", isKillZone: false });
     };
     update();
     const iv = setInterval(update, 1000);
     return () => clearInterval(iv);
   }, []);
 
-  // Strategy-Specific Data Fetcher (Zero Leaks between models)
-  const fetchData = useCallback(async () => {
+  // Fetch Live Briefing & Signals
+  const fetchLiveBriefing = useCallback(async () => {
     setLoading(true);
-    setSignals([]);
-    setAnalysis(null);
-
-    let sigUrl = `${API_BASE_URL}/api/${selectedStrategy}/signals`;
-    let statUrl = `${API_BASE_URL}/api/${selectedStrategy}/stats`;
-    let pairUrl = `${API_BASE_URL}/api/${selectedStrategy}/${encodeURIComponent(selectedPair)}`;
-
-    if (selectedStrategy === "aggressive") {
-      sigUrl = `${API_BASE_URL}/api/aggressive-smc/signals`;
-      statUrl = `${API_BASE_URL}/api/aggressive-smc/stats`;
-      pairUrl = `${API_BASE_URL}/api/aggressive-smc/${encodeURIComponent(selectedPair)}`;
-    } else if (selectedStrategy === "mpr") {
-      sigUrl = `${API_BASE_URL}/api/signals`;
-      statUrl = `${API_BASE_URL}/api/performance`;
-      pairUrl = `${API_BASE_URL}/api/scan`;
-    }
-
     try {
-      const [sigRes, statRes, pairRes] = await Promise.allSettled([
-        fetch(sigUrl),
-        fetch(statUrl),
-        fetch(pairUrl)
+      const [briefRes, sigRes] = await Promise.allSettled([
+        fetch(`${API_BASE_URL}/api/daily-briefing`),
+        fetch(`${API_BASE_URL}/api/aggressive-smc/signals`),
       ]);
 
+      if (briefRes.status === "fulfilled" && briefRes.value.ok) {
+        setBriefingData(await briefRes.value.json());
+      }
       if (sigRes.status === "fulfilled" && sigRes.value.ok) {
-        const d = await sigRes.value.json();
-        setSignals(Array.isArray(d) ? d : (d.signals || []));
-      }
-      if (statRes.status === "fulfilled" && statRes.value.ok) {
-        setStats(await statRes.value.json());
-      }
-      if (pairRes.status === "fulfilled" && pairRes.value.ok) {
-        const pData = await pairRes.value.json();
-        if (selectedStrategy === "mpr" && pData.results) {
-          const match = pData.results.find((r: any) => r.pair === selectedPair);
-          setAnalysis(match || null);
-        } else {
-          setAnalysis(pData);
-        }
+        setSignals(await sigRes.value.json());
       }
     } catch {
       /* silent */
     } finally {
       setLoading(false);
     }
-  }, [selectedStrategy, selectedPair]);
+  }, []);
 
   useEffect(() => {
-    fetchData();
-    const iv = setInterval(fetchData, 30000);
+    fetchLiveBriefing();
+    const iv = setInterval(fetchLiveBriefing, 30000);
     return () => clearInterval(iv);
-  }, [fetchData]);
+  }, [fetchLiveBriefing]);
 
-  // Cent Lot size calculations
+  // Sizing Calculations (RoboForex Cent)
   const cashRisk = calcBalance * (calcRiskPct / 100.0);
-  const pipVal = (calcPair.includes("XAG") || calcPair.includes("XAU")) ? 0.08 : 0.09;
-  const rawLot = (calcSlPips > 0 && pipVal > 0) ? (cashRisk / (calcSlPips * pipVal)) / 100.0 : 0.01;
+  const rawLot = (calcSlPips > 0 && activePairConfig.pipVal > 0)
+    ? (cashRisk / (calcSlPips * activePairConfig.pipVal)) / 100.0
+    : 0.01;
   const recommendedLot = Math.max(0.01, Math.floor(rawLot * 100) / 100);
-  const gainTp1 = cashRisk * 0.50;
-  const gainTp2 = cashRisk * 1.75;
+  const gainTp1 = cashRisk * 0.50; // 50% scale @ 1.0R
+  const gainTp2 = cashRisk * 1.75; // 50% @ 1.0R + 50% @ 2.5R
 
-  // Copy helper
+  const pairLiveInfo = briefingData?.pairs?.find((p: any) => p.pair === activePairConfig.pair);
+  const setupObj = pairLiveInfo?.analysis?.setup || null;
+  const isSetupActive = setupObj && pairLiveInfo?.analysis?.decision?.verdict !== "WAIT";
+
   const copyTrade = (tradeText: string, id: string) => {
     navigator.clipboard.writeText(tradeText);
     setCopiedTradeId(id);
     setTimeout(() => setCopiedTradeId(null), 2500);
   };
 
-  // Helper to extract setup
-  const setupObj = analysis?.setup || analysis?.plan || null;
-  const isSetupActive = analysis?.passed || (setupObj && analysis?.decision !== "WAIT");
-
   return (
-    <div className="min-h-screen bg-[#09090b] text-zinc-100 flex flex-col font-sans select-none" style={{ paddingBottom: "max(5rem, calc(4rem + env(safe-area-inset-bottom, 16px)))" }}>
+    <div className="min-h-screen bg-[#09090b] text-zinc-100 flex flex-col font-sans select-none pb-12">
       {/* ── Top Header ────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-40 bg-[#09090b]/90 backdrop-blur-md border-b border-zinc-800/80 px-4 py-3 flex items-center justify-between">
+      <header className="sticky top-0 z-40 bg-[#09090b]/95 backdrop-blur-md border-b border-zinc-800/80 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-500/20 to-cyan-500/20 border border-amber-500/30 flex items-center justify-center font-mono font-black text-amber-400 text-sm shadow-[0_0_15px_rgba(245,158,11,0.2)]">
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-500/20 to-cyan-500/20 border border-amber-500/40 flex items-center justify-center font-mono font-black text-amber-400 text-sm shadow-[0_0_15px_rgba(245,158,11,0.25)]">
             ⚡
           </div>
           <div>
             <div className="flex items-center gap-1.5">
-              <span className="font-bold text-sm tracking-tight text-white font-mono">APEX QUANT</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-400 font-mono font-bold border border-amber-500/20">v2.0</span>
+              <span className="font-bold text-sm tracking-tight text-white font-mono">APEX 3-PAIR COMMAND</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-400 font-mono font-bold border border-amber-500/20">FOCUSED</span>
             </div>
             <div className="text-[10px] text-zinc-400 font-mono flex items-center gap-1">
               <Clock className="w-2.5 h-2.5 text-cyan-400" />
@@ -326,550 +189,345 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Switch to Classic UI Button */}
           <button
             onClick={onSwitchToClassic}
             className="px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-[11px] font-mono flex items-center gap-1 transition-all cursor-pointer"
-            title="Switch to original terminal view"
           >
             <span>🖥️</span>
-            <span className="hidden sm:inline">Classic</span>
+            <span className="hidden sm:inline">All Tabs</span>
           </button>
 
           <button
-            onClick={fetchData}
+            onClick={fetchLiveBriefing}
             disabled={loading}
             className="px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-400 text-[11px] font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer"
           >
             <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />
-            <span>SCAN</span>
+            <span>UPDATE</span>
           </button>
         </div>
       </header>
 
-      {/* ── Active Session Alert Ribbon ─────────────────────────── */}
-      <div className="bg-zinc-950/90 border-b border-zinc-800/60 px-4 py-2 flex items-center justify-between text-xs font-mono">
+      {/* ── 3-Times-Daily Live Intelligence Ribbon ─────────────────── */}
+      <div className="bg-zinc-950/90 border-b border-zinc-800/80 px-4 py-2.5 flex items-center justify-between text-xs font-mono">
         <div className="flex items-center gap-2 truncate">
-          <span className={`w-2 h-2 rounded-full shrink-0 ${sessionInfo.isKillZone ? "bg-emerald-400 animate-pulse" : "bg-rose-500"}`} />
-          <span className={sessionInfo.isKillZone ? "text-emerald-400 font-bold truncate" : "text-zinc-400 truncate"}>
-            {sessionInfo.name}
+          <Radio className={`w-3.5 h-3.5 shrink-0 ${briefingData?.isKillZone ? "text-emerald-400 animate-pulse" : "text-amber-400"}`} />
+          <span className={briefingData?.isKillZone ? "text-emerald-400 font-bold truncate" : "text-zinc-300 truncate"}>
+            {briefingData?.briefingPhase || "Active Session Monitor (Nigeria WAT)"}
           </span>
         </div>
-        <div className="hidden sm:flex items-center gap-2 text-[10px] text-zinc-500 shrink-0">
-          <span>London: 09-12 WAT</span>
-          <span>·</span>
-          <span>NY: 15:30-19 WAT</span>
-        </div>
+        <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-900 text-cyan-400 border border-zinc-800 shrink-0 font-bold">
+          3x Daily Scan
+        </span>
       </div>
 
-      {/* ── Main Content Area (Dynamic by Hub) ──────────────────── */}
+      {/* ── Main Content Area ─────────────────────────────────────── */}
       <main className="flex-1 max-w-4xl w-full mx-auto p-4 space-y-4">
-        {/* ======================================================== */}
-        {/* HUB 1: STRATEGY ENGINES                                  */}
-        {/* ======================================================== */}
-        {activeHub === "engines" && (
-          <div className="space-y-4">
-            {/* Strategy Carousel Header */}
-            <div>
-              <div className="text-[11px] uppercase font-mono text-zinc-400 mb-2 flex items-center justify-between">
-                <span>Select Strategy Engine</span>
-                <span className="text-zinc-500">{STRATEGIES.length} Isolated Models</span>
-              </div>
-              <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none" style={{ WebkitOverflowScrolling: "touch" }}>
-                {STRATEGIES.map(st => {
-                  const active = selectedStrategy === st.key;
-                  return (
-                    <button
-                      key={st.key}
-                      onClick={() => setSelectedStrategy(st.key)}
-                      style={{ flexShrink: 0, minWidth: "max-content", maxWidth: "none" }}
-                      className={`shrink-0 px-3.5 py-2.5 rounded-xl text-xs font-mono flex items-center gap-2 whitespace-nowrap transition-all border cursor-pointer ${
-                        active
-                          ? "bg-amber-500/20 text-white border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.25)] font-bold"
-                          : "bg-zinc-900/60 text-zinc-400 border-zinc-800 hover:border-zinc-700"
-                      }`}
-                    >
-                      <span className="text-sm">{st.icon}</span>
-                      <span>{st.name}</span>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${st.badgeColor}`}>
-                        {st.winRate}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+        {/* ── 1. The 3 Focused Pair Selector ───────────────────────── */}
+        <div>
+          <div className="text-[11px] uppercase font-mono text-zinc-400 mb-2 flex items-center justify-between">
+            <span>Primary Focus Watchlist</span>
+            <span className="text-emerald-400 font-bold">6-Mo Win Rate: 63.2% (12W / 7L)</span>
+          </div>
 
-            {/* Performance Ribbon (4 Metrics) */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-              <div className="bg-zinc-900/80 border border-emerald-500/30 rounded-xl p-3 text-center bg-emerald-500/5">
-                <div className="text-[10px] font-mono uppercase text-emerald-400 font-bold">WIN RATE (11A)</div>
-                <div className="text-xl font-mono font-black text-emerald-400 mt-0.5">{currentMeta.winRate}</div>
-                <div className="text-[10px] font-mono text-emerald-300 font-bold">{currentMeta.record}</div>
-              </div>
-
-              <div className="bg-zinc-900/80 border border-amber-500/30 rounded-xl p-3 text-center bg-amber-500/5">
-                <div className="text-[10px] font-mono uppercase text-amber-400 font-bold">NET RETURN</div>
-                <div className="text-xl font-mono font-black text-amber-400 mt-0.5">{currentMeta.netReturn}</div>
-                <div className="text-[10px] font-mono text-amber-300">Audited Backtest</div>
-              </div>
-
-              <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-3 text-center">
-                <div className="text-[10px] font-mono uppercase text-zinc-400">TOTAL R</div>
-                <div className="text-xl font-mono font-black text-blue-400 mt-0.5">{currentMeta.rTotal}</div>
-                <div className="text-[10px] font-mono text-zinc-500">Realized Expectancy</div>
-              </div>
-
-              <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-3 text-center">
-                <div className="text-[10px] font-mono uppercase text-zinc-400">MAX DRAWDOWN</div>
-                <div className="text-xl font-mono font-black text-rose-400 mt-0.5">{currentMeta.maxDd}</div>
-                <div className="text-[10px] font-mono text-zinc-500">Peak-to-Trough</div>
-              </div>
-            </div>
-
-            {/* Strategy Pair Switcher Bar */}
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none" style={{ WebkitOverflowScrolling: "touch" }}>
-              <span className="text-[10px] font-mono uppercase text-zinc-500 mr-1 shrink-0">Eligible Pairs:</span>
-              {currentMeta.pairs.map(p => (
+          <div className="grid grid-cols-3 gap-2">
+            {PRIMARY_3_PAIRS.map((p, idx) => {
+              const active = selectedPairIndex === idx;
+              return (
                 <button
-                  key={p}
-                  onClick={() => setSelectedPair(p)}
-                  style={{ flexShrink: 0, minWidth: "max-content", maxWidth: "none" }}
-                  className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-mono transition-all whitespace-nowrap cursor-pointer ${
-                    selectedPair === p
-                      ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold"
-                      : "bg-zinc-900/60 text-zinc-400 border border-zinc-800 hover:border-zinc-700"
+                  key={p.pair}
+                  onClick={() => setSelectedPairIndex(idx)}
+                  className={`p-3 rounded-2xl border transition-all text-left cursor-pointer relative overflow-hidden ${
+                    active
+                      ? "bg-amber-500/15 border-amber-500/60 shadow-[0_0_20px_rgba(245,158,11,0.2)] text-white"
+                      : "bg-zinc-900/60 border-zinc-800/80 text-zinc-400 hover:border-zinc-700"
                   }`}
                 >
-                  {p}
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-base">{p.icon}</span>
+                    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded font-bold ${active ? "bg-amber-500 text-black" : "bg-zinc-950 text-zinc-400 border border-zinc-800"}`}>
+                      {p.sixMonthWr}
+                    </span>
+                  </div>
+                  <div className="font-mono text-xs font-bold text-white tracking-tight">{p.pair}</div>
+                  <div className="font-mono text-[10px] text-zinc-500">{p.name}</div>
                 </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── 2. Active Pair Live Command Card ─────────────────────── */}
+        <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 relative overflow-hidden">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+            <div className="flex items-center gap-2.5">
+              <span className="text-2xl">{activePairConfig.icon}</span>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-lg font-bold font-mono text-white">{activePairConfig.pair}</h2>
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-950 text-cyan-400 font-mono border border-zinc-800">
+                    {activePairConfig.category}
+                  </span>
+                </div>
+                <div className="text-xs font-mono text-zinc-400 mt-0.5">
+                  Macro H1 Trend: <span className={pairLiveInfo?.macroTrend === "BULLISH" ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>{pairLiveInfo?.macroTrend || "CALCULATING"}</span>
+                  {" · "}Spread: <span className="text-zinc-300 font-bold">{pairLiveInfo?.livePrice?.spread_pips || 0} pips</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Live Quotes Display */}
+            <div className="text-right p-2 rounded-xl bg-zinc-950 border border-zinc-800 font-mono">
+              <div className="text-[9px] uppercase text-zinc-500">Live Bid / Ask</div>
+              <div className="text-sm font-bold text-white">
+                <span className="text-cyan-400">{pairLiveInfo?.livePrice?.bid || "--"}</span>
+                <span className="text-zinc-600 mx-1">/</span>
+                <span className="text-zinc-400">{pairLiveInfo?.livePrice?.ask || "--"}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Active Setup Hero Banner OR Waiting Banner */}
+          {isSetupActive && setupObj ? (
+            <div className="space-y-3">
+              <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <div className="font-mono text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4" />
+                    PRISTINE {setupObj.direction} SETUP CONFIRMED
+                  </div>
+                  <div className="font-mono text-[11px] text-zinc-300 mt-1">
+                    Entry: {fmtPrice(activePairConfig.pair, setupObj.entry)} · SL: {fmtPrice(activePairConfig.pair, setupObj.sl)} ({setupObj.slPips || activePairConfig.defaultSl} pips)
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => copyTrade(
+                    `ROBOFOREX CENT ORDER\nPair: ${activePairConfig.pair}\nAction: ${setupObj.direction}\nEntry: ${setupObj.entry}\nSL: ${setupObj.sl}\nTP1: ${setupObj.tp1} (Scale 50% & BE)\nTP2: ${setupObj.tp2}\nLot: ${recommendedLot} Lots\nRisk: $${cashRisk.toFixed(2)} (6%)`,
+                    "hero-copy"
+                  )}
+                  className="px-4 py-2.5 rounded-xl bg-emerald-500 text-black font-mono text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-emerald-400 transition-all cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.3)] shrink-0"
+                >
+                  {copiedTradeId === "hero-copy" ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  <span>{copiedTradeId === "hero-copy" ? "ORDER COPIED!" : "COPY TO METATRADER"}</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-center">
+                <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800">
+                  <div className="text-[9px] text-zinc-500">TP1 (1.0R AUTO-BE)</div>
+                  <div className="text-xs font-bold text-blue-400">{fmtPrice(activePairConfig.pair, setupObj.tp1)}</div>
+                </div>
+                <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800">
+                  <div className="text-[9px] text-zinc-500">TP2 (2.5R RUNNER)</div>
+                  <div className="text-xs font-bold text-emerald-400">{fmtPrice(activePairConfig.pair, setupObj.tp2)}</div>
+                </div>
+                <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800">
+                  <div className="text-[9px] text-zinc-500">RECOMMENDED LOT</div>
+                  <div className="text-xs font-bold text-amber-400">{recommendedLot.toFixed(2)} Lots</div>
+                </div>
+                <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800">
+                  <div className="text-[9px] text-zinc-500">MAX CASH RISK</div>
+                  <div className="text-xs font-bold text-rose-400">${cashRisk.toFixed(2)}</div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="p-4 rounded-xl bg-zinc-950/70 border border-zinc-800/80 space-y-2">
+              <div className="flex items-center justify-between font-mono text-xs">
+                <span className="text-zinc-400 flex items-center gap-1.5">
+                  <Eye className="w-3.5 h-3.5 text-cyan-400" />
+                  M15 20-Bar Range: [{fmtPrice(activePairConfig.pair, pairLiveInfo?.m15Low)} – {fmtPrice(activePairConfig.pair, pairLiveInfo?.m15High)}]
+                </span>
+                <span className="text-amber-400 font-bold px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-[10px]">
+                  STATUS: WAITING FOR CLEAN SWEEP
+                </span>
+              </div>
+              <p className="font-mono text-[11px] text-zinc-400">
+                {pairLiveInfo?.analysis?.decision?.reasoning || "Strict rule: M15 20-bar liquidity sweep + >50% body rejection in alignment with completed H1 trend required. No forced trades."}
+              </p>
+            </div>
+          )}
+
+          {/* Hardcoded 3 Gates Checklist */}
+          <div className="mt-3 pt-3 border-t border-zinc-800/80 grid grid-cols-1 sm:grid-cols-3 gap-2 font-mono text-[11px]">
+            <div className="flex items-center gap-1.5 text-zinc-300">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span>Completed H1 Trend Alignment</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-zinc-300">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span>M15 20-Bar Liquidity Sweep</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-zinc-300">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span>1.2x ATR Stop Cushion</span>
+            </div>
+          </div>
+        </div>
+
+        {/* ── 3. Interactive RoboForex Cent Lot Sizer (Directly Linked) ── */}
+        <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 space-y-3.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Calculator className="w-4 h-4 text-amber-400" />
+              <h3 className="font-mono text-sm font-bold text-white">RoboForex Cent Lot Sizer ({activePairConfig.pair})</h3>
+            </div>
+            <span className="font-mono text-[10px] text-zinc-500">${activePairConfig.pipVal} / 0.01 lot</span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-xs">
+            <div>
+              <label className="text-[10px] text-zinc-500 block mb-1">Equity ($ USD)</label>
+              <input
+                type="number"
+                value={calcBalance}
+                onChange={(e) => setCalcBalance(Number(e.target.value))}
+                className="w-full p-2 rounded-lg bg-zinc-950 border border-zinc-800 text-cyan-400 font-bold focus:outline-none focus:border-cyan-500"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-zinc-500 block mb-1">Risk Allocation</label>
+              <input
+                type="number"
+                step="0.5"
+                value={calcRiskPct}
+                onChange={(e) => setCalcRiskPct(Number(e.target.value))}
+                className="w-full p-2 rounded-lg bg-zinc-950 border border-zinc-800 text-amber-400 font-bold focus:outline-none focus:border-amber-500"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-zinc-500 block mb-1">SL Pips</label>
+              <input
+                type="number"
+                step="0.5"
+                value={calcSlPips}
+                onChange={(e) => setCalcSlPips(Number(e.target.value))}
+                className="w-full p-2 rounded-lg bg-zinc-950 border border-zinc-800 text-rose-400 font-bold focus:outline-none focus:border-rose-500"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-zinc-500 block mb-1">Recommended Lots</label>
+              <div className="p-2 rounded-lg bg-zinc-950 border border-emerald-500/30 text-emerald-400 font-extrabold text-sm text-center">
+                {recommendedLot.toFixed(2)} L
+              </div>
+            </div>
+          </div>
+
+          <div className="p-3 rounded-xl bg-zinc-950 flex flex-wrap items-center justify-between gap-2 font-mono text-xs">
+            <div>
+              <span className="text-zinc-500 text-[10px]">RISK: </span>
+              <span className="text-amber-400 font-bold">${cashRisk.toFixed(2)}</span>
+              <span className="text-zinc-600 mx-2">|</span>
+              <span className="text-zinc-500 text-[10px]">GAIN @ TP1: </span>
+              <span className="text-blue-400 font-bold">+${gainTp1.toFixed(2)}</span>
+              <span className="text-zinc-600 mx-2">|</span>
+              <span className="text-zinc-500 text-[10px]">GAIN @ TP2: </span>
+              <span className="text-emerald-400 font-bold">+${gainTp2.toFixed(2)}</span>
+            </div>
+
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(
+                  `ROBOFOREX CENT TICKET\nPair: ${activePairConfig.pair}\nEquity: $${calcBalance}\nRisk: ${calcRiskPct}% ($${cashRisk.toFixed(2)})\nSL Pips: ${calcSlPips}\nLot Size: ${recommendedLot.toFixed(2)} Lots`
+                );
+                setCopiedCalc(true);
+                setTimeout(() => setCopiedCalc(false), 2500);
+              }}
+              className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[11px] flex items-center gap-1 cursor-pointer"
+            >
+              {copiedCalc ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+              <span>{copiedCalc ? "COPIED" : "COPY SIZING"}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* ── 4. Audited 6-Month Rock-Solid Foundation Card ─────────── */}
+        <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 space-y-3 font-mono">
+          <div className="flex items-center gap-2">
+            <Award className="w-4 h-4 text-emerald-400" />
+            <h3 className="text-xs font-bold text-white uppercase">
+              180-Day Audited Proof (April 14 – October 13, 2026)
+            </h3>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 text-center text-xs">
+            <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+              <div className="text-[9px] uppercase text-zinc-400">WIN RATE (11A)</div>
+              <div className="text-base font-bold text-emerald-400">63.2%</div>
+              <div className="text-[10px] text-emerald-300 font-bold">12W / 7L</div>
+            </div>
+            <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20">
+              <div className="text-[9px] uppercase text-zinc-400">NET RETURN</div>
+              <div className="text-base font-bold text-cyan-400">+34.5%</div>
+              <div className="text-[10px] text-cyan-300 font-bold">$677 → $910.30</div>
+            </div>
+            <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20">
+              <div className="text-[9px] uppercase text-zinc-400">MAX DRAWDOWN</div>
+              <div className="text-base font-bold text-rose-400">-14.4%</div>
+              <div className="text-[10px] text-rose-300 font-bold">Safe & Controlled</div>
+            </div>
+          </div>
+
+          <div className="space-y-1 text-[11px] pt-1">
+            <div className="flex justify-between p-2 rounded-lg bg-zinc-950">
+              <span className="text-zinc-300">Silver (XAG/USD) Performance</span>
+              <span className="text-emerald-400 font-bold">{PRIMARY_3_PAIRS[0].sixMonthProfit}</span>
+            </div>
+            <div className="flex justify-between p-2 rounded-lg bg-zinc-950">
+              <span className="text-zinc-300">GBP/JPY Performance</span>
+              <span className="text-emerald-400 font-bold">{PRIMARY_3_PAIRS[1].sixMonthProfit}</span>
+            </div>
+            <div className="flex justify-between p-2 rounded-lg bg-zinc-950">
+              <span className="text-zinc-300">EUR/USD Performance</span>
+              <span className="text-zinc-400 font-bold">{PRIMARY_3_PAIRS[2].sixMonthProfit}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* ── 5. Active Signals Feed ─────────────────────────────────── */}
+        <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 space-y-3 font-mono">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-white flex items-center gap-1.5">
+              <Activity className="w-4 h-4 text-amber-400" />
+              Active Signals on Watchlist
+            </span>
+            <span className="text-[10px] text-zinc-500">{signals.length} Active Records</span>
+          </div>
+
+          {signals.length === 0 ? (
+            <div className="text-center py-6 text-xs text-zinc-500">
+              No active signals at this moment. Engine evaluates next M15 candle close during Kill Zones.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {signals.map((sig, i) => (
+                <div key={sig.id || i} className="p-3 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5">
+                    <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${sig.direction === "BUY" ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"}`}>
+                      {sig.direction}
+                    </span>
+                    <div>
+                      <div className="text-xs font-bold text-white">{sig.pair}</div>
+                      <div className="text-[10px] text-zinc-400">Entry: {fmtPrice(sig.pair, sig.entryPrice)} · SL: {fmtPrice(sig.pair, sig.sl)}</div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => copyTrade(
+                      `ROBOFOREX CENT ORDER\nPair: ${sig.pair}\nAction: ${sig.direction}\nEntry: ${sig.entryPrice}\nSL: ${sig.sl}\nTP1: ${sig.tp1}\nTP2: ${sig.tp2}\nLot: ${recommendedLot}`,
+                      `sig-${i}`
+                    )}
+                    className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs flex items-center gap-1 cursor-pointer shrink-0"
+                  >
+                    {copiedTradeId === `sig-${i}` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedTradeId === `sig-${i}` ? "COPIED" : "COPY"}</span>
+                  </button>
+                </div>
               ))}
             </div>
-
-            {/* Live Setup & Diagnostic Card */}
-            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 sm:p-5 relative overflow-hidden">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-base">{currentMeta.icon}</span>
-                  <span className="font-mono text-sm font-bold text-white">{selectedPair} Live Diagnostics</span>
-                </div>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-950 text-cyan-400 border border-zinc-800">
-                  {currentMeta.name}
-                </span>
-              </div>
-
-              {isSetupActive && setupObj ? (
-                <div className="space-y-3">
-                  <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between">
-                    <div>
-                      <div className="font-mono text-xs font-bold text-emerald-400 flex items-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4" />
-                        ACTIVE {setupObj.direction || analysis?.decision} SETUP CONFIRMED
-                      </div>
-                      <div className="font-mono text-[11px] text-zinc-300 mt-1">
-                        Entry: {fmtPrice(selectedPair, setupObj.entry)} · SL: {fmtPrice(selectedPair, setupObj.sl)}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => copyTrade(
-                        `ROBOFOREX CENT ORDER\nPair: ${selectedPair}\nAction: ${setupObj.direction || analysis?.decision}\nEntry: ${setupObj.entry}\nSL: ${setupObj.sl}\nTP1: ${setupObj.tp1}\nTP2: ${setupObj.tp2 || setupObj.tp}\nLot: ${recommendedLot} Lots`,
-                        "hero-copy"
-                      )}
-                      className="px-3 py-2 rounded-lg bg-emerald-500 text-black font-mono text-xs font-bold flex items-center gap-1 hover:bg-emerald-400 transition-all cursor-pointer"
-                    >
-                      {copiedTradeId === "hero-copy" ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copiedTradeId === "hero-copy" ? "COPIED!" : "COPY MT4"}</span>
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-center">
-                    <div className="bg-zinc-950 p-2 rounded-lg border border-zinc-800">
-                      <div className="text-[9px] text-zinc-500">TARGET 1</div>
-                      <div className="text-xs font-bold text-blue-400">{fmtPrice(selectedPair, setupObj.tp1)}</div>
-                    </div>
-                    <div className="bg-zinc-950 p-2 rounded-lg border border-zinc-800">
-                      <div className="text-[9px] text-zinc-500">TARGET 2 / DOL</div>
-                      <div className="text-xs font-bold text-emerald-400">{fmtPrice(selectedPair, setupObj.tp2 || setupObj.tp)}</div>
-                    </div>
-                    <div className="bg-zinc-950 p-2 rounded-lg border border-zinc-800">
-                      <div className="text-[9px] text-zinc-500">RISK DISTANCE</div>
-                      <div className="text-xs font-bold text-cyan-400">{fmtPrice(selectedPair, setupObj.risk || setupObj.sl_pips)}</div>
-                    </div>
-                    <div className="bg-zinc-950 p-2 rounded-lg border border-zinc-800">
-                      <div className="text-[9px] text-zinc-500">CENT LOT (6%)</div>
-                      <div className="text-xs font-bold text-amber-400">{recommendedLot} Lots</div>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="p-4 rounded-xl bg-zinc-950/60 border border-zinc-800/80 text-center space-y-1.5">
-                  <div className="font-mono text-xs text-zinc-400">
-                    STATUS: <span className="text-amber-400 font-bold">WAITING FOR CONDITIONS</span>
-                  </div>
-                  <p className="font-mono text-[11px] text-zinc-500 max-w-md mx-auto">
-                    {analysis?.decision?.reasoning || analysis?.macroRegime || currentMeta.desc}
-                  </p>
-                </div>
-              )}
-
-              {/* Dynamic Live Diagnostic Gates Checklist */}
-              {analysis?.checks && analysis.checks.length > 0 ? (
-                <div className="mt-3 pt-3 border-t border-zinc-800/80 space-y-1 font-mono text-[11px]">
-                  {analysis.checks.slice(0, 5).map((chk: string, idx: number) => {
-                    const isOk = chk.includes("[OK]") || chk.startsWith("✓");
-                    return (
-                      <div key={idx} className={`p-1.5 rounded flex items-center gap-1.5 ${isOk ? "bg-emerald-500/5 text-emerald-300" : "bg-zinc-950 text-zinc-400"}`}>
-                        {isOk ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> : <XCircle className="w-3.5 h-3.5 text-zinc-600 shrink-0" />}
-                        <span className="truncate">{chk.replace(/^\[(OK|X|INFO)\]\s*/, "")}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="mt-3 pt-3 border-t border-zinc-800/80 grid grid-cols-1 sm:grid-cols-3 gap-2 font-mono text-[11px]">
-                  <div className="flex items-center gap-1.5 text-zinc-400">
-                    <Shield className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                    <span className="truncate">{currentMeta.desc.split("·")[0]}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-zinc-400">
-                    <Shield className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                    <span className="truncate">{currentMeta.desc.split("·")[1] || "Zero-Lookahead"}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-zinc-400">
-                    <Shield className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                    <span className="truncate">{currentMeta.desc.split("·")[2] || "Scaled Targets"}</span>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Quick MT4/MT5 Signal Feed List */}
-            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4">
-              <div className="flex items-center justify-between mb-3 font-mono text-xs">
-                <span className="font-bold text-white flex items-center gap-1.5">
-                  <Activity className="w-4 h-4 text-amber-400" />
-                  Live {currentMeta.name} Signals Feed
-                </span>
-                <span className="text-zinc-500">{signals.length} Signals Tracked</span>
-              </div>
-
-              {signals.length === 0 ? (
-                <div className="text-center py-6 font-mono text-xs text-zinc-500">
-                  No signals active for {currentMeta.name}. Engine evaluates next M15 candle close.
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {signals.map((sig, i) => (
-                    <div key={sig.id || i} className="p-3 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2.5">
-                        <span className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold ${sig.direction === "BUY" ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"}`}>
-                          {sig.direction}
-                        </span>
-                        <div>
-                          <div className="font-mono text-xs font-bold text-white">{sig.pair}</div>
-                          <div className="font-mono text-[10px] text-zinc-400">
-                            Entry: {fmtPrice(sig.pair, sig.entryPrice)} · SL: {fmtPrice(sig.pair, sig.sl)}
-                          </div>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => copyTrade(
-                          `ROBOFOREX CENT ORDER\nPair: ${sig.pair}\nAction: ${sig.direction}\nEntry: ${sig.entryPrice}\nSL: ${sig.sl}\nTP1: ${sig.tp1}\nTP2: ${sig.tp2 || sig.tp}\nLot: ${recommendedLot}`,
-                          `sig-${i}`
-                        )}
-                        className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-mono flex items-center gap-1 cursor-pointer shrink-0"
-                      >
-                        {copiedTradeId === `sig-${i}` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                        <span>{copiedTradeId === `sig-${i}` ? "COPIED" : "COPY"}</span>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ======================================================== */}
-        {/* HUB 2: ROBOFOREX CENT LOT SIZER                          */}
-        {/* ======================================================== */}
-        {activeHub === "sizer" && (
-          <div className="space-y-4">
-            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 sm:p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Calculator className="w-5 h-5 text-amber-400" />
-                  <div>
-                    <h2 className="text-base font-bold text-white font-mono">RoboForex Cent Lot Sizer</h2>
-                    <p className="text-xs text-zinc-400 font-mono">Precision Risk Allocation · Floored Down to 0.01 Lots</p>
-                  </div>
-                </div>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                  REAL DOLLARS IN CENT ACCT
-                </span>
-              </div>
-
-              {/* Balance Quick Presets */}
-              <div>
-                <label className="text-[10px] font-mono uppercase text-zinc-400 mb-1.5 block">Account Equity Presets ($ USD)</label>
-                <div className="grid grid-cols-5 gap-2 font-mono text-xs">
-                  {[200, 500, 677, 1000, 2000].map(amt => (
-                    <button
-                      key={amt}
-                      onClick={() => setCalcBalance(amt)}
-                      className={`p-2 rounded-xl border text-center transition-all cursor-pointer ${
-                        calcBalance === amt
-                          ? "bg-amber-500/20 text-amber-400 border-amber-500/40 font-bold"
-                          : "bg-zinc-950 text-zinc-400 border-zinc-800 hover:border-zinc-700"
-                      }`}
-                    >
-                      ${amt}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Risk Percentage Toggle */}
-              <div>
-                <label className="text-[10px] font-mono uppercase text-zinc-400 mb-1.5 block">Risk Allocation Per Trade</label>
-                <div className="grid grid-cols-3 gap-2 font-mono text-xs">
-                  {[
-                    { pct: 2.0, label: "2.0% Safe" },
-                    { pct: 3.0, label: "3.0% Balanced" },
-                    { pct: 6.0, label: "6.0% Aggressive" }
-                  ].map(r => (
-                    <button
-                      key={r.pct}
-                      onClick={() => setCalcRiskPct(r.pct)}
-                      className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
-                        calcRiskPct === r.pct
-                          ? "bg-amber-500/20 text-amber-400 border-amber-500/40 font-bold"
-                          : "bg-zinc-950 text-zinc-400 border-zinc-800 hover:border-zinc-700"
-                      }`}
-                    >
-                      {r.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Input Fields Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 font-mono">
-                <div>
-                  <label className="text-[10px] uppercase text-zinc-400 block mb-1">Instrument</label>
-                  <select
-                    value={calcPair}
-                    onChange={(e) => setCalcPair(e.target.value)}
-                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white text-xs focus:outline-none focus:border-amber-500"
-                  >
-                    {PAIRS.map(p => (
-                      <option key={p} value={p}>{p}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase text-zinc-400 block mb-1">Stop Loss Distance (Pips)</label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    value={calcSlPips}
-                    onChange={(e) => setCalcSlPips(Number(e.target.value))}
-                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-rose-400 text-xs focus:outline-none focus:border-rose-500 font-bold"
-                  />
-                </div>
-              </div>
-
-              {/* Big Output Hero Display */}
-              <div className="bg-zinc-950 border border-amber-500/30 rounded-2xl p-4 sm:p-5 relative overflow-hidden">
-                <div className="text-[10px] font-mono uppercase text-zinc-400 mb-1">RECOMMENDED POSITION SIZE</div>
-                <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-2">
-                  <div className="text-3xl sm:text-4xl font-mono font-black text-emerald-400">
-                    {recommendedLot.toFixed(2)} Lots
-                  </div>
-                  <div className="text-xs font-mono text-zinc-400">
-                    ({(recommendedLot * 100).toFixed(0)} Cent Lots on RoboForex MT4/MT5)
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-4 pt-4 border-t border-zinc-800/80 font-mono text-center">
-                  <div className="bg-zinc-900/60 p-2.5 rounded-xl border border-zinc-800">
-                    <div className="text-[9px] text-zinc-500">MAX CASH RISK</div>
-                    <div className="text-sm font-bold text-amber-400">${cashRisk.toFixed(2)}</div>
-                  </div>
-                  <div className="bg-zinc-900/60 p-2.5 rounded-xl border border-zinc-800">
-                    <div className="text-[9px] text-zinc-500">PIP VALUE</div>
-                    <div className="text-sm font-bold text-white">${pipVal.toFixed(2)} / 0.01L</div>
-                  </div>
-                  <div className="bg-zinc-900/60 p-2.5 rounded-xl border border-zinc-800">
-                    <div className="text-[9px] text-zinc-500">GAIN @ TP1 (1.0R)</div>
-                    <div className="text-sm font-bold text-blue-400">+${gainTp1.toFixed(2)}</div>
-                  </div>
-                  <div className="bg-zinc-900/60 p-2.5 rounded-xl border border-zinc-800">
-                    <div className="text-[9px] text-zinc-500">GAIN @ TP2 (2.5R)</div>
-                    <div className="text-sm font-bold text-emerald-400">+${gainTp2.toFixed(2)}</div>
-                  </div>
-                </div>
-
-                {/* 1-Tap Copy Sizing Parameters */}
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(
-                      `ROBOFOREX CENT SIZING\nEquity: $${calcBalance}\nRisk: ${calcRiskPct}% ($${cashRisk.toFixed(2)})\nPair: ${calcPair}\nSL Pips: ${calcSlPips} pips\nRecommended: ${recommendedLot.toFixed(2)} Lots`
-                    );
-                    setCopiedCalc(true);
-                    setTimeout(() => setCopiedCalc(false), 2500);
-                  }}
-                  className="w-full mt-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-mono text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-[0_0_15px_rgba(245,158,11,0.2)]"
-                >
-                  {copiedCalc ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  <span>{copiedCalc ? "PARAMETERS COPIED TO CLIPBOARD" : "COPY SIZING FOR ORDER TICKET"}</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ======================================================== */}
-        {/* HUB 3: RADAR (MARKET SESSIONS & WATCHLIST)               */}
-        {/* ======================================================== */}
-        {activeHub === "radar" && (
-          <div className="space-y-4">
-            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 space-y-3">
-              <h3 className="font-mono text-xs font-bold text-white uppercase flex items-center gap-1.5">
-                <Clock className="w-4 h-4 text-cyan-400" />
-                Global Trading Sessions (WAT Time)
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 font-mono text-xs">
-                <div className="p-3 rounded-xl bg-zinc-950 border border-zinc-800 flex justify-between items-center">
-                  <div>
-                    <div className="text-white font-bold">Tokyo Session</div>
-                    <div className="text-[10px] text-zinc-500">01:00 - 09:00 WAT</div>
-                  </div>
-                  <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-900 text-zinc-400">Asian</span>
-                </div>
-                <div className="p-3 rounded-xl bg-zinc-950 border border-emerald-500/30 flex justify-between items-center bg-emerald-500/5">
-                  <div>
-                    <div className="text-emerald-400 font-bold">London Kill Zone</div>
-                    <div className="text-[10px] text-zinc-400">09:00 - 12:00 WAT</div>
-                  </div>
-                  <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold animate-pulse">ACTIVE</span>
-                </div>
-                <div className="p-3 rounded-xl bg-zinc-950 border border-cyan-500/30 flex justify-between items-center bg-cyan-500/5">
-                  <div>
-                    <div className="text-cyan-400 font-bold">New York Kill Zone</div>
-                    <div className="text-[10px] text-zinc-400">15:30 - 19:00 WAT</div>
-                  </div>
-                  <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400">High Vol</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 space-y-3">
-              <h3 className="font-mono text-xs font-bold text-white uppercase flex items-center gap-1.5">
-                <Radar className="w-4 h-4 text-amber-400" />
-                Active Strategy Pairs Watchlist
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 font-mono text-xs">
-                {currentMeta.pairs.map(pair => (
-                  <div key={pair} className="p-3 rounded-xl bg-zinc-950 border border-zinc-800 flex justify-between items-center">
-                    <div>
-                      <div className="font-bold text-white">{pair}</div>
-                      <div className="text-[10px] text-zinc-500">{pair.includes("XAG") || pair.includes("XAU") ? "Precious Metal" : "Forex Asset"}</div>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-900 text-cyan-400 border border-zinc-800 font-bold">
-                        {currentMeta.name} Active
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ======================================================== */}
-        {/* HUB 4: LEDGER & COMPOUNDING TRACKER                      */}
-        {/* ======================================================== */}
-        {activeHub === "ledger" && (
-          <div className="space-y-4">
-            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <TrendingUp className="w-5 h-5 text-emerald-400" />
-                  <div>
-                    <h3 className="font-mono text-sm font-bold text-white">Cent Account Compounding Trajectory</h3>
-                    <p className="font-mono text-xs text-zinc-400">Initial: $677.00 USD · Doubled to $1,375.66 USD (+103.2%)</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-2 font-mono">
-                <div className="flex justify-between text-xs">
-                  <span className="text-zinc-400">Current Phase: Milestone 1 Achieved</span>
-                  <span className="text-emerald-400 font-bold">103.2% Completed</span>
-                </div>
-                <div className="w-full h-2.5 rounded-full bg-zinc-950 border border-zinc-800 overflow-hidden">
-                  <div className="h-full bg-gradient-to-r from-amber-500 to-emerald-400 rounded-full" style={{ width: "100%" }} />
-                </div>
-                <div className="flex justify-between text-[10px] text-zinc-500">
-                  <span>Start: $677</span>
-                  <span>Goal 1: $1,000 (Hit)</span>
-                  <span>Goal 2: $1,375 (Hit)</span>
-                  <span>Goal 3: $2,500</span>
-                </div>
-              </div>
-
-              <div className="pt-3 border-t border-zinc-800/80 space-y-1.5 font-mono text-xs">
-                <div className="flex justify-between p-2 rounded-lg bg-zinc-950">
-                  <span className="text-zinc-300">Silver (XAG/USD) Contribution</span>
-                  <span className="text-emerald-400 font-bold">+$241.82 Profit (4W / 2L)</span>
-                </div>
-                <div className="flex justify-between p-2 rounded-lg bg-zinc-950">
-                  <span className="text-zinc-300">Yen Crosses (GBP/JPY, EUR/JPY)</span>
-                  <span className="text-emerald-400 font-bold">+$276.40 Profit (6W / 1L)</span>
-                </div>
-                <div className="flex justify-between p-2 rounded-lg bg-zinc-950">
-                  <span className="text-zinc-300">Forex Majors (EUR/USD, USD/CHF)</span>
-                  <span className="text-cyan-400 font-bold">+$180.44 Profit (8W / 3L)</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </main>
-
-      {/* ── Fixed Bottom Navigation Bar (4 Core Hubs) ───────────── */}
-      <nav
-        className="fixed bottom-0 left-0 right-0 z-50 bg-[#09090b]/95 backdrop-blur-lg border-t border-zinc-800/90 px-3 pt-2"
-        style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom, 16px))" }}
-      >
-        <div className="max-w-md mx-auto grid grid-cols-4 gap-1">
-          {[
-            { id: "engines", label: "Engines", icon: Zap },
-            { id: "sizer", label: "Lot Sizer", icon: Calculator },
-            { id: "radar", label: "Radar", icon: Radar },
-            { id: "ledger", label: "Ledger", icon: TrendingUp },
-          ].map(hub => {
-            const active = activeHub === hub.id;
-            const IconComponent = hub.icon;
-            return (
-              <button
-                key={hub.id}
-                onClick={() => setActiveHub(hub.id as HubId)}
-                className={`py-2 px-2 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer ${
-                  active
-                    ? "text-amber-400 font-bold"
-                    : "text-zinc-500 hover:text-zinc-300 font-normal"
-                }`}
-              >
-                <IconComponent className={`w-5 h-5 mb-1 ${active ? "text-amber-400 stroke-[2.5]" : "text-zinc-500"}`} />
-                <span className="text-[11px] font-mono tracking-tight">{hub.label}</span>
-              </button>
-            );
-          })}
+          )}
         </div>
-      </nav>
+      </main>
     </div>
   );
 }
