@@ -9,6 +9,7 @@ import { AsianFadeTab } from "./components/tabs/AsianFadeTab";
 import { TrendSweepTab } from "./components/tabs/TrendSweepTab";
 import { AggressiveTab } from "./components/tabs/AggressiveTab";
 import { PrecisionTab } from "./components/tabs/PrecisionTab";
+import { ApexQuantApp } from "./components/v2/ApexQuantApp";
 import { PushNotifications } from '@capacitor/push-notifications';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "https://smc-scanner-backend.onrender.com";
@@ -359,6 +360,16 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<TabId>("watchlist");
   const [menuOpen, setMenuOpen] = useState(false);
 
+  const [useV2, setUseV2] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("v") === "2" || params.get("ui") === "v2") return true;
+      const stored = localStorage.getItem("smc_ui_version");
+      if (stored === "v2") return true;
+    }
+    return false;
+  });
+
   useEffect(() => { setupPush(); }, []);
 
   // Tab polling
@@ -368,6 +379,23 @@ export default function App() {
     const interval = setInterval(() => { s.handleFetchSignals(); }, 15000);
     return () => clearInterval(interval);
   }, [activeTab]);
+
+  if (useV2) {
+    return (
+      <ApexQuantApp
+        onSwitchToClassic={() => {
+          setUseV2(false);
+          if (typeof window !== "undefined") {
+            localStorage.setItem("smc_ui_version", "classic");
+            const url = new URL(window.location.href);
+            url.searchParams.delete("v");
+            url.searchParams.delete("ui");
+            window.history.replaceState({}, "", url.toString());
+          }
+        }}
+      />
+    );
+  }
 
   const activeResult = s.scanData?.results?.find((r: any) => r.pair === s.selectedPair);
   const tickerPairs = s.scanData?.results || [];
@@ -406,7 +434,21 @@ export default function App() {
             </button>
           ))}
         </nav>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <button
+            onClick={() => {
+              setUseV2(true);
+              if (typeof window !== "undefined") {
+                localStorage.setItem("smc_ui_version", "v2");
+              }
+            }}
+            className="px-2.5 py-1.5 rounded font-mono text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+            style={{ background: "rgba(245,158,11,0.15)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.3)" }}
+            title="Try new Apex Quant v2.0 Mobile UI"
+          >
+            <span>📱</span>
+            <span className="hidden sm:inline">Try Apex v2.0 UI</span>
+          </button>
           <button onClick={() => s.handleScan(true)} disabled={s.loading} className="px-3 py-1.5 rounded font-mono text-xs font-bold transition-all cursor-pointer" style={{ background: s.loading ? "rgba(0,212,255,0.05)" : "rgba(0,212,255,0.15)", color: s.loading ? "var(--text-muted)" : "#00d4ff", border: "1px solid rgba(0,212,255,0.3)" }}>
             {s.loading ? "SCANNING..." : "⚡ SCAN"}
           </button>
