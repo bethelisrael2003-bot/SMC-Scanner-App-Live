@@ -3262,13 +3262,11 @@ function saveAggressiveTrades(trades: AggressiveTrade[]) {
 async function analyzeAggressivePair(pair: string): Promise<any> {
   try {
     if (!AGGRESSIVE_PAIRS.includes(pair)) return null;
-    const epic = PAIR_TO_EPIC[pair];
-    if (!epic) return null;
 
     const [m15, h1, h4] = await Promise.all([
-      getCachedCandles(epic, "MINUTE_15", 35),
-      getCachedCandles(epic, "HOUR", 30),
-      getCachedCandles(epic, "HOUR_4", 20),
+      getCandles(pair, "15min", 120),
+      getCandles(pair, "1h", 120),
+      getCandles(pair, "4h", 50),
     ]);
 
     if (!m15 || m15.length < 25 || !h1 || h1.length < 20) return null;
@@ -3282,7 +3280,7 @@ async function analyzeAggressivePair(pair: string): Promise<any> {
     const h1Bars = h1.map(toBar);
     const h4Bars = h4 ? h4.map(toBar) : [];
 
-    const livePrice = getCachedLivePrice(epic);
+    const livePrice = getLivePrice(pair);
     const curPrice = livePrice ? livePrice.bid : (m15Bars[m15Bars.length - 1]?.close || 0);
 
     const result = analyzeSmcChart({
