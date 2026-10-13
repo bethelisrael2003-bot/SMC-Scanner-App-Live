@@ -246,7 +246,7 @@ export function AggressiveTab() {
               </span>
             </div>
             <p className="text-xs text-zinc-400 mt-1">
-              Strict Completed H1 Trend (EMA10 &gt; EMA20) · M15 20-bar Sweep · 1.2x ATR Stop Buffer · RoboForex Cent Account Position Sizer (Fixed 6% Risk)
+              Strict Completed H1 Trend (EMA10 &gt; EMA20) · M15 20-bar Sweep · 1.2x ATR Stop Buffer · Institutional Position &amp; Cent Lot Sizer (Fixed 6% Risk)
             </p>
           </div>
 
@@ -420,14 +420,14 @@ export function AggressiveTab() {
         )}
       </div>
 
-      {/* Two Column Layout: Interactive RoboForex Cent Lot Sizer & Audited Performance */}
+      {/* Two Column Layout: Interactive Position & Cent Lot Sizer & Audited Performance */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Card 1: Interactive RoboForex Cent Account Lot Sizer */}
+        {/* Card 1: Interactive Position & Cent Lot Sizer */}
         <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-6">
           <div className="flex items-center gap-2 mb-3">
             <Calculator className="w-4 h-4 text-cyan-400" />
             <h2 className="font-mono text-sm font-bold text-white">
-              RoboForex Cent Lot Sizer (Aggressive 6% Risk)
+              Position &amp; Cent Lot Sizer (6% Aggressive Risk)
             </h2>
           </div>
 

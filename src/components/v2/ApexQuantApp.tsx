@@ -275,6 +275,37 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
     setTimeout(() => setCopiedTradeId(null), 2500);
   };
 
+  // Send WhatsApp-Style Phone Status Bar Notification
+  const sendTestSystemNotification = () => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      if (Notification.permission === "granted") {
+        playChimeSound();
+        const title = "🚨 APEX SIGNAL: EUR/USD BUY (Grade A+)";
+        const options = {
+          body: "Entry: 1.11900 | SL: 1.11650 | Cent Lot: 0.22 Lots. Tap to open ticket!",
+          icon: "/icon.png",
+          badge: "/icon.png",
+          vibrate: [300, 100, 300, 100, 300],
+          tag: "apex-trade-alert",
+          renotify: true,
+          data: { url: "/?v=2" }
+        };
+
+        if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.ready.then(reg => {
+            reg.showNotification(title, options);
+          });
+        } else {
+          new Notification(title, options);
+        }
+      } else {
+        Notification.requestPermission().then(perm => {
+          if (perm === "granted") sendTestSystemNotification();
+        });
+      }
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#070a12] text-zinc-100 flex flex-col font-sans select-none pb-24">
       {/* ── Top Header Bar ────────────────────────────────────────── */}
@@ -284,10 +315,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
             ⚡
           </div>
           <div>
-            <div className="flex items-center gap-1.5">
-              <span className="font-bold text-sm tracking-tight text-white font-mono">APEX INSTITUTIONAL</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-400 font-mono font-bold border border-amber-500/30">PRO</span>
-            </div>
+            <div className="font-bold text-sm tracking-tight text-white font-mono">APEX INSTITUTIONAL</div>
             <div className="text-[10px] text-zinc-400 font-mono flex items-center gap-1">
               <Clock className="w-2.5 h-2.5 text-cyan-400" />
               <span className="text-cyan-400 font-bold">{watTime || "00:00:00 WAT"}</span>
@@ -296,27 +324,11 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Audio Chime Toggle */}
-          <button
-            onClick={() => {
-              setSoundEnabled(!soundEnabled);
-              if (!soundEnabled) playChimeSound();
-            }}
-            className={`p-1.5 rounded-xl border transition-all cursor-pointer ${
-              soundEnabled
-                ? "bg-amber-500/20 text-amber-400 border-amber-500/40"
-                : "bg-zinc-900 text-zinc-500 border-zinc-800"
-            }`}
-            title={soundEnabled ? "Alert Sound ON" : "Alert Sound OFF"}
-          >
-            {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-          </button>
-
           {/* Quick Scan Refresh */}
           <button
             onClick={fetchAllData}
             disabled={loading}
-            className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-400 text-xs font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+            className="px-3.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-400 text-xs font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
             <span>SCAN</span>
@@ -479,7 +491,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
 
                     <button
                       onClick={() => copyTrade(
-                        `ROBOFOREX CENT ORDER\nPair: ${activeProfile.pair}\nGrade: ${currentConf.confluenceGrade}\nAction: ${currentConf.direction}\nEntry: ${currentConf.entryPrice}\nSL: ${currentConf.sl}\nTP1: ${currentConf.tp1} (Scale 50% & Auto-BE)\nTP2: ${currentConf.tp2}\nLot: ${recommendedLot} Lots\nRisk: $${cashRisk.toFixed(2)} (${effectiveRiskPct}%)`,
+                        `ORDER TICKET (SMC EXECUTION)\nPair: ${activeProfile.pair}\nGrade: ${currentConf.confluenceGrade}\nAction: ${currentConf.direction}\nEntry: ${currentConf.entryPrice}\nSL: ${currentConf.sl}\nTP1: ${currentConf.tp1} (Scale 50% & Auto-BE)\nTP2: ${currentConf.tp2}\nLot: ${recommendedLot} Lots\nRisk: $${cashRisk.toFixed(2)} (${effectiveRiskPct}%)`,
                         "trade-copy"
                       )}
                       className="px-4 py-2.5 rounded-xl bg-emerald-500 text-black font-mono text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-emerald-400 transition-all cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.3)] shrink-0"
@@ -591,7 +603,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
         )}
 
         {/* ========================================================== */}
-        {/* TAB 2: FULL-SCREEN ROBOFOREX CENT LOT SIZER                */}
+        {/* TAB 2: FULL-SCREEN POSITION & CENT LOT SIZER              */}
         {/* ========================================================== */}
         {activeTab === "sizer" && (
           <div className="space-y-4">
@@ -600,12 +612,12 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
                 <div className="flex items-center gap-2">
                   <Calculator className="w-5 h-5 text-amber-400" />
                   <div>
-                    <h2 className="text-base font-bold text-white font-mono">RoboForex Cent Lot Sizer</h2>
+                    <h2 className="text-base font-bold text-white font-mono">Position &amp; Cent Lot Sizer</h2>
                     <p className="text-xs text-zinc-400 font-mono">Precision Risk Allocation · Floored Down to 0.01 Lots</p>
                   </div>
                 </div>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                  ROBOFOREX CENT
+                  CENT &amp; STANDARD SIZING
                 </span>
               </div>
 
@@ -690,7 +702,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
                     {recommendedLot.toFixed(2)} Lots
                   </div>
                   <div className="text-xs font-mono text-zinc-400">
-                    ({(recommendedLot * 100).toFixed(0)} Cent Lots on RoboForex MT4/MT5)
+                    ({(recommendedLot * 100).toFixed(0)} Cent Lots / {recommendedLot.toFixed(2)} Standard Lots)
                   </div>
                 </div>
 
@@ -716,7 +728,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
                 <button
                   onClick={() => {
                     navigator.clipboard.writeText(
-                      `ROBOFOREX CENT SIZING\nEquity: $${calcBalance}\nRisk: ${effectiveRiskPct}% ($${cashRisk.toFixed(2)})\nPair: ${activeProfile.pair}\nSL Pips: ${calcSlPips} pips\nRecommended: ${recommendedLot.toFixed(2)} Lots`
+                      `POSITION SIZING TICKET\nPair: ${activeProfile.pair}\nEquity: $${calcBalance}\nRisk: ${effectiveRiskPct}% ($${cashRisk.toFixed(2)})\nPair: ${activeProfile.pair}\nSL Pips: ${calcSlPips} pips\nRecommended: ${recommendedLot.toFixed(2)} Lots`
                     );
                     setCopiedCalc(true);
                     setTimeout(() => setCopiedCalc(false), 2500);
@@ -879,6 +891,99 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
                 <div className="text-amber-400">⭐ Grade A Signal: 4.0% Standard Risk (Dedicated Model Solo)</div>
                 <div className="text-cyan-400">🥈 Grade B+ Signal: 2.0% Controlled Risk (Grade B + C Agree)</div>
                 <div className="text-zinc-500">🚫 Conflict / Dead Zone: 0.0% Risk (Output WAIT)</div>
+              </div>
+
+              {/* Audio & Alert Sound Preferences */}
+              <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Volume2 className="w-4 h-4 text-amber-400" />
+                    <div>
+                      <div className="text-xs font-bold text-white uppercase">Audio Alert Chime</div>
+                      <div className="text-[10px] text-zinc-400">Distinct 880Hz high-pitch sound on verified setups</div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setSoundEnabled(!soundEnabled);
+                      if (!soundEnabled) playChimeSound();
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      soundEnabled
+                        ? "bg-amber-500 text-black font-extrabold"
+                        : "bg-zinc-800 text-zinc-400"
+                    }`}
+                  >
+                    {soundEnabled ? "SOUND ON" : "MUTED"}
+                  </button>
+                </div>
+
+                <button
+                  onClick={playChimeSound}
+                  className="w-full py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-all"
+                >
+                  <Volume2 className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Test Distinct Audio Chime Now</span>
+                </button>
+              </div>
+
+              {/* Android Phone Notification Bar (WhatsApp Style System Push) */}
+              <div className="p-4 rounded-xl bg-zinc-950 border border-emerald-500/30 space-y-3 bg-emerald-500/5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Bell className="w-4 h-4 text-emerald-400" />
+                    <div>
+                      <div className="text-xs font-bold text-white uppercase flex items-center gap-1.5">
+                        <span>Phone Notification Bar</span>
+                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30">
+                          WHATSAPP STYLE
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-zinc-400">Drops into your phone's top notification shade with vibration</div>
+                    </div>
+                  </div>
+                  <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${
+                    typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted"
+                      ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
+                      : "bg-amber-500/20 text-amber-400 border border-amber-500/40"
+                  }`}>
+                    {typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted"
+                      ? "ALLOWED ✅"
+                      : "NEEDS PERMISSION ⚠️"}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    onClick={() => {
+                      if (typeof window !== "undefined" && "Notification" in window) {
+                        Notification.requestPermission().then((perm) => {
+                          if (perm === "granted") {
+                            sendTestSystemNotification();
+                          }
+                        });
+                      }
+                    }}
+                    className="py-2.5 px-3 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-emerald-500/20 transition-all"
+                  >
+                    <Bell className="w-3.5 h-3.5" />
+                    <span>Enable Phone Notifications</span>
+                  </button>
+
+                  <button
+                    onClick={sendTestSystemNotification}
+                    className="py-2.5 px-3 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-all"
+                  >
+                    <span>🧪 Send Test Notification</span>
+                  </button>
+                </div>
+
+                <div className="p-2.5 rounded-lg bg-black/40 border border-white/5 text-[10px] text-zinc-400 space-y-1">
+                  <div className="text-zinc-300 font-bold">Why Notifications May Have Failed Before:</div>
+                  <div>1. When using Chrome on Android, Chrome blocks notifications by default unless you tap <strong>"Enable Phone Notifications"</strong> and tap <strong>"Allow"</strong> on the popup.</div>
+                  <div>2. If you previously tapped "Block", tap the lock icon next to the URL in your browser &rarr; <em>Site settings</em> &rarr; <em>Notifications</em> &rarr; <em>Allow</em>.</div>
+                  <div>3. Once allowed, whenever a signal confirms, your phone will vibrate and display the notification in your status bar just like WhatsApp!</div>
+                </div>
               </div>
             </div>
           </div>
