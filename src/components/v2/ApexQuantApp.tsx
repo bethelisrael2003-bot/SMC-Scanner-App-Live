@@ -34,6 +34,7 @@ interface PairStrategyProfile {
   category: string;
   dedicatedGradeA: string;
   dedicatedIcon: string;
+  shortModel: string;
   gradeAEngineKey: string;
   alternativeGradeB: string;
   confluenceGradeC: string;
@@ -56,6 +57,7 @@ const DEDICATED_PROFILES: PairStrategyProfile[] = [
     category: "Precious Metals",
     dedicatedGradeA: "Trend Sweep / Aggressive",
     dedicatedIcon: "🌊",
+    shortModel: "🌊 Trend Sweep",
     gradeAEngineKey: "trendsweep",
     alternativeGradeB: "Asian Fade (🎯)",
     confluenceGradeC: "Core MPR (⚡)",
@@ -76,6 +78,7 @@ const DEDICATED_PROFILES: PairStrategyProfile[] = [
     category: "High-Velocity Cross",
     dedicatedGradeA: "Trend Sweep (H1 EMA Filter)",
     dedicatedIcon: "🌊",
+    shortModel: "🌊 Trend Sweep",
     gradeAEngineKey: "trendsweep",
     alternativeGradeB: "Asian Fade (🎯)",
     confluenceGradeC: "Asian Breakout (🚀)",
@@ -96,6 +99,7 @@ const DEDICATED_PROFILES: PairStrategyProfile[] = [
     category: "Forex Major",
     dedicatedGradeA: "Asian Range Breakout",
     dedicatedIcon: "🚀",
+    shortModel: "🚀 Asian Breakout",
     gradeAEngineKey: "asian",
     alternativeGradeB: "Trend Sweep (🌊)",
     confluenceGradeC: "Asian Fade (🎯)",
@@ -307,8 +311,8 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
                         </span>
                       </div>
                       <div className="font-mono text-sm font-bold text-white tracking-tight">{p.pair}</div>
-                      <div className="font-mono text-[10px] text-amber-400/90 font-semibold truncate mt-0.5">
-                        {p.dedicatedIcon} {p.dedicatedGradeA}
+                      <div className="font-mono text-[10px] text-amber-400 font-semibold truncate mt-0.5">
+                        {p.shortModel}
                       </div>
                     </button>
                   );
@@ -416,26 +420,26 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
 
               {/* Hierarchy Strategy Breakdown for Selected Pair */}
               <div className="mt-3.5 pt-3 border-t border-zinc-800/80 grid grid-cols-1 sm:grid-cols-3 gap-2 font-mono text-[11px]">
-                <div className="p-2 rounded-lg bg-zinc-950 border border-amber-500/20 flex justify-between items-center">
-                  <div>
+                <div className="p-2 rounded-lg bg-zinc-950 border border-amber-500/20 flex justify-between items-center gap-2">
+                  <div className="min-w-0 truncate">
                     <span className="text-amber-400 font-bold">⭐ Grade A: </span>
                     <span className="text-zinc-200">{activeProfile.dedicatedGradeA}</span>
                   </div>
-                  <span className="text-[10px] text-zinc-500">Primary</span>
+                  <span className="text-[10px] text-zinc-500 shrink-0 whitespace-nowrap">Primary</span>
                 </div>
-                <div className="p-2 rounded-lg bg-zinc-950 border border-zinc-800 flex justify-between items-center">
-                  <div>
+                <div className="p-2 rounded-lg bg-zinc-950 border border-zinc-800 flex justify-between items-center gap-2">
+                  <div className="min-w-0 truncate">
                     <span className="text-blue-400 font-bold">🥈 Grade B: </span>
                     <span className="text-zinc-300">{activeProfile.alternativeGradeB}</span>
                   </div>
-                  <span className="text-[10px] text-zinc-500">Alternative</span>
+                  <span className="text-[10px] text-zinc-500 shrink-0 whitespace-nowrap">Alternative</span>
                 </div>
-                <div className="p-2 rounded-lg bg-zinc-950 border border-zinc-800 flex justify-between items-center">
-                  <div>
+                <div className="p-2 rounded-lg bg-zinc-950 border border-zinc-800 flex justify-between items-center gap-2">
+                  <div className="min-w-0 truncate">
                     <span className="text-emerald-400 font-bold">🥉 Grade C: </span>
                     <span className="text-zinc-300">{activeProfile.confluenceGradeC}</span>
                   </div>
-                  <span className="text-[10px] text-zinc-500">Confluence</span>
+                  <span className="text-[10px] text-zinc-500 shrink-0 whitespace-nowrap">Confluence</span>
                 </div>
               </div>
             </div>
@@ -501,18 +505,18 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
               {/* Balance Quick Presets */}
               <div>
                 <label className="text-[10px] font-mono uppercase text-zinc-400 mb-1.5 block">Account Equity Presets ($ USD)</label>
-                <div className="grid grid-cols-5 gap-2 font-mono text-xs">
+                <div className="grid grid-cols-5 gap-1.5 font-mono text-xs">
                   {[200, 500, 677, 1000, 2000].map(amt => (
                     <button
                       key={amt}
                       onClick={() => setCalcBalance(amt)}
-                      className={`p-2 rounded-xl border text-center transition-all cursor-pointer ${
+                      className={`py-2 px-1 rounded-xl border text-center transition-all cursor-pointer whitespace-nowrap text-[11px] sm:text-xs font-bold ${
                         calcBalance === amt
-                          ? "bg-amber-500/20 text-amber-400 border-amber-500/40 font-bold"
+                          ? "bg-amber-500/20 text-amber-400 border-amber-500/40"
                           : "bg-zinc-950 text-zinc-400 border-zinc-800 hover:border-zinc-700"
                       }`}
                     >
-                      ${amt}
+                      ${amt >= 1000 ? `${amt/1000}k` : amt}
                     </button>
                   ))}
                 </div>
