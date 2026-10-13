@@ -22,11 +22,21 @@
   max-width: 100%;
 }
 
-/* Prevent text overflow in all flex/grid children */
-.flex > *, .grid > * {
+/* Prevent text overflow in standard flex/grid children, but exempt horizontal scrolling carousels */
+.flex > *:not(.shrink-0), .grid > * {
   min-width: 0;
   overflow-wrap: break-word;
   word-break: break-word;
+}
+
+/* Horizontal scroll containers must never crush children */
+.overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+}
+.overflow-x-auto > * {
+  flex-shrink: 0;
+  min-width: max-content;
+  max-width: none;
 }
 
 html, body, #root {

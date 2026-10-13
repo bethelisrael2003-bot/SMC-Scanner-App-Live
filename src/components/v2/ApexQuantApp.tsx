@@ -314,28 +314,29 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
         {/* ======================================================== */}
         {activeHub === "engines" && (
           <div className="space-y-4">
-            {/* Strategy Carousel Header */}
+            {/* Strategy Carousel / Grid Header */}
             <div>
               <div className="text-[11px] uppercase font-mono text-zinc-400 mb-2 flex items-center justify-between">
                 <span>Select Strategy Engine</span>
                 <span className="text-zinc-500">{STRATEGIES.length} Isolated Models</span>
               </div>
-              <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
+              <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none" style={{ WebkitOverflowScrolling: "touch" }}>
                 {STRATEGIES.map(st => {
                   const active = selectedStrategy === st.key;
                   return (
                     <button
                       key={st.key}
                       onClick={() => setSelectedStrategy(st.key)}
-                      className={`px-3 py-2 rounded-xl text-xs font-mono flex items-center gap-2 whitespace-nowrap transition-all border cursor-pointer ${
+                      style={{ flexShrink: 0, minWidth: "max-content", maxWidth: "none" }}
+                      className={`shrink-0 px-3.5 py-2.5 rounded-xl text-xs font-mono flex items-center gap-2 whitespace-nowrap transition-all border cursor-pointer ${
                         active
                           ? "bg-amber-500/20 text-white border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.25)] font-bold"
                           : "bg-zinc-900/60 text-zinc-400 border-zinc-800 hover:border-zinc-700"
                       }`}
                     >
-                      <span>{st.icon}</span>
+                      <span className="text-sm">{st.icon}</span>
                       <span>{st.name}</span>
-                      <span className={`text-[10px] px-1.5 py-0.2 rounded font-bold ${st.badgeColor}`}>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${st.badgeColor}`}>
                         {st.winRate}
                       </span>
                     </button>
@@ -372,13 +373,14 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
             </div>
 
             {/* Pair Switcher for Selected Strategy */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+            <div className="flex items-center gap-2 overflow-x-auto pb-1.5 scrollbar-none" style={{ WebkitOverflowScrolling: "touch" }}>
               <span className="text-[10px] font-mono uppercase text-zinc-500 mr-1 shrink-0">Pairs:</span>
               {PAIRS.map(p => (
                 <button
                   key={p}
                   onClick={() => setSelectedPair(p)}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-mono transition-all whitespace-nowrap cursor-pointer ${
+                  style={{ flexShrink: 0, minWidth: "max-content", maxWidth: "none" }}
+                  className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-mono transition-all whitespace-nowrap cursor-pointer ${
                     selectedPair === p
                       ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold"
                       : "bg-zinc-900/60 text-zinc-400 border border-zinc-800 hover:border-zinc-700"
