@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Zap,
   Calculator,
@@ -20,6 +20,9 @@ import {
   Sliders,
   Layers,
   ArrowRight,
+  Bell,
+  Volume2,
+  VolumeX,
   Sparkles
 } from "lucide-react";
 
@@ -122,10 +125,38 @@ function fmtPrice(pair: string, price: number | null | undefined): string {
   return Number(price).toFixed(5);
 }
 
+/** Synthesize a clean 880Hz alert chime using Web Audio API */
+function playChimeSound() {
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(1760, ctx.currentTime + 0.15);
+    gain.gain.setValueAtTime(0.18, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.4);
+  } catch {
+    /* silent */
+  }
+}
+
 export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => void }) {
   const [activeTab, setActiveTab] = useState<BottomTabId>("command");
   const [selectedPairIndex, setSelectedPairIndex] = useState<number>(0);
   const [copiedTradeId, setCopiedTradeId] = useState<string | null>(null);
+
+  // Sound alert preference
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
+    return localStorage.getItem("apex_sound") !== "off";
+  });
+  const prevSignalCountRef = useRef<number>(0);
 
   // Live Nigeria (WAT) Time & Telemetry
   const [watTime, setWatTime] = useState("");
@@ -150,11 +181,12 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
     setCalcSlPips(activeProfile.defaultSl);
   }, [selectedPairIndex, activeProfile.defaultSl]);
 
-  // Persist balance & risk
+  // Persist balance, risk, sound
   useEffect(() => {
     localStorage.setItem("apex_balance", String(calcBalance));
     localStorage.setItem("apex_risk_pct", String(calcRiskPct));
-  }, [calcBalance, calcRiskPct]);
+    localStorage.setItem("apex_sound", soundEnabled ? "on" : "off");
+  }, [calcBalance, calcRiskPct, soundEnabled]);
 
   // Real-time Nigeria (WAT) Clock
   useEffect(() => {
@@ -183,7 +215,15 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
       ]);
 
       if (confRes.status === "fulfilled" && confRes.value.ok) {
-        setConfluenceData(await confRes.value.json());
+        const cData = await confRes.value.json();
+        setConfluenceData(cData);
+
+        // Check if new trade active to trigger chime sound
+        const activeCount = (cData.pairs || []).filter((p: any) => p.confluenceGrade && p.confluenceGrade !== "WAIT" && p.entryPrice).length;
+        if (activeCount > prevSignalCountRef.current && soundEnabled) {
+          playChimeSound();
+        }
+        prevSignalCountRef.current = activeCount;
       }
       if (briefRes.status === "fulfilled" && briefRes.value.ok) {
         setBriefingData(await briefRes.value.json());
@@ -193,7 +233,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
     } finally {
       setLoading(false);
     }
-  }, [calcBalance]);
+  }, [calcBalance, soundEnabled]);
 
   useEffect(() => {
     fetchAllData();
@@ -224,6 +264,10 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
 
   const isTradeActive = currentConf?.confluenceGrade && currentConf?.confluenceGrade !== "WAIT" && currentConf?.entryPrice;
 
+  // Find any active signal across ALL 3 pairs for global awareness
+  const anyActiveAlert = (confluenceData?.pairs || []).find((p: any) => p.confluenceGrade && p.confluenceGrade !== "WAIT" && p.entryPrice) || null;
+  const totalActiveSignalsCount = (confluenceData?.pairs || []).filter((p: any) => p.confluenceGrade && p.confluenceGrade !== "WAIT" && p.entryPrice).length;
+
   // 1-Tap Copy helper
   const copyTrade = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -252,7 +296,23 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Quick Refresh */}
+          {/* Audio Chime Toggle */}
+          <button
+            onClick={() => {
+              setSoundEnabled(!soundEnabled);
+              if (!soundEnabled) playChimeSound();
+            }}
+            className={`p-1.5 rounded-xl border transition-all cursor-pointer ${
+              soundEnabled
+                ? "bg-amber-500/20 text-amber-400 border-amber-500/40"
+                : "bg-zinc-900 text-zinc-500 border-zinc-800"
+            }`}
+            title={soundEnabled ? "Alert Sound ON" : "Alert Sound OFF"}
+          >
+            {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+          </button>
+
+          {/* Quick Scan Refresh */}
           <button
             onClick={fetchAllData}
             disabled={loading}
@@ -277,6 +337,42 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
         </span>
       </div>
 
+      {/* ── High-Visibility Global Signal Alert Banner (Visible on ANY tab!) ── */}
+      {anyActiveAlert && (
+        <div
+          onClick={() => {
+            const idx = DEDICATED_PROFILES.findIndex(p => p.pair === anyActiveAlert.pair);
+            if (idx !== -1) setSelectedPairIndex(idx);
+            setActiveTab("command");
+          }}
+          className="mx-4 mt-3 p-3.5 rounded-2xl bg-gradient-to-r from-emerald-500/25 via-amber-500/20 to-emerald-500/25 border border-emerald-500/60 flex items-center justify-between cursor-pointer animate-pulse shadow-[0_0_25px_rgba(16,185,129,0.3)]"
+        >
+          <div className="flex items-center gap-2.5">
+            <span className="px-2 py-1 rounded-lg bg-emerald-500 text-black font-black text-xs font-mono">
+              🚨 NEW SIGNAL
+            </span>
+            <div>
+              <div className="font-mono text-xs font-bold text-white flex items-center gap-1.5">
+                <span>{anyActiveAlert.pair}</span>
+                <span className={anyActiveAlert.direction === "BUY" ? "text-emerald-400 font-black" : "text-rose-400 font-black"}>
+                  {anyActiveAlert.direction} ACTIVE
+                </span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-400 text-black font-bold">
+                  GRADE {anyActiveAlert.confluenceGrade}
+                </span>
+              </div>
+              <div className="font-mono text-[10px] text-zinc-300">
+                Entry: {fmtPrice(anyActiveAlert.pair, anyActiveAlert.entryPrice)} · SL: {fmtPrice(anyActiveAlert.pair, anyActiveAlert.sl)} · Tap to View Ticket
+              </div>
+            </div>
+          </div>
+          <span className="text-xs font-mono text-emerald-400 font-bold shrink-0 flex items-center gap-0.5">
+            <span>OPEN</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </span>
+        </div>
+      )}
+
       {/* ── Main Body (Switched via Bottom Nav) ───────────────────── */}
       <main className="flex-1 max-w-4xl w-full mx-auto p-4 space-y-4">
         {/* ========================================================== */}
@@ -294,6 +390,9 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
               <div className="grid grid-cols-3 gap-2 sm:gap-3">
                 {DEDICATED_PROFILES.map((p, idx) => {
                   const active = selectedPairIndex === idx;
+                  const pairAlert = (confluenceData?.pairs || []).find((x: any) => x.pair === p.pair);
+                  const hasSignalOnThisPair = pairAlert?.confluenceGrade && pairAlert.confluenceGrade !== "WAIT" && pairAlert.entryPrice;
+
                   return (
                     <button
                       key={p.pair}
@@ -304,6 +403,14 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
                           : "bg-zinc-900/60 border-zinc-800/80 text-zinc-400 hover:border-zinc-700"
                       }`}
                     >
+                      {/* Active Trade Beacon Dot on Inactive Tab */}
+                      {hasSignalOnThisPair && !active && (
+                        <span className="absolute top-2 right-2 flex h-3 w-3">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
+                        </span>
+                      )}
+
                       <div className="flex items-center justify-between mb-1.5">
                         <span className="text-lg">{p.icon}</span>
                         <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold ${active ? "bg-amber-500 text-black" : "bg-zinc-950 text-zinc-400 border border-zinc-800"}`}>
@@ -785,7 +892,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
       >
         <div className="max-w-md mx-auto grid grid-cols-4 gap-1">
           {[
-            { id: "command", label: "Command", icon: Zap },
+            { id: "command", label: "Command", icon: Zap, badge: totalActiveSignalsCount },
             { id: "sizer", label: "Lot Sizer", icon: Calculator },
             { id: "briefing", label: "Briefing", icon: Radio },
             { id: "settings", label: "Settings", icon: Settings },
@@ -796,12 +903,20 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
               <button
                 key={hub.id}
                 onClick={() => setActiveTab(hub.id as BottomTabId)}
-                className={`py-2 px-2 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer ${
+                className={`py-2 px-2 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer relative ${
                   active
                     ? "text-amber-400 font-bold"
                     : "text-zinc-500 hover:text-zinc-300 font-normal"
                 }`}
               >
+                {/* Active Notification Badge on Bottom Bar */}
+                {hub.badge && hub.badge > 0 && (
+                  <span className="absolute top-1 right-5 flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+                  </span>
+                )}
+
                 <IconComponent className={`w-5 h-5 mb-1 ${active ? "text-amber-400 stroke-[2.5]" : "text-zinc-500"}`} />
                 <span className="text-[11px] font-mono tracking-tight">{hub.label}</span>
               </button>
