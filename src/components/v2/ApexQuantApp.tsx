@@ -20,7 +20,8 @@ import {
   CheckCircle2,
   XCircle,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  Waves
 } from "lucide-react";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "https://smc-scanner-backend.onrender.com";
@@ -48,6 +49,7 @@ interface StrategyMeta {
   maxDd: string;
   desc: string;
   badgeColor: string;
+  pairs: string[];
 }
 
 const STRATEGIES: StrategyMeta[] = [
@@ -62,6 +64,7 @@ const STRATEGIES: StrategyMeta[] = [
     maxDd: "-11.6%",
     desc: "WAT Kill Zones · H1 EMA10/20 Trend · 1.2x ATR Stop Buffer · RoboForex 6% Cent Sizer",
     badgeColor: "text-amber-400 bg-amber-400/10 border-amber-400/20",
+    pairs: ["XAG/USD", "GBP/JPY", "EUR/USD", "XAU/USD", "EUR/JPY", "USD/CHF"],
   },
   {
     key: "trendsweep",
@@ -74,6 +77,7 @@ const STRATEGIES: StrategyMeta[] = [
     maxDd: "-1.0R",
     desc: "Turtle Soup Liquidity Sweep · 50% @ 1.0R auto-BE · 50% @ 2.50R Runner",
     badgeColor: "text-blue-400 bg-blue-400/10 border-blue-400/20",
+    pairs: ["XAU/USD", "XAG/USD", "USD/JPY", "GBP/JPY", "EUR/JPY", "USD/CHF"],
   },
   {
     key: "asianfade",
@@ -86,6 +90,7 @@ const STRATEGIES: StrategyMeta[] = [
     maxDd: "-1.0R",
     desc: "Early London Stop-Hunt Fade · Coiled Asian 0.5-1.5x ATR · 50% @ Asian Mid",
     badgeColor: "text-emerald-400 bg-emerald-400/10 border-emerald-400/20",
+    pairs: ["EUR/USD", "GBP/USD", "USD/CAD", "NZD/USD"],
   },
   {
     key: "asian",
@@ -98,6 +103,7 @@ const STRATEGIES: StrategyMeta[] = [
     maxDd: "-3.5R",
     desc: "London Open Momentum Expansion · 35% @ 1.5R · 65% @ 4.0R Runner",
     badgeColor: "text-purple-400 bg-purple-400/10 border-purple-400/20",
+    pairs: ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "XAU/USD", "GBP/JPY"],
   },
   {
     key: "institutional",
@@ -110,6 +116,7 @@ const STRATEGIES: StrategyMeta[] = [
     maxDd: "-6.3R",
     desc: "Dual Order Blocks (H4/H1) + Opposing Liquidity Pool DOL Targets",
     badgeColor: "text-cyan-400 bg-cyan-400/10 border-cyan-400/20",
+    pairs: ["GBP/JPY", "USD/CAD", "USD/JPY", "EUR/USD", "EUR/JPY"],
   },
   {
     key: "classic",
@@ -122,6 +129,7 @@ const STRATEGIES: StrategyMeta[] = [
     maxDd: "-5.8R",
     desc: "H4 Liquidity Sweep → M15 CHOCH → H4 Order Block Confirmed",
     badgeColor: "text-gray-400 bg-gray-400/10 border-gray-400/20",
+    pairs: ["GBP/JPY", "USD/JPY", "EUR/USD", "USD/CAD", "AUD/USD"],
   },
   {
     key: "precision",
@@ -134,6 +142,7 @@ const STRATEGIES: StrategyMeta[] = [
     maxDd: "-1.0R",
     desc: "13-Step Institutional Course Sequence · 0.3x ATR Stop Floor",
     badgeColor: "text-indigo-400 bg-indigo-400/10 border-indigo-400/20",
+    pairs: ["XAU/USD", "EUR/JPY", "XAG/USD", "GBP/JPY", "EUR/USD"],
   },
   {
     key: "mpr",
@@ -146,10 +155,16 @@ const STRATEGIES: StrategyMeta[] = [
     maxDd: "-2.3R",
     desc: "Momentum-Pause-Retest Intraday Engine · 0.3x ATR SL Floor Guard",
     badgeColor: "text-yellow-400 bg-yellow-400/10 border-yellow-400/20",
+    pairs: ["EUR/USD", "GBP/USD", "USD/JPY", "USD/CHF", "GBP/JPY", "XAU/USD"],
   },
 ];
 
-const PAIRS = ["XAG/USD", "GBP/JPY", "EUR/USD", "XAU/USD", "EUR/JPY", "USD/CHF"];
+function fmtPrice(pair: string, price: number | null | undefined): string {
+  if (price === null || price === undefined) return "--";
+  if (pair.includes("JPY")) return price.toFixed(3);
+  if (pair.includes("XAU") || pair.includes("XAG")) return price.toFixed(2);
+  return price.toFixed(5);
+}
 
 export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => void }) {
   const [activeHub, setActiveHub] = useState<HubId>("engines");
@@ -173,6 +188,15 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
   const [signals, setSignals] = useState<any[]>([]);
   const [stats, setStats] = useState<any>(null);
   const [analysis, setAnalysis] = useState<any>(null);
+
+  const currentMeta = STRATEGIES.find(s => s.key === selectedStrategy) || STRATEGIES[0];
+
+  // Update selected pair if not in strategy pairs
+  useEffect(() => {
+    if (!currentMeta.pairs.includes(selectedPair)) {
+      setSelectedPair(currentMeta.pairs[0]);
+    }
+  }, [selectedStrategy, currentMeta.pairs, selectedPair]);
 
   // Real-time WAT Clock
   useEffect(() => {
@@ -206,20 +230,49 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
     return () => clearInterval(iv);
   }, []);
 
-  // Fetch data
+  // Strategy-Specific Data Fetcher (Zero Leaks between models)
   const fetchData = useCallback(async () => {
     setLoading(true);
+    setSignals([]);
+    setAnalysis(null);
+
+    let sigUrl = `${API_BASE_URL}/api/${selectedStrategy}/signals`;
+    let statUrl = `${API_BASE_URL}/api/${selectedStrategy}/stats`;
+    let pairUrl = `${API_BASE_URL}/api/${selectedStrategy}/${encodeURIComponent(selectedPair)}`;
+
+    if (selectedStrategy === "aggressive") {
+      sigUrl = `${API_BASE_URL}/api/aggressive-smc/signals`;
+      statUrl = `${API_BASE_URL}/api/aggressive-smc/stats`;
+      pairUrl = `${API_BASE_URL}/api/aggressive-smc/${encodeURIComponent(selectedPair)}`;
+    } else if (selectedStrategy === "mpr") {
+      sigUrl = `${API_BASE_URL}/api/signals`;
+      statUrl = `${API_BASE_URL}/api/performance`;
+      pairUrl = `${API_BASE_URL}/api/scan`;
+    }
+
     try {
-      const endpointPrefix = selectedStrategy === "aggressive" ? "aggressive-smc" : selectedStrategy;
       const [sigRes, statRes, pairRes] = await Promise.allSettled([
-        fetch(`${API_BASE_URL}/api/${endpointPrefix}/signals`),
-        fetch(`${API_BASE_URL}/api/${endpointPrefix}/stats`),
-        fetch(`${API_BASE_URL}/api/${endpointPrefix}/${encodeURIComponent(selectedPair)}`)
+        fetch(sigUrl),
+        fetch(statUrl),
+        fetch(pairUrl)
       ]);
 
-      if (sigRes.status === "fulfilled" && sigRes.value.ok) setSignals(await sigRes.value.json());
-      if (statRes.status === "fulfilled" && statRes.value.ok) setStats(await statRes.value.json());
-      if (pairRes.status === "fulfilled" && pairRes.value.ok) setAnalysis(await pairRes.value.json());
+      if (sigRes.status === "fulfilled" && sigRes.value.ok) {
+        const d = await sigRes.value.json();
+        setSignals(Array.isArray(d) ? d : (d.signals || []));
+      }
+      if (statRes.status === "fulfilled" && statRes.value.ok) {
+        setStats(await statRes.value.json());
+      }
+      if (pairRes.status === "fulfilled" && pairRes.value.ok) {
+        const pData = await pairRes.value.json();
+        if (selectedStrategy === "mpr" && pData.results) {
+          const match = pData.results.find((r: any) => r.pair === selectedPair);
+          setAnalysis(match || null);
+        } else {
+          setAnalysis(pData);
+        }
+      }
     } catch {
       /* silent */
     } finally {
@@ -233,15 +286,13 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
     return () => clearInterval(iv);
   }, [fetchData]);
 
-  // Lot size calculations
+  // Cent Lot size calculations
   const cashRisk = calcBalance * (calcRiskPct / 100.0);
   const pipVal = (calcPair.includes("XAG") || calcPair.includes("XAU")) ? 0.08 : 0.09;
   const rawLot = (calcSlPips > 0 && pipVal > 0) ? (cashRisk / (calcSlPips * pipVal)) / 100.0 : 0.01;
   const recommendedLot = Math.max(0.01, Math.floor(rawLot * 100) / 100);
   const gainTp1 = cashRisk * 0.50;
   const gainTp2 = cashRisk * 1.75;
-
-  const currentMeta = STRATEGIES.find(s => s.key === selectedStrategy) || STRATEGIES[0];
 
   // Copy helper
   const copyTrade = (tradeText: string, id: string) => {
@@ -250,8 +301,12 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
     setTimeout(() => setCopiedTradeId(null), 2500);
   };
 
+  // Helper to extract setup
+  const setupObj = analysis?.setup || analysis?.plan || null;
+  const isSetupActive = analysis?.passed || (setupObj && analysis?.decision !== "WAIT");
+
   return (
-    <div className="min-h-screen bg-[#09090b] text-zinc-100 flex flex-col font-sans pb-20 select-none">
+    <div className="min-h-screen bg-[#09090b] text-zinc-100 flex flex-col font-sans select-none" style={{ paddingBottom: "max(5rem, calc(4rem + env(safe-area-inset-bottom, 16px)))" }}>
       {/* ── Top Header ────────────────────────────────────────────── */}
       <header className="sticky top-0 z-40 bg-[#09090b]/90 backdrop-blur-md border-b border-zinc-800/80 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
@@ -314,7 +369,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
         {/* ======================================================== */}
         {activeHub === "engines" && (
           <div className="space-y-4">
-            {/* Strategy Carousel / Grid Header */}
+            {/* Strategy Carousel Header */}
             <div>
               <div className="text-[11px] uppercase font-mono text-zinc-400 mb-2 flex items-center justify-between">
                 <span>Select Strategy Engine</span>
@@ -356,7 +411,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
               <div className="bg-zinc-900/80 border border-amber-500/30 rounded-xl p-3 text-center bg-amber-500/5">
                 <div className="text-[10px] font-mono uppercase text-amber-400 font-bold">NET RETURN</div>
                 <div className="text-xl font-mono font-black text-amber-400 mt-0.5">{currentMeta.netReturn}</div>
-                <div className="text-[10px] font-mono text-amber-300">$677 Cent Growth</div>
+                <div className="text-[10px] font-mono text-amber-300">Audited Backtest</div>
               </div>
 
               <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-3 text-center">
@@ -372,10 +427,10 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
               </div>
             </div>
 
-            {/* Pair Switcher for Selected Strategy */}
-            <div className="flex items-center gap-2 overflow-x-auto pb-1.5 scrollbar-none" style={{ WebkitOverflowScrolling: "touch" }}>
-              <span className="text-[10px] font-mono uppercase text-zinc-500 mr-1 shrink-0">Pairs:</span>
-              {PAIRS.map(p => (
+            {/* Strategy Pair Switcher Bar */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none" style={{ WebkitOverflowScrolling: "touch" }}>
+              <span className="text-[10px] font-mono uppercase text-zinc-500 mr-1 shrink-0">Eligible Pairs:</span>
+              {currentMeta.pairs.map(p => (
                 <button
                   key={p}
                   onClick={() => setSelectedPair(p)}
@@ -396,28 +451,28 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <span className="text-base">{currentMeta.icon}</span>
-                  <span className="font-mono text-sm font-bold text-white">{selectedPair} Live Setup</span>
+                  <span className="font-mono text-sm font-bold text-white">{selectedPair} Live Diagnostics</span>
                 </div>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-950 text-cyan-400 border border-zinc-800">
                   {currentMeta.name}
                 </span>
               </div>
 
-              {analysis?.setup ? (
+              {isSetupActive && setupObj ? (
                 <div className="space-y-3">
                   <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between">
                     <div>
                       <div className="font-mono text-xs font-bold text-emerald-400 flex items-center gap-1.5">
                         <CheckCircle2 className="w-4 h-4" />
-                        ACTIVE {analysis.setup.direction} CONFIRMED
+                        ACTIVE {setupObj.direction || analysis?.decision} SETUP CONFIRMED
                       </div>
                       <div className="font-mono text-[11px] text-zinc-300 mt-1">
-                        Entry: {analysis.setup.entry} · SL: {analysis.setup.sl} ({analysis.setup.slPips || 45} pips)
+                        Entry: {fmtPrice(selectedPair, setupObj.entry)} · SL: {fmtPrice(selectedPair, setupObj.sl)}
                       </div>
                     </div>
                     <button
                       onClick={() => copyTrade(
-                        `ROBOFOREX CENT ORDER\nPair: ${selectedPair}\nAction: ${analysis.setup.direction}\nEntry: ${analysis.setup.entry}\nSL: ${analysis.setup.sl}\nTP1: ${analysis.setup.tp1} (Scale 50% & BE)\nTP2: ${analysis.setup.tp2}\nLot: ${recommendedLot} Lots\nRisk: $${cashRisk.toFixed(2)} (6%)`,
+                        `ROBOFOREX CENT ORDER\nPair: ${selectedPair}\nAction: ${setupObj.direction || analysis?.decision}\nEntry: ${setupObj.entry}\nSL: ${setupObj.sl}\nTP1: ${setupObj.tp1}\nTP2: ${setupObj.tp2 || setupObj.tp}\nLot: ${recommendedLot} Lots`,
                         "hero-copy"
                       )}
                       className="px-3 py-2 rounded-lg bg-emerald-500 text-black font-mono text-xs font-bold flex items-center gap-1 hover:bg-emerald-400 transition-all cursor-pointer"
@@ -427,47 +482,65 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2 font-mono text-center">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-center">
                     <div className="bg-zinc-950 p-2 rounded-lg border border-zinc-800">
-                      <div className="text-[9px] text-zinc-500">TP1 (1.0R AUTO-BE)</div>
-                      <div className="text-xs font-bold text-blue-400">{analysis.setup.tp1}</div>
+                      <div className="text-[9px] text-zinc-500">TARGET 1</div>
+                      <div className="text-xs font-bold text-blue-400">{fmtPrice(selectedPair, setupObj.tp1)}</div>
                     </div>
                     <div className="bg-zinc-950 p-2 rounded-lg border border-zinc-800">
-                      <div className="text-[9px] text-zinc-500">TP2 (2.5R RUNNER)</div>
-                      <div className="text-xs font-bold text-emerald-400">{analysis.setup.tp2}</div>
+                      <div className="text-[9px] text-zinc-500">TARGET 2 / DOL</div>
+                      <div className="text-xs font-bold text-emerald-400">{fmtPrice(selectedPair, setupObj.tp2 || setupObj.tp)}</div>
                     </div>
                     <div className="bg-zinc-950 p-2 rounded-lg border border-zinc-800">
-                      <div className="text-[9px] text-zinc-500">CENT LOT (6% RISK)</div>
+                      <div className="text-[9px] text-zinc-500">RISK DISTANCE</div>
+                      <div className="text-xs font-bold text-cyan-400">{fmtPrice(selectedPair, setupObj.risk || setupObj.sl_pips)}</div>
+                    </div>
+                    <div className="bg-zinc-950 p-2 rounded-lg border border-zinc-800">
+                      <div className="text-[9px] text-zinc-500">CENT LOT (6%)</div>
                       <div className="text-xs font-bold text-amber-400">{recommendedLot} Lots</div>
                     </div>
                   </div>
                 </div>
               ) : (
-                <div className="p-4 rounded-xl bg-zinc-950/60 border border-zinc-800/80 text-center space-y-2">
+                <div className="p-4 rounded-xl bg-zinc-950/60 border border-zinc-800/80 text-center space-y-1.5">
                   <div className="font-mono text-xs text-zinc-400">
-                    STATUS: <span className="text-amber-400 font-bold">WAITING FOR CLEAN SWEEP</span>
+                    STATUS: <span className="text-amber-400 font-bold">WAITING FOR CONDITIONS</span>
                   </div>
                   <p className="font-mono text-[11px] text-zinc-500 max-w-md mx-auto">
-                    {analysis?.decision?.reasoning || "Strict rule: M15 20-bar liquidity sweep + >50% body rejection in alignment with completed H1 trend required. No forced trades."}
+                    {analysis?.decision?.reasoning || analysis?.macroRegime || currentMeta.desc}
                   </p>
                 </div>
               )}
 
-              {/* Protocol Gates Checklist */}
-              <div className="mt-3 pt-3 border-t border-zinc-800/80 grid grid-cols-1 sm:grid-cols-3 gap-2 font-mono text-[11px]">
-                <div className="flex items-center gap-1.5 text-zinc-300">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                  <span>Completed H1 Trend Gate</span>
+              {/* Dynamic Live Diagnostic Gates Checklist */}
+              {analysis?.checks && analysis.checks.length > 0 ? (
+                <div className="mt-3 pt-3 border-t border-zinc-800/80 space-y-1 font-mono text-[11px]">
+                  {analysis.checks.slice(0, 5).map((chk: string, idx: number) => {
+                    const isOk = chk.includes("[OK]") || chk.startsWith("✓");
+                    return (
+                      <div key={idx} className={`p-1.5 rounded flex items-center gap-1.5 ${isOk ? "bg-emerald-500/5 text-emerald-300" : "bg-zinc-950 text-zinc-400"}`}>
+                        {isOk ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> : <XCircle className="w-3.5 h-3.5 text-zinc-600 shrink-0" />}
+                        <span className="truncate">{chk.replace(/^\[(OK|X|INFO)\]\s*/, "")}</span>
+                      </div>
+                    );
+                  })}
                 </div>
-                <div className="flex items-center gap-1.5 text-zinc-300">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                  <span>20-Bar Liquidity Sweep</span>
+              ) : (
+                <div className="mt-3 pt-3 border-t border-zinc-800/80 grid grid-cols-1 sm:grid-cols-3 gap-2 font-mono text-[11px]">
+                  <div className="flex items-center gap-1.5 text-zinc-400">
+                    <Shield className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                    <span className="truncate">{currentMeta.desc.split("·")[0]}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-zinc-400">
+                    <Shield className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                    <span className="truncate">{currentMeta.desc.split("·")[1] || "Zero-Lookahead"}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-zinc-400">
+                    <Shield className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                    <span className="truncate">{currentMeta.desc.split("·")[2] || "Scaled Targets"}</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1.5 text-zinc-300">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                  <span>1.2x ATR Stop Cushion</span>
-                </div>
-              </div>
+              )}
             </div>
 
             {/* Quick MT4/MT5 Signal Feed List */}
@@ -475,14 +548,14 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
               <div className="flex items-center justify-between mb-3 font-mono text-xs">
                 <span className="font-bold text-white flex items-center gap-1.5">
                   <Activity className="w-4 h-4 text-amber-400" />
-                  Live Actionable Signals
+                  Live {currentMeta.name} Signals Feed
                 </span>
-                <span className="text-zinc-500">{signals.length} Active Records</span>
+                <span className="text-zinc-500">{signals.length} Signals Tracked</span>
               </div>
 
               {signals.length === 0 ? (
                 <div className="text-center py-6 font-mono text-xs text-zinc-500">
-                  No signals currently active. System monitors next M15 candle close.
+                  No signals active for {currentMeta.name}. Engine evaluates next M15 candle close.
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -494,15 +567,17 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
                         </span>
                         <div>
                           <div className="font-mono text-xs font-bold text-white">{sig.pair}</div>
-                          <div className="font-mono text-[10px] text-zinc-400">Entry: {sig.entryPrice} · SL: {sig.sl}</div>
+                          <div className="font-mono text-[10px] text-zinc-400">
+                            Entry: {fmtPrice(sig.pair, sig.entryPrice)} · SL: {fmtPrice(sig.pair, sig.sl)}
+                          </div>
                         </div>
                       </div>
                       <button
                         onClick={() => copyTrade(
-                          `ROBOFOREX CENT ORDER\nPair: ${sig.pair}\nAction: ${sig.direction}\nEntry: ${sig.entryPrice}\nSL: ${sig.sl}\nTP1: ${sig.tp1}\nTP2: ${sig.tp2}\nLot: ${recommendedLot}`,
+                          `ROBOFOREX CENT ORDER\nPair: ${sig.pair}\nAction: ${sig.direction}\nEntry: ${sig.entryPrice}\nSL: ${sig.sl}\nTP1: ${sig.tp1}\nTP2: ${sig.tp2 || sig.tp}\nLot: ${recommendedLot}`,
                           `sig-${i}`
                         )}
-                        className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-mono flex items-center gap-1 cursor-pointer"
+                        className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-mono flex items-center gap-1 cursor-pointer shrink-0"
                       >
                         {copiedTradeId === `sig-${i}` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
                         <span>{copiedTradeId === `sig-${i}` ? "COPIED" : "COPY"}</span>
@@ -659,7 +734,6 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
         {/* ======================================================== */}
         {activeHub === "radar" && (
           <div className="space-y-4">
-            {/* Global Session Bar */}
             <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 space-y-3">
               <h3 className="font-mono text-xs font-bold text-white uppercase flex items-center gap-1.5">
                 <Clock className="w-4 h-4 text-cyan-400" />
@@ -690,22 +764,21 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
               </div>
             </div>
 
-            {/* Asset Watchlist */}
             <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 space-y-3">
               <h3 className="font-mono text-xs font-bold text-white uppercase flex items-center gap-1.5">
                 <Radar className="w-4 h-4 text-amber-400" />
-                Primary & Trend Core Watchlist
+                Active Strategy Pairs Watchlist
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 font-mono text-xs">
-                {PAIRS.map(pair => (
+                {currentMeta.pairs.map(pair => (
                   <div key={pair} className="p-3 rounded-xl bg-zinc-950 border border-zinc-800 flex justify-between items-center">
                     <div>
                       <div className="font-bold text-white">{pair}</div>
-                      <div className="text-[10px] text-zinc-500">{pair.includes("XAG") || pair.includes("XAU") ? "Precious Metal" : "Forex Cross"}</div>
+                      <div className="text-[10px] text-zinc-500">{pair.includes("XAG") || pair.includes("XAU") ? "Precious Metal" : "Forex Asset"}</div>
                     </div>
                     <div className="text-right">
                       <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-900 text-cyan-400 border border-zinc-800 font-bold">
-                        H1 TREND GATE ACTIVE
+                        {currentMeta.name} Active
                       </span>
                     </div>
                   </div>
@@ -720,7 +793,6 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
         {/* ======================================================== */}
         {activeHub === "ledger" && (
           <div className="space-y-4">
-            {/* Compounding Milestones Card */}
             <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -732,7 +804,6 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
                 </div>
               </div>
 
-              {/* Progress Bar Milestones */}
               <div className="space-y-2 font-mono">
                 <div className="flex justify-between text-xs">
                   <span className="text-zinc-400">Current Phase: Milestone 1 Achieved</span>
@@ -749,7 +820,6 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
                 </div>
               </div>
 
-              {/* Performance Table Breakdown */}
               <div className="pt-3 border-t border-zinc-800/80 space-y-1.5 font-mono text-xs">
                 <div className="flex justify-between p-2 rounded-lg bg-zinc-950">
                   <span className="text-zinc-300">Silver (XAG/USD) Contribution</span>
@@ -770,7 +840,10 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
       </main>
 
       {/* ── Fixed Bottom Navigation Bar (4 Core Hubs) ───────────── */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-[#09090b]/95 backdrop-blur-lg border-t border-zinc-800/90 py-1.5 px-3">
+      <nav
+        className="fixed bottom-0 left-0 right-0 z-50 bg-[#09090b]/95 backdrop-blur-lg border-t border-zinc-800/90 px-3 pt-2"
+        style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom, 16px))" }}
+      >
         <div className="max-w-md mx-auto grid grid-cols-4 gap-1">
           {[
             { id: "engines", label: "Engines", icon: Zap },
@@ -784,14 +857,14 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
               <button
                 key={hub.id}
                 onClick={() => setActiveHub(hub.id as HubId)}
-                className={`py-1.5 px-2 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer ${
+                className={`py-2 px-2 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer ${
                   active
                     ? "text-amber-400 font-bold"
                     : "text-zinc-500 hover:text-zinc-300 font-normal"
                 }`}
               >
-                <IconComponent className={`w-5 h-5 mb-0.5 ${active ? "text-amber-400 stroke-[2.5]" : "text-zinc-500"}`} />
-                <span className="text-[10px] font-mono tracking-tight">{hub.label}</span>
+                <IconComponent className={`w-5 h-5 mb-1 ${active ? "text-amber-400 stroke-[2.5]" : "text-zinc-500"}`} />
+                <span className="text-[11px] font-mono tracking-tight">{hub.label}</span>
               </button>
             );
           })}
