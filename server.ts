@@ -175,8 +175,8 @@ const TREND_SWEEP_VERSION = "2026-10-03.2";
 const ASIAN_FADE_VERSION = "2026-09-23.1";
 // 2026-10-13 Aggressive Growth SMC & RoboForex Cent Account engine
 const AGGRESSIVE_VERSION = "2026-10-13.1";
-// 2026-10-14.2 Fix d1Oldest reference in analyzePair & await getLivePrice calls
-const CONFLUENCE_VERSION = "2026-10-14.2";
+// 2026-10-14.3 Unified 3-in-1 Hybrid: 100-pt Confluence Scoring, XAU/USD Gold NY Engine, AI Mentor Context
+const CONFLUENCE_VERSION = "2026-10-14.3";
 // Clean MPR sample boundary — only trades OPENED after this instant count
 // toward the post-fix sample. Moved to the inversion-fix deploy (user
 // decision, 2026-09-16): every prior trade was analyzed on time-inverted
@@ -6220,7 +6220,7 @@ app.get("/api/aggressive-smc/:pair", async (req, res) => {
 
 app.get("/api/daily-briefing", async (req, res) => {
   try {
-    const pairs = ["XAG/USD", "GBP/JPY", "EUR/USD"];
+    const pairs = ["EUR/USD", "GBP/JPY", "XAG/USD", "XAU/USD"];
     const now = new Date();
     const wat = new Date(now.getTime() + 1 * 60 * 60 * 1000);
     const watHour = wat.getUTCHours();
@@ -6362,6 +6362,20 @@ async function analyzePairConfluence(pair: string, balance = 677): Promise<any> 
 
     const resC = analyzeAsianBreakout(pair, m15C, h1C, new Date());
     if (resC.passed && resC.setup) setupC = resC.setup;
+  } else if (pair === "XAU/USD") {
+    gradeAEngine = "NY Trend Sweep (🌊)";
+    gradeBEngine = "Precision Intraday (📐)";
+    gradeCEngine = "Asian Breakout (🚀)";
+
+    const resA = evaluateTrendSweep(pair, m15C, h1C, undefined, d1C);
+    if (resA.passed && resA.setup) setupA = resA.setup;
+    checksA = resA.checks || [];
+
+    const resB = evaluateAsianFade(pair, m15C, h1C);
+    if (resB.passed && resB.setup) setupB = resB.setup;
+
+    const resC = analyzeAsianBreakout(pair, m15C, h1C, new Date());
+    if (resC.passed && resC.setup) setupC = resC.setup;
   } else {
     // XAG/USD
     gradeAEngine = "Trend Sweep (🌊)";
@@ -6379,42 +6393,191 @@ async function analyzePairConfluence(pair: string, balance = 677): Promise<any> 
     if (resC.passed && resC.setup) setupC = resC.setup;
   }
 
-  let confluenceGrade: "A+" | "A" | "B+" | "WAIT" = "WAIT";
-  let activeSetup: any = null;
-  let riskPct = 0;
-  let confidencePct = 0;
-  let reasoning = "";
+  // ═══════════════════════════════════════════════════════════════════
+  // 100-POINT INSTITUTIONAL CONFLUENCE SCORING ENGINE
+  // ═══════════════════════════════════════════════════════════════════
+  const h1Closes = h1C.map((c: any) => c.close);
+  const h1Ema10Series = computeEma(h1Closes, 10);
+  const h1Ema20Series = computeEma(h1Closes, 20);
+  const lastEma10 = h1Ema10Series[h1Ema10Series.length - 1] || h1Closes[h1Closes.length - 1];
+  const lastEma20 = h1Ema20Series[h1Ema20Series.length - 1] || lastEma10;
+  const lastH1Close = h1Closes[h1Closes.length - 1];
 
+  let h1MacroTrend: "BULLISH" | "BEARISH" | "NEUTRAL" = "NEUTRAL";
+  if (lastEma10 > lastEma20 && lastH1Close >= lastEma10) h1MacroTrend = "BULLISH";
+  else if (lastEma10 < lastEma20 && lastH1Close <= lastEma10) h1MacroTrend = "BEARISH";
+  else if (lastEma10 > lastEma20) h1MacroTrend = "BULLISH";
+  else if (lastEma10 < lastEma20) h1MacroTrend = "BEARISH";
+
+  // M15 Structure & Liquidity Sweep (Last 20 Bars)
+  const recent20 = m15C.slice(-21, -1);
+  const priorHigh20 = recent20.length > 0 ? Math.max(...recent20.map((b: any) => b.high)) : curBid;
+  const priorLow20 = recent20.length > 0 ? Math.min(...recent20.map((b: any) => b.low)) : curBid;
+  const lastBar = m15C[m15C.length - 1];
+  const prevBar = m15C.length >= 2 ? m15C[m15C.length - 2] : lastBar;
+
+  const barRange = Math.max(1e-5, lastBar.high - lastBar.low);
+  const body = Math.abs(lastBar.close - lastBar.open);
+  const bodyRatio = body / barRange;
+  const lowerWick = Math.min(lastBar.open, lastBar.close) - lastBar.low;
+  const upperWick = lastBar.high - Math.max(lastBar.open, lastBar.close);
+
+  let sweepCandidate: "BUY" | "SELL" | null = null;
+  let sweptLevel = 0;
+  let sweepExtreme = 0;
+  let sweepPts = 0;
+
+  if ((lastBar.low < priorLow20 && lastBar.close >= priorLow20) || (prevBar.low < priorLow20 && lastBar.close >= priorLow20)) {
+    sweepCandidate = "BUY";
+    sweptLevel = priorLow20;
+    sweepExtreme = Math.min(lastBar.low, prevBar.low);
+    sweepPts = 25;
+  } else if ((lastBar.high > priorHigh20 && lastBar.close <= priorHigh20) || (prevBar.high > priorHigh20 && lastBar.close <= priorHigh20)) {
+    sweepCandidate = "SELL";
+    sweptLevel = priorHigh20;
+    sweepExtreme = Math.max(lastBar.high, prevBar.high);
+    sweepPts = 25;
+  } else {
+    const span = Math.max(1e-5, priorHigh20 - priorLow20);
+    if ((lastBar.close - priorLow20) / span <= 0.25) {
+      sweepCandidate = "BUY";
+      sweptLevel = priorLow20;
+      sweepExtreme = lastBar.low;
+      sweepPts = 15;
+    } else if ((priorHigh20 - lastBar.close) / span <= 0.25) {
+      sweepCandidate = "SELL";
+      sweptLevel = priorHigh20;
+      sweepExtreme = lastBar.high;
+      sweepPts = 15;
+    } else {
+      sweepPts = 5;
+    }
+  }
+
+  // Direction priority: Grade A setup if triggered, else sweep candidate, else macro trend
+  let candidateDir: "BUY" | "SELL" | null = (setupA ? setupA.direction : null) || sweepCandidate;
+  if (!candidateDir && h1MacroTrend !== "NEUTRAL") {
+    candidateDir = h1MacroTrend === "BULLISH" ? "BUY" : "SELL";
+  }
+
+  // 1. Trend Points (Max 25)
+  let trendPts = 0;
+  if (candidateDir === "BUY" && h1MacroTrend === "BULLISH") trendPts = 25;
+  else if (candidateDir === "SELL" && h1MacroTrend === "BEARISH") trendPts = 25;
+  else if (h1MacroTrend === "NEUTRAL") trendPts = 12;
+  else trendPts = 5;
+
+  // 2. Session Points (Max 20)
+  const now = new Date();
+  const wat = new Date(now.getTime() + 1 * 60 * 60 * 1000);
+  const watMins = wat.getUTCHours() * 60 + wat.getUTCMinutes();
+  let sessionPts = 0;
+  let sessionName = "Outside Kill Zone";
+  let isKillZone = false;
+  if (watMins >= 510 && watMins <= 750) {
+    sessionPts = 20;
+    sessionName = "London Open Kill Zone (08:30 AM - 12:30 PM WAT)";
+    isKillZone = true;
+  } else if (watMins >= 810 && watMins <= 1080) {
+    sessionPts = 20;
+    sessionName = "New York Open Kill Zone (01:30 PM - 06:00 PM WAT)";
+    isKillZone = true;
+  } else if ((watMins >= 480 && watMins < 510) || (watMins > 750 && watMins <= 780)) {
+    sessionPts = 10;
+    sessionName = "Session Buffer Transition";
+  } else {
+    sessionPts = 0;
+    sessionName = "Asian / Lunch Dead Zone";
+  }
+
+  // 3. Displacement & Candle Momentum (Max 15)
+  let displacementPts = 0;
+  if (candidateDir === "BUY") {
+    if (lowerWick >= 0.40 * barRange || (bodyRatio >= 0.45 && lastBar.close > lastBar.open)) displacementPts = 15;
+    else if (lastBar.close > lastBar.open) displacementPts = 10;
+    else displacementPts = 5;
+  } else if (candidateDir === "SELL") {
+    if (upperWick >= 0.40 * barRange || (bodyRatio >= 0.45 && lastBar.close < lastBar.open)) displacementPts = 15;
+    else if (lastBar.close < lastBar.open) displacementPts = 10;
+    else displacementPts = 5;
+  } else {
+    displacementPts = 5;
+  }
+
+  // 4. Volatility & Risk/Reward Architecture (Max 15)
+  let riskPts = 0;
+  const spreadMax = pair.includes("XAU") ? 35 : (pair.includes("XAG") ? 10 : (pair.includes("JPY") ? 4 : 2));
+  if (curSpread <= spreadMax) riskPts += 10;
+  else if (curSpread <= spreadMax * 1.5) riskPts += 5;
+
+  const m15AtrVal = atr(m15, 14) || barRange;
+  if (m15AtrVal > 0) riskPts += 5;
+
+  // Bonus for model agreement
   const dirA = setupA ? setupA.direction : null;
   const dirB = setupB ? setupB.direction : null;
   const dirC = setupC ? setupC.direction : null;
 
-  if (dirA) {
-    if ((dirB && dirB !== dirA) || (dirC && dirC !== dirA)) {
-      confluenceGrade = "WAIT";
-      reasoning = `Conflict detected: Grade A (${gradeAEngine}) indicates ${dirA}, but alternative engine indicates opposing direction. Locked to protect capital.`;
-    } else if (dirB === dirA || dirC === dirA) {
+  let modelBonusPts = 0;
+  if (dirA && (dirB === dirA || dirC === dirA)) modelBonusPts = 10;
+  else if (dirA) modelBonusPts = 5;
+
+  const totalScore = Math.min(100, trendPts + sweepPts + sessionPts + displacementPts + riskPts + modelBonusPts);
+
+  // Directional Conflict Guard
+  const hasConflict = (dirA && dirB && dirB !== dirA) || (dirA && dirC && dirC !== dirA);
+
+  let confluenceGrade: "A+" | "A" | "B+" | "WAIT" = "WAIT";
+  let activeSetup: any = null;
+  let riskPct = 0;
+  let confidencePct = totalScore;
+  let reasoning = "";
+
+  if (hasConflict) {
+    confluenceGrade = "WAIT";
+    candidateDir = null;
+    reasoning = `Directional Conflict: Models indicate opposing bias (${gradeAEngine} vs alternative). Locked to protect capital.`;
+  } else if (totalScore >= 75 && candidateDir && isKillZone) {
+    if (totalScore >= 85 || (dirA && (dirB === dirA || dirC === dirA))) {
       confluenceGrade = "A+";
-      activeSetup = setupA;
-      riskPct = 6.0; // Full 6% Aggressive Risk
-      confidencePct = 95;
-      reasoning = `GRADE A+ CONFLUENCE CONFIRMED: Grade A (${gradeAEngine}) agrees with ${dirB === dirA ? gradeBEngine : gradeCEngine} on ${dirA}. 100% historical accuracy filter.`;
+      riskPct = 6.0; // 6.0% Aggressive Cent Risk
+      reasoning = `GRADE A+ CONFLUENCE (${totalScore}% Conviction): Trend, liquidity sweep, and momentum displacement in full alignment during ${sessionName}.`;
     } else {
       confluenceGrade = "A";
-      activeSetup = setupA;
-      riskPct = 4.0; // Standard 4% Risk
-      confidencePct = 80;
-      reasoning = `GRADE A DEDICATED SETUP: Primary model (${gradeAEngine}) triggered a clean ${dirA} setup with zero opposing conflict.`;
+      riskPct = 4.0; // 4.0% Standard Risk
+      reasoning = `GRADE A SETUP (${totalScore}% Conviction): High-conviction ${candidateDir} alignment during ${sessionName}.`;
     }
-  } else if (dirB && dirC && dirB === dirC) {
+  } else if (totalScore >= 60 && candidateDir) {
     confluenceGrade = "B+";
-    activeSetup = setupB;
-    riskPct = 2.0; // 2% Controlled Risk
-    confidencePct = 65;
-    reasoning = `GRADE B+ SECONDARY CONFLUENCE: Grade B (${gradeBEngine}) and Grade C (${gradeCEngine}) agree on ${dirB}. (Grade A is quiet).`;
+    riskPct = 2.0; // 2.0% Controlled Risk
+    reasoning = `GRADE B+ SETUP BUILDING (${totalScore}% Conviction): Directional bias established, awaiting final session displacement.`;
   } else {
     confluenceGrade = "WAIT";
-    reasoning = `STATUS: WAITING FOR CLEAN SWEEP. Primary dedicated model (${gradeAEngine}) is monitoring for structural alignment. No forced trades.`;
+    reasoning = `STATUS: WAITING FOR CLEAN SWEEP (${totalScore}% Score). Primary dedicated model (${gradeAEngine}) is monitoring for structural alignment.`;
+    candidateDir = null;
+  }
+
+  // Bind activeSetup from setupA OR synthesized from scored setup
+  if (confluenceGrade !== "WAIT" && candidateDir) {
+    if (setupA && setupA.direction === candidateDir) {
+      activeSetup = setupA;
+    } else {
+      const entryP = candidateDir === "BUY" ? curAsk : curBid;
+      const slBuffer = 1.2 * m15AtrVal;
+      const extreme = sweepExtreme > 0 ? sweepExtreme : (candidateDir === "BUY" ? priorLow20 : priorHigh20);
+      const slP = candidateDir === "BUY" ? extreme - slBuffer : extreme + slBuffer;
+      const rDist = Math.max(pSize * 10, Math.abs(entryP - slP));
+      const tp1P = candidateDir === "BUY" ? entryP + 1.0 * rDist : entryP - 1.0 * rDist;
+      const tp2P = candidateDir === "BUY" ? entryP + 2.5 * rDist : entryP - 2.5 * rDist;
+
+      activeSetup = {
+        direction: candidateDir,
+        entry: entryP,
+        sl: slP,
+        tp1: tp1P,
+        tp2: tp2P
+      };
+    }
   }
 
   let entryPrice = null;
@@ -6446,6 +6609,31 @@ async function analyzePairConfluence(pair: string, balance = 677): Promise<any> 
   const m15Recent = m15.slice(-20);
   const m15High = Math.max(...m15Recent.map((b: any) => b.h));
   const m15Low = Math.min(...m15Recent.map((b: any) => b.l));
+  const decDigits = pair.includes("JPY") ? 3 : (pair.includes("XAG") || pair.includes("XAU") ? 2 : 5);
+
+  const aiReasoning = {
+    narrative: candidateDir
+      ? `Smart money swept ${candidateDir === "BUY" ? "sell-side liquidity below the 20-bar structure" : "buy-side liquidity above the 20-bar structure"} at ${sweptLevel.toFixed(decDigits)}, absorbing retail stop orders before institutional expansion.`
+      : "Institutions are allowing price to consolidate without active liquidity capture at current levels.",
+    verdict: candidateDir && confluenceGrade !== "WAIT"
+      ? `High-Conviction ${confluenceGrade} ${candidateDir} (${totalScore}% Confluence Score)`
+      : `WAIT / MONITORING (${totalScore}% Score — Awaiting Structural Displacement)`,
+    context: candidateDir
+      ? `Macro H1 trend is ${h1MacroTrend} (EMA10 ${lastEma10.toFixed(decDigits)} vs EMA20 ${lastEma20.toFixed(decDigits)}). M15 price action rejected the extreme with ${Math.round(bodyRatio * 100)}% displacement during ${sessionName}. Target 2 provides 1:2.50 R:R.`
+      : `Market is in ${sessionName}. Waiting for liquidity sweep of 20-bar high (${priorHigh20.toFixed(decDigits)}) or low (${priorLow20.toFixed(decDigits)}).`,
+    action: candidateDir && confluenceGrade !== "WAIT" && entryPrice && sl
+      ? `Execute ${candidateDir} at ${entryPrice.toFixed(decDigits)} | SL: ${sl.toFixed(decDigits)} (${slPips} pips) | TP1: ${tp1.toFixed(decDigits)} (Scale 50% & Auto-BE) | TP2: ${tp2.toFixed(decDigits)} (2.5R Runner) | Cent Lot: ${lotSize} Lots.`
+      : "Preserve capital. Do not enter mid-range consolidation."
+  };
+
+  const checks = [
+    `[${trendPts >= 20 ? "OK" : "INFO"}] Macro H1 Trend: ${h1MacroTrend} (${trendPts}/25 pts)`,
+    `[${sweepPts >= 15 ? "OK" : "INFO"}] Liquidity Sweep: ${sweepCandidate ? `${sweepCandidate} Sweep of ${sweptLevel.toFixed(decDigits)}` : "Consolidating"} (${sweepPts}/25 pts)`,
+    `[${sessionPts >= 15 ? "OK" : "INFO"}] Session Window: ${sessionName} (${sessionPts}/20 pts)`,
+    `[${displacementPts >= 10 ? "OK" : "INFO"}] Rejection Power: ${Math.round(bodyRatio * 100)}% Body (${displacementPts}/15 pts)`,
+    `[${riskPts >= 10 ? "OK" : "INFO"}] Spread & Volatility: ${curSpread}p (Max ${spreadMax}p) (${riskPts}/15 pts)`,
+    `[SCORE] Total Confluence: ${totalScore}% → ${confluenceGrade}`
+  ];
 
   return {
     pair,
@@ -6453,9 +6641,10 @@ async function analyzePairConfluence(pair: string, balance = 677): Promise<any> 
     gradeBEngine,
     gradeCEngine,
     confluenceGrade,
-    confidencePct,
+    confidencePct: totalScore,
+    score: totalScore,
     riskPct,
-    direction: activeSetup ? activeSetup.direction : null,
+    direction: candidateDir,
     entryPrice,
     sl,
     tp1,
@@ -6468,15 +6657,25 @@ async function analyzePairConfluence(pair: string, balance = 677): Promise<any> 
     livePrice: { bid: curBid, ask: curAsk, spread_pips: curSpread },
     m15High,
     m15Low,
-    checks: checksA,
-    reasoning
+    checks,
+    reasoning,
+    aiReasoning,
+    scoreBreakdown: {
+      trend: trendPts,
+      sweep: sweepPts,
+      session: sessionPts,
+      displacement: displacementPts,
+      risk: riskPts,
+      bonus: modelBonusPts,
+      total: totalScore
+    }
   };
 }
 
 app.get("/api/confluence/scan", async (req, res) => {
   try {
     const balance = Number(req.query.balance) || 677;
-    const pairs = ["XAG/USD", "GBP/JPY", "EUR/USD"];
+    const pairs = ["EUR/USD", "GBP/JPY", "XAG/USD", "XAU/USD"];
     const results = await Promise.all(pairs.map(p => analyzePairConfluence(p, balance)));
     res.json({
       version: CONFLUENCE_VERSION,

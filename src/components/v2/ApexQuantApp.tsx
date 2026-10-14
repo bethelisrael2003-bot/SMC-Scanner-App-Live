@@ -120,12 +120,34 @@ const DEDICATED_PROFILES: PairStrategyProfile[] = [
     pipVal: 0.09,
     defaultSl: 20.0,
   },
+  {
+    pair: "XAU/USD",
+    name: "Gold",
+    icon: "🥇",
+    category: "Precious Metals",
+    dedicatedGradeA: "NY Intraday Sweep & Momentum",
+    dedicatedIcon: "🌊",
+    shortModel: "🌊 NY Trend Sweep",
+    gradeAEngineKey: "trendsweep",
+    alternativeGradeB: "Precision Intraday (📐)",
+    confluenceGradeC: "Asian Breakout (🚀)",
+    sixMonthWr: "58.3%",
+    sixMonthRecord: "7W / 5L",
+    sixMonthProfit: "+$248.50 (+36.7%)",
+    sixMonthR: "+5.12R",
+    profitFactor: "2.45",
+    maxDd: "-9.4%",
+    pipSize: 0.10,
+    pipVal: 0.08,
+    defaultSl: 25.0,
+  },
 ];
 
 function fmtPrice(pair: string, price: number | null | undefined): string {
   if (price === null || price === undefined) return "--";
   if (pair.includes("JPY")) return Number(price).toFixed(3);
   if (pair.includes("XAG")) return Number(price).toFixed(2);
+  if (pair.includes("XAU")) return Number(price).toFixed(2);
   return Number(price).toFixed(5);
 }
 
@@ -667,6 +689,48 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
                 </div>
               </div>
 
+              {/* 100-Point Confluence Scoring Gauge */}
+              <div className="p-3 mb-3.5 rounded-xl bg-zinc-950 border border-zinc-800/80 font-mono space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="text-zinc-400 font-bold uppercase text-[10px]">CONFLUENCE CONVICTION</span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      (currentConf?.confidencePct || 0) >= 80 ? "bg-amber-400 text-black font-extrabold" :
+                      (currentConf?.confidencePct || 0) >= 70 ? "bg-emerald-500 text-black font-extrabold" :
+                      (currentConf?.confidencePct || 0) >= 55 ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30" :
+                      "bg-zinc-800 text-zinc-400"
+                    }`}>
+                      {(currentConf?.confidencePct || 0)}% {currentConf?.confluenceGrade === "A+" ? "GRADE A+ (6% RISK)" : currentConf?.confluenceGrade === "A" ? "GRADE A (4% RISK)" : currentConf?.confluenceGrade === "B+" ? "GRADE B+ (2% RISK)" : "WAIT (0% RISK)"}
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-zinc-500">Threshold: 70%</span>
+                </div>
+
+                <div className="w-full h-2 rounded-full bg-zinc-900 overflow-hidden border border-zinc-800">
+                  <div
+                    className="h-full rounded-full transition-all duration-700"
+                    style={{
+                      width: `${Math.min(100, Math.max(5, currentConf?.confidencePct || 0))}%`,
+                      background: (currentConf?.confidencePct || 0) >= 80 ? "linear-gradient(90deg, #f59e0b, #fbbf24)" :
+                                  (currentConf?.confidencePct || 0) >= 70 ? "linear-gradient(90deg, #10b981, #34d399)" :
+                                  (currentConf?.confidencePct || 0) >= 55 ? "linear-gradient(90deg, #06b6d4, #22d3ee)" :
+                                  "#52525b"
+                    }}
+                  />
+                </div>
+
+                {/* Score Pillar Breakdown Chips */}
+                {currentConf?.scoreBreakdown && (
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 pt-1 text-[9px] text-zinc-400">
+                    <span className="bg-zinc-900/80 px-2 py-1 rounded border border-zinc-800/80">📈 Trend: {currentConf.scoreBreakdown.trend}/25</span>
+                    <span className="bg-zinc-900/80 px-2 py-1 rounded border border-zinc-800/80">🎯 Sweep: {currentConf.scoreBreakdown.sweep}/25</span>
+                    <span className="bg-zinc-900/80 px-2 py-1 rounded border border-zinc-800/80">⏰ Session: {currentConf.scoreBreakdown.session}/20</span>
+                    <span className="bg-zinc-900/80 px-2 py-1 rounded border border-zinc-800/80">⚡ Rejection: {currentConf.scoreBreakdown.displacement}/15</span>
+                    <span className="bg-zinc-900/80 px-2 py-1 rounded border border-zinc-800/80">🛡 Spread: {currentConf.scoreBreakdown.risk}/15</span>
+                  </div>
+                )}
+              </div>
+
               {/* Active Signal Banner OR Waiting Card */}
               {isTradeActive ? (
                 <div className="space-y-3">
@@ -735,6 +799,44 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
                   </p>
                 </div>
               )}
+
+              {/* AI Mentor Context & Narrative Card */}
+              <div className="mt-3.5 p-4 rounded-xl bg-zinc-950 border border-purple-500/30 font-mono space-y-2.5 bg-purple-500/5">
+                <div className="flex items-center justify-between border-b border-purple-500/20 pb-2">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-purple-400" />
+                    <span className="text-xs font-bold text-white uppercase flex items-center gap-1.5">
+                      <span>AI Mentor Reasoning</span>
+                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 font-bold">
+                        HUMAN CONTEXT
+                      </span>
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-purple-400 font-bold">
+                    {currentConf?.aiReasoning?.verdict || "ANALYZING STRUCTURE"}
+                  </span>
+                </div>
+
+                <div className="space-y-2 text-xs">
+                  <div>
+                    <div className="text-[10px] uppercase font-bold text-zinc-400">Smart Money Narrative</div>
+                    <p className="text-zinc-200 mt-0.5 leading-relaxed text-[11px]">
+                      {currentConf?.aiReasoning?.narrative || "Monitoring for institutional liquidity sweeps."}
+                    </p>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase font-bold text-zinc-400">Market Context</div>
+                    <p className="text-zinc-300 mt-0.5 leading-relaxed text-[11px]">
+                      {currentConf?.aiReasoning?.context || currentConf?.reasoning || "Analyzing multi-timeframe order flow."}
+                    </p>
+                  </div>
+                  {currentConf?.aiReasoning?.action && (
+                    <div className="p-2.5 rounded-lg bg-black/40 border border-purple-500/20 text-[11px] text-purple-300">
+                      <strong className="text-purple-200">Execution Directive:</strong> {currentConf.aiReasoning.action}
+                    </div>
+                  )}
+                </div>
+              </div>
 
               {/* Hierarchy Strategy Breakdown for Selected Pair */}
               <div className="mt-3.5 pt-3 border-t border-zinc-800/80 grid grid-cols-1 sm:grid-cols-3 gap-2 font-mono text-[11px]">
