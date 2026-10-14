@@ -23,8 +23,12 @@ import {
   Bell,
   Volume2,
   VolumeX,
+  Volume1,
+  Square,
   Sparkles
 } from "lucide-react";
+import { PushNotifications } from "@capacitor/push-notifications";
+import { LocalNotifications } from "@capacitor/local-notifications";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "https://smc-scanner-backend.onrender.com";
 
@@ -125,38 +129,30 @@ function fmtPrice(pair: string, price: number | null | undefined): string {
   return Number(price).toFixed(5);
 }
 
-/** Synthesize a clean 880Hz alert chime using Web Audio API */
-function playChimeSound() {
-  try {
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(880, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(1760, ctx.currentTime + 0.15);
-    gain.gain.setValueAtTime(0.18, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.4);
-  } catch {
-    /* silent */
-  }
-}
+const isNativePlatform = () => {
+  return typeof window !== "undefined" &&
+         (window as any).Capacitor &&
+         typeof (window as any).Capacitor.isNativePlatform === "function" &&
+         (window as any).Capacitor.isNativePlatform();
+};
 
 export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => void }) {
   const [activeTab, setActiveTab] = useState<BottomTabId>("command");
   const [selectedPairIndex, setSelectedPairIndex] = useState<number>(0);
   const [copiedTradeId, setCopiedTradeId] = useState<string | null>(null);
 
-  // Sound alert preference
+  // Sound & Continuous Alarm State
   const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
     return localStorage.getItem("apex_sound") !== "off";
   });
+  const [isAlarmRinging, setIsAlarmRinging] = useState<boolean>(false);
+  const [alarmSecondsLeft, setAlarmSecondsLeft] = useState<number>(60);
+  const alarmIntervalRef = useRef<any>(null);
+  const alarmCountdownRef = useRef<any>(null);
   const prevSignalCountRef = useRef<number>(0);
+
+  // Notification Permission State
+  const [notificationStatus, setNotificationStatus] = useState<string>("checking");
 
   // Live Nigeria (WAT) Time & Telemetry
   const [watTime, setWatTime] = useState("");
@@ -164,7 +160,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
   const [confluenceData, setConfluenceData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
-  // RoboForex Cent Calculator State
+  // Cent Calculator State (Neutralized)
   const [calcBalance, setCalcBalance] = useState<number>(() => {
     return Number(localStorage.getItem("apex_balance")) || 677;
   });
@@ -181,7 +177,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
     setCalcSlPips(activeProfile.defaultSl);
   }, [selectedPairIndex, activeProfile.defaultSl]);
 
-  // Persist balance, risk, sound
+  // Persist balance & risk
   useEffect(() => {
     localStorage.setItem("apex_balance", String(calcBalance));
     localStorage.setItem("apex_risk_pct", String(calcRiskPct));
@@ -205,6 +201,186 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
     return () => clearInterval(iv);
   }, []);
 
+  // Check Notification Permission on Mount
+  const checkPerms = useCallback(async () => {
+    if (isNativePlatform()) {
+      try {
+        const p = await PushNotifications.checkPermissions();
+        setNotificationStatus(p.receive === "granted" ? "granted" : p.receive === "denied" ? "denied" : "prompt");
+      } catch {
+        setNotificationStatus("prompt");
+      }
+    } else if (typeof window !== "undefined" && "Notification" in window) {
+      setNotificationStatus(Notification.permission);
+    } else {
+      setNotificationStatus("unsupported");
+    }
+  }, []);
+
+  useEffect(() => {
+    checkPerms();
+  }, [checkPerms]);
+
+  // ── Persistent Loud Chime Alarm Engine (Rings for 60 seconds) ─────
+  const playSingleChimePulse = () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      if (ctx.state === "suspended") ctx.resume();
+
+      const now = ctx.currentTime;
+      const osc1 = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc1.type = "sine";
+      osc2.type = "triangle";
+      osc1.frequency.setValueAtTime(880, now);
+      osc1.frequency.exponentialRampToValueAtTime(1760, now + 0.12);
+      osc2.frequency.setValueAtTime(1320, now + 0.14);
+      osc2.frequency.exponentialRampToValueAtTime(880, now + 0.35);
+
+      gain.gain.setValueAtTime(0.35, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.45);
+
+      osc1.connect(gain);
+      osc2.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc1.start(now);
+      osc1.stop(now + 0.45);
+      osc2.start(now + 0.14);
+      osc2.stop(now + 0.45);
+    } catch {
+      /* silent */
+    }
+  };
+
+  const startPersistentAlarm = (durationSeconds = 60) => {
+    stopPersistentAlarm();
+    if (!soundEnabled) return;
+
+    setIsAlarmRinging(true);
+    setAlarmSecondsLeft(durationSeconds);
+    playSingleChimePulse();
+
+    // Pulse chime every 1.2 seconds
+    alarmIntervalRef.current = setInterval(() => {
+      playSingleChimePulse();
+    }, 1200);
+
+    // Countdown timer
+    alarmCountdownRef.current = setInterval(() => {
+      setAlarmSecondsLeft(prev => {
+        if (prev <= 1) {
+          stopPersistentAlarm();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  const stopPersistentAlarm = () => {
+    if (alarmIntervalRef.current) {
+      clearInterval(alarmIntervalRef.current);
+      alarmIntervalRef.current = null;
+    }
+    if (alarmCountdownRef.current) {
+      clearInterval(alarmCountdownRef.current);
+      alarmCountdownRef.current = null;
+    }
+    setIsAlarmRinging(false);
+  };
+
+  // Clean up alarm on unmount
+  useEffect(() => {
+    return () => stopPersistentAlarm();
+  }, []);
+
+  // ── Dispatch System Notification to Phone Status Bar ──────────────
+  const triggerPhoneNotification = async (title: string, body: string) => {
+    // 1. Play continuous 60-second alarm ringtone
+    startPersistentAlarm(60);
+
+    // 2. If Native Android APK (Capacitor)
+    if (isNativePlatform()) {
+      try {
+        await LocalNotifications.schedule({
+          notifications: [
+            {
+              title,
+              body,
+              id: (Date.now() % 100000) + 1,
+              sound: "beep.wav",
+              vibrate: true,
+              ongoing: false,
+              autoCancel: true
+            }
+          ]
+        });
+      } catch (err) {
+        console.error("Local notification error:", err);
+      }
+    }
+    // 3. If Web Browser (Chrome on Android)
+    else if (typeof window !== "undefined" && "Notification" in window) {
+      if (Notification.permission === "granted") {
+        if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.ready.then(reg => {
+            reg.showNotification(title, {
+              body,
+              icon: "/icon.png",
+              badge: "/icon.png",
+              vibrate: [300, 100, 300, 100, 300],
+              tag: "apex-alert-" + Date.now(),
+              renotify: true,
+              data: { url: "/?v=2" }
+            });
+          });
+        } else {
+          new Notification(title, { body, icon: "/icon.png" });
+        }
+      }
+    }
+  };
+
+  // Request Permissions Handler
+  const requestNotificationPermission = async () => {
+    if (isNativePlatform()) {
+      try {
+        const pushPerm = await PushNotifications.requestPermissions();
+        if (pushPerm.receive === "granted") {
+          await PushNotifications.register();
+          setNotificationStatus("granted");
+        } else {
+          setNotificationStatus("denied");
+        }
+        await LocalNotifications.requestPermissions();
+      } catch {
+        setNotificationStatus("prompt");
+      }
+    } else if (typeof window !== "undefined" && "Notification" in window) {
+      const p = await Notification.requestPermission();
+      setNotificationStatus(p);
+      if (p === "granted") {
+        triggerPhoneNotification(
+          "🚨 APEX NOTIFICATIONS ENABLED",
+          "Notifications will now appear in your Android status bar with sound & vibration!"
+        );
+      }
+    }
+  };
+
+  // Send Test Notification
+  const sendTestNotification = () => {
+    triggerPhoneNotification(
+      "🚨 APEX SIGNAL: EUR/USD BUY (Grade A+)",
+      "Entry: 1.11900 | SL: 1.11650 | Lot: 0.22 Lots. Tap to view order ticket!"
+    );
+  };
+
   // Fetch Live Confluence Scan & Briefing
   const fetchAllData = useCallback(async () => {
     setLoading(true);
@@ -218,10 +394,14 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
         const cData = await confRes.value.json();
         setConfluenceData(cData);
 
-        // Check if new trade active to trigger chime sound
+        // Check for new verified trade to trigger alarm & notification
+        const activeAlert = (cData.pairs || []).find((p: any) => p.confluenceGrade && p.confluenceGrade !== "WAIT" && p.entryPrice);
         const activeCount = (cData.pairs || []).filter((p: any) => p.confluenceGrade && p.confluenceGrade !== "WAIT" && p.entryPrice).length;
-        if (activeCount > prevSignalCountRef.current && soundEnabled) {
-          playChimeSound();
+        if (activeCount > prevSignalCountRef.current && activeAlert) {
+          triggerPhoneNotification(
+            `🚨 APEX SIGNAL: ${activeAlert.pair} ${activeAlert.direction} (Grade ${activeAlert.confluenceGrade})`,
+            `Entry: ${activeAlert.entryPrice} | SL: ${activeAlert.sl} | Lot: ${activeAlert.lotSize || 0.11} Lots. Tap to open!`
+          );
         }
         prevSignalCountRef.current = activeCount;
       }
@@ -245,7 +425,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
   const currentConf = confluenceData?.pairs?.find((p: any) => p.pair === activeProfile.pair) || null;
   const pairBriefing = briefingData?.pairs?.find((p: any) => p.pair === activeProfile.pair) || null;
 
-  // Grade-Adjusted Risk % (A+ = 6%, A = 4%, B+ = 2%)
+  // Grade-Adjusted Risk %
   const effectiveRiskPct = currentConf?.confluenceGrade === "A+"
     ? 6.0
     : currentConf?.confluenceGrade === "A"
@@ -264,51 +444,19 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
 
   const isTradeActive = currentConf?.confluenceGrade && currentConf?.confluenceGrade !== "WAIT" && currentConf?.entryPrice;
 
-  // Find any active signal across ALL 3 pairs for global awareness
+  // Global alert across all 3 pairs
   const anyActiveAlert = (confluenceData?.pairs || []).find((p: any) => p.confluenceGrade && p.confluenceGrade !== "WAIT" && p.entryPrice) || null;
   const totalActiveSignalsCount = (confluenceData?.pairs || []).filter((p: any) => p.confluenceGrade && p.confluenceGrade !== "WAIT" && p.entryPrice).length;
 
-  // 1-Tap Copy helper
   const copyTrade = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
     setCopiedTradeId(id);
     setTimeout(() => setCopiedTradeId(null), 2500);
   };
 
-  // Send WhatsApp-Style Phone Status Bar Notification
-  const sendTestSystemNotification = () => {
-    if (typeof window !== "undefined" && "Notification" in window) {
-      if (Notification.permission === "granted") {
-        playChimeSound();
-        const title = "🚨 APEX SIGNAL: EUR/USD BUY (Grade A+)";
-        const options = {
-          body: "Entry: 1.11900 | SL: 1.11650 | Cent Lot: 0.22 Lots. Tap to open ticket!",
-          icon: "/icon.png",
-          badge: "/icon.png",
-          vibrate: [300, 100, 300, 100, 300],
-          tag: "apex-trade-alert",
-          renotify: true,
-          data: { url: "/?v=2" }
-        };
-
-        if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
-          navigator.serviceWorker.ready.then(reg => {
-            reg.showNotification(title, options);
-          });
-        } else {
-          new Notification(title, options);
-        }
-      } else {
-        Notification.requestPermission().then(perm => {
-          if (perm === "granted") sendTestSystemNotification();
-        });
-      }
-    }
-  };
-
   return (
     <div className="min-h-screen bg-[#070a12] text-zinc-100 flex flex-col font-sans select-none pb-24">
-      {/* ── Top Header Bar ────────────────────────────────────────── */}
+      {/* ── Top Header Bar (Clean & Sharp, No Awkward PRO Badge) ── */}
       <header className="sticky top-0 z-40 bg-[#070a12]/95 backdrop-blur-md border-b border-zinc-800/80 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-500/25 to-yellow-600/20 border border-amber-500/40 flex items-center justify-center font-mono font-black text-amber-400 text-sm shadow-[0_0_15px_rgba(245,158,11,0.25)]">
@@ -324,7 +472,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Quick Scan Refresh */}
+          {/* Quick Refresh */}
           <button
             onClick={fetchAllData}
             disabled={loading}
@@ -349,8 +497,34 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
         </span>
       </div>
 
-      {/* ── High-Visibility Global Signal Alert Banner (Visible on ANY tab!) ── */}
-      {anyActiveAlert && (
+      {/* ── Continuous 60-Second Ringtone Alarm Floating Banner ────── */}
+      {isAlarmRinging && (
+        <div className="mx-4 mt-3 p-3.5 rounded-2xl bg-gradient-to-r from-rose-600/30 via-amber-500/30 to-rose-600/30 border-2 border-rose-500 flex items-center justify-between animate-pulse shadow-[0_0_30px_rgba(244,63,94,0.4)] z-50">
+          <div className="flex items-center gap-3">
+            <span className="p-2 rounded-xl bg-rose-500 text-white font-black animate-bounce">
+              <Volume2 className="w-5 h-5" />
+            </span>
+            <div>
+              <div className="font-mono text-xs font-black text-rose-300 tracking-wide">
+                🔔 SIGNAL ALARM RINGING ({alarmSecondsLeft}s)
+              </div>
+              <div className="font-mono text-[11px] text-white font-bold">
+                High Priority Verified Setup Detected!
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={stopPersistentAlarm}
+            className="px-3.5 py-2 rounded-xl bg-rose-500 hover:bg-rose-400 text-white font-mono text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-lg transition-all shrink-0"
+          >
+            <Square className="w-3.5 h-3.5 fill-current" />
+            <span>SILENCE ALARM</span>
+          </button>
+        </div>
+      )}
+
+      {/* ── High-Visibility Global Signal Alert Banner (Across all tabs) ── */}
+      {anyActiveAlert && !isAlarmRinging && (
         <div
           onClick={() => {
             const idx = DEDICATED_PROFILES.findIndex(p => p.pair === anyActiveAlert.pair);
@@ -818,8 +992,8 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
               <div className="flex items-center gap-2 border-b border-zinc-800 pb-3">
                 <Settings className="w-5 h-5 text-amber-400" />
                 <div>
-                  <h2 className="text-base font-bold text-white">Terminal Settings &amp; Platform Switcher</h2>
-                  <p className="text-xs text-zinc-400">Switch between focused and multi-tab modes anytime</p>
+                  <h2 className="text-base font-bold text-white">Terminal Settings &amp; Notifications</h2>
+                  <p className="text-xs text-zinc-400">Switch view modes &amp; configure WhatsApp-style alerts</p>
                 </div>
               </div>
 
@@ -881,18 +1055,6 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
                 </div>
               </div>
 
-              {/* Confluence Hierarchy Guide */}
-              <div className="p-3.5 rounded-xl bg-zinc-950 border border-zinc-800 text-[11px] space-y-1.5">
-                <div className="text-white font-bold text-xs uppercase flex items-center gap-1.5">
-                  <Shield className="w-4 h-4 text-amber-400" />
-                  Confluence Confidence Hierarchy
-                </div>
-                <div className="text-emerald-400">⭐ Grade A+ Signal: 6.0% Aggressive Risk (Grade A + B/C Agree)</div>
-                <div className="text-amber-400">⭐ Grade A Signal: 4.0% Standard Risk (Dedicated Model Solo)</div>
-                <div className="text-cyan-400">🥈 Grade B+ Signal: 2.0% Controlled Risk (Grade B + C Agree)</div>
-                <div className="text-zinc-500">🚫 Conflict / Dead Zone: 0.0% Risk (Output WAIT)</div>
-              </div>
-
               {/* Audio & Alert Sound Preferences */}
               <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-3">
                 <div className="flex items-center justify-between">
@@ -906,7 +1068,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
                   <button
                     onClick={() => {
                       setSoundEnabled(!soundEnabled);
-                      if (!soundEnabled) playChimeSound();
+                      if (!soundEnabled) playSingleChimePulse();
                     }}
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                       soundEnabled
@@ -918,13 +1080,23 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
                   </button>
                 </div>
 
-                <button
-                  onClick={playChimeSound}
-                  className="w-full py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-all"
-                >
-                  <Volume2 className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Test Distinct Audio Chime Now</span>
-                </button>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    onClick={playSingleChimePulse}
+                    className="py-2.5 px-3 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-all"
+                  >
+                    <Volume1 className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Single Chime</span>
+                  </button>
+
+                  <button
+                    onClick={() => startPersistentAlarm(60)}
+                    className="py-2.5 px-3 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-400 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all"
+                  >
+                    <Volume2 className="w-3.5 h-3.5" />
+                    <span>Test 1-Minute Alarm</span>
+                  </button>
+                </div>
               </div>
 
               {/* Android Phone Notification Bar (WhatsApp Style System Push) */}
@@ -942,28 +1114,18 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
                       <div className="text-[10px] text-zinc-400">Drops into your phone's top notification shade with vibration</div>
                     </div>
                   </div>
-                  <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${
-                    typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted"
+                  <span className={`text-[10px] px-2 py-0.5 rounded font-bold whitespace-nowrap shrink-0 ${
+                    notificationStatus === "granted"
                       ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
                       : "bg-amber-500/20 text-amber-400 border border-amber-500/40"
                   }`}>
-                    {typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted"
-                      ? "ALLOWED ✅"
-                      : "NEEDS PERMISSION ⚠️"}
+                    {notificationStatus === "granted" ? "ALLOWED ✅" : "NEEDS PERMISSION ⚠️"}
                   </span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <button
-                    onClick={() => {
-                      if (typeof window !== "undefined" && "Notification" in window) {
-                        Notification.requestPermission().then((perm) => {
-                          if (perm === "granted") {
-                            sendTestSystemNotification();
-                          }
-                        });
-                      }
-                    }}
+                    onClick={requestNotificationPermission}
                     className="py-2.5 px-3 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-emerald-500/20 transition-all"
                   >
                     <Bell className="w-3.5 h-3.5" />
@@ -971,7 +1133,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
                   </button>
 
                   <button
-                    onClick={sendTestSystemNotification}
+                    onClick={sendTestNotification}
                     className="py-2.5 px-3 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-all"
                   >
                     <span>🧪 Send Test Notification</span>
@@ -979,11 +1141,23 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
                 </div>
 
                 <div className="p-2.5 rounded-lg bg-black/40 border border-white/5 text-[10px] text-zinc-400 space-y-1">
-                  <div className="text-zinc-300 font-bold">Why Notifications May Have Failed Before:</div>
-                  <div>1. When using Chrome on Android, Chrome blocks notifications by default unless you tap <strong>"Enable Phone Notifications"</strong> and tap <strong>"Allow"</strong> on the popup.</div>
-                  <div>2. If you previously tapped "Block", tap the lock icon next to the URL in your browser &rarr; <em>Site settings</em> &rarr; <em>Notifications</em> &rarr; <em>Allow</em>.</div>
-                  <div>3. Once allowed, whenever a signal confirms, your phone will vibrate and display the notification in your status bar just like WhatsApp!</div>
+                  <div className="text-zinc-300 font-bold">How to Ensure Phone Notifications Drop Down Like WhatsApp:</div>
+                  <div>1. Tap <strong>"Enable Phone Notifications"</strong> above and tap <strong>"Allow"</strong> when Android prompts.</div>
+                  <div>2. If you are using the installed app (APK), ensure notification permissions are toggled ON in your phone's <em>Settings &rarr; Apps &rarr; SMC Scanner &rarr; Notifications</em>.</div>
+                  <div>3. When a signal triggers, your phone rings the 1-minute alarm and drops the trade ticket directly into your Android status bar—even from across the room!</div>
                 </div>
+              </div>
+
+              {/* Confluence Hierarchy Guide */}
+              <div className="p-3.5 rounded-xl bg-zinc-950 border border-zinc-800 text-[11px] space-y-1.5">
+                <div className="text-white font-bold text-xs uppercase flex items-center gap-1.5">
+                  <Shield className="w-4 h-4 text-amber-400" />
+                  Confluence Confidence Hierarchy
+                </div>
+                <div className="text-emerald-400">⭐ Grade A+ Signal: 6.0% Aggressive Risk (Grade A + B/C Agree)</div>
+                <div className="text-amber-400">⭐ Grade A Signal: 4.0% Standard Risk (Dedicated Model Solo)</div>
+                <div className="text-cyan-400">🥈 Grade B+ Signal: 2.0% Controlled Risk (Grade B + C Agree)</div>
+                <div className="text-zinc-500">🚫 Conflict / Dead Zone: 0.0% Risk (Output WAIT)</div>
               </div>
             </div>
           </div>
