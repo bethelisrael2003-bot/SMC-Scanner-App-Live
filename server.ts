@@ -175,8 +175,8 @@ const TREND_SWEEP_VERSION = "2026-10-03.2";
 const ASIAN_FADE_VERSION = "2026-09-23.1";
 // 2026-10-13 Aggressive Growth SMC & RoboForex Cent Account engine
 const AGGRESSIVE_VERSION = "2026-10-13.1";
-// 2026-10-14.3 Unified 3-in-1 Hybrid: 100-pt Confluence Scoring, XAU/USD Gold NY Engine, AI Mentor Context
-const CONFLUENCE_VERSION = "2026-10-14.3";
+// 2026-10-14.4 Strict Institutional Gating Restored + Dedicated Performance & Verified Track Record Hub
+const CONFLUENCE_VERSION = "2026-10-14.4";
 // Clean MPR sample boundary — only trades OPENED after this instant count
 // toward the post-fix sample. Moved to the inversion-fix deploy (user
 // decision, 2026-09-16): every prior trade was analyzed on time-inverted
@@ -6536,48 +6536,33 @@ async function analyzePairConfluence(pair: string, balance = 677): Promise<any> 
   if (hasConflict) {
     confluenceGrade = "WAIT";
     candidateDir = null;
+    activeSetup = null;
     reasoning = `Directional Conflict: Models indicate opposing bias (${gradeAEngine} vs alternative). Locked to protect capital.`;
-  } else if (totalScore >= 75 && candidateDir && isKillZone) {
-    if (totalScore >= 85 || (dirA && (dirB === dirA || dirC === dirA))) {
+  } else if (dirA) {
+    if (dirB === dirA || dirC === dirA) {
       confluenceGrade = "A+";
+      activeSetup = setupA;
       riskPct = 6.0; // 6.0% Aggressive Cent Risk
-      reasoning = `GRADE A+ CONFLUENCE (${totalScore}% Conviction): Trend, liquidity sweep, and momentum displacement in full alignment during ${sessionName}.`;
+      candidateDir = dirA;
+      reasoning = `GRADE A+ CONFLUENCE CONFIRMED (${totalScore}% Conviction): Dedicated Model (${gradeAEngine}) agrees with ${dirB === dirA ? gradeBEngine : gradeCEngine} on ${dirA}.`;
     } else {
       confluenceGrade = "A";
+      activeSetup = setupA;
       riskPct = 4.0; // 4.0% Standard Risk
-      reasoning = `GRADE A SETUP (${totalScore}% Conviction): High-conviction ${candidateDir} alignment during ${sessionName}.`;
+      candidateDir = dirA;
+      reasoning = `GRADE A DEDICATED SETUP (${totalScore}% Conviction): Primary model (${gradeAEngine}) triggered a clean ${dirA} setup with zero opposing conflict.`;
     }
-  } else if (totalScore >= 60 && candidateDir) {
+  } else if (dirB && dirC && dirB === dirC) {
     confluenceGrade = "B+";
+    activeSetup = setupB;
     riskPct = 2.0; // 2.0% Controlled Risk
-    reasoning = `GRADE B+ SETUP BUILDING (${totalScore}% Conviction): Directional bias established, awaiting final session displacement.`;
+    candidateDir = dirB;
+    reasoning = `GRADE B+ SECONDARY CONFLUENCE (${totalScore}% Conviction): Alternative models (${gradeBEngine} & ${gradeCEngine}) agree on ${dirB}. (Primary model is quiet).`;
   } else {
     confluenceGrade = "WAIT";
-    reasoning = `STATUS: WAITING FOR CLEAN SWEEP (${totalScore}% Score). Primary dedicated model (${gradeAEngine}) is monitoring for structural alignment.`;
     candidateDir = null;
-  }
-
-  // Bind activeSetup from setupA OR synthesized from scored setup
-  if (confluenceGrade !== "WAIT" && candidateDir) {
-    if (setupA && setupA.direction === candidateDir) {
-      activeSetup = setupA;
-    } else {
-      const entryP = candidateDir === "BUY" ? curAsk : curBid;
-      const slBuffer = 1.2 * m15AtrVal;
-      const extreme = sweepExtreme > 0 ? sweepExtreme : (candidateDir === "BUY" ? priorLow20 : priorHigh20);
-      const slP = candidateDir === "BUY" ? extreme - slBuffer : extreme + slBuffer;
-      const rDist = Math.max(pSize * 10, Math.abs(entryP - slP));
-      const tp1P = candidateDir === "BUY" ? entryP + 1.0 * rDist : entryP - 1.0 * rDist;
-      const tp2P = candidateDir === "BUY" ? entryP + 2.5 * rDist : entryP - 2.5 * rDist;
-
-      activeSetup = {
-        direction: candidateDir,
-        entry: entryP,
-        sl: slP,
-        tp1: tp1P,
-        tp2: tp2P
-      };
-    }
+    activeSetup = null;
+    reasoning = `STATUS: WAITING FOR DEDICATED SETUP (${totalScore}% Confluence Score). Primary model (${gradeAEngine}) is monitoring for strict structural alignment. No forced trades.`;
   }
 
   let entryPrice = null;
@@ -6612,18 +6597,18 @@ async function analyzePairConfluence(pair: string, balance = 677): Promise<any> 
   const decDigits = pair.includes("JPY") ? 3 : (pair.includes("XAG") || pair.includes("XAU") ? 2 : 5);
 
   const aiReasoning = {
-    narrative: candidateDir
+    narrative: (candidateDir && confluenceGrade !== "WAIT")
       ? `Smart money swept ${candidateDir === "BUY" ? "sell-side liquidity below the 20-bar structure" : "buy-side liquidity above the 20-bar structure"} at ${sweptLevel.toFixed(decDigits)}, absorbing retail stop orders before institutional expansion.`
-      : "Institutions are allowing price to consolidate without active liquidity capture at current levels.",
-    verdict: candidateDir && confluenceGrade !== "WAIT"
+      : `Smart money is currently in ${sessionName}. Monitoring for liquidity sweep of 20-bar high (${priorHigh20.toFixed(decDigits)}) or low (${priorLow20.toFixed(decDigits)}).`,
+    verdict: (candidateDir && confluenceGrade !== "WAIT")
       ? `High-Conviction ${confluenceGrade} ${candidateDir} (${totalScore}% Confluence Score)`
-      : `WAIT / MONITORING (${totalScore}% Score — Awaiting Structural Displacement)`,
-    context: candidateDir
+      : `WAIT / MONITORING (${totalScore}% Score — Capital Preserved)`,
+    context: (candidateDir && confluenceGrade !== "WAIT")
       ? `Macro H1 trend is ${h1MacroTrend} (EMA10 ${lastEma10.toFixed(decDigits)} vs EMA20 ${lastEma20.toFixed(decDigits)}). M15 price action rejected the extreme with ${Math.round(bodyRatio * 100)}% displacement during ${sessionName}. Target 2 provides 1:2.50 R:R.`
-      : `Market is in ${sessionName}. Waiting for liquidity sweep of 20-bar high (${priorHigh20.toFixed(decDigits)}) or low (${priorLow20.toFixed(decDigits)}).`,
-    action: candidateDir && confluenceGrade !== "WAIT" && entryPrice && sl
+      : `Dedicated model (${gradeAEngine}) has not confirmed a clean setup. 0% risk allocated to prevent chop losses.`,
+    action: (candidateDir && confluenceGrade !== "WAIT" && entryPrice && sl)
       ? `Execute ${candidateDir} at ${entryPrice.toFixed(decDigits)} | SL: ${sl.toFixed(decDigits)} (${slPips} pips) | TP1: ${tp1.toFixed(decDigits)} (Scale 50% & Auto-BE) | TP2: ${tp2.toFixed(decDigits)} (2.5R Runner) | Cent Lot: ${lotSize} Lots.`
-      : "Preserve capital. Do not enter mid-range consolidation."
+      : "Preserve capital (0% risk). Stand by until an institutional Grade A setup confirms."
   };
 
   const checks = [
