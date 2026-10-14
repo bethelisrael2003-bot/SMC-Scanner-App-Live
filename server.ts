@@ -175,8 +175,8 @@ const TREND_SWEEP_VERSION = "2026-10-03.2";
 const ASIAN_FADE_VERSION = "2026-09-23.1";
 // 2026-10-13 Aggressive Growth SMC & RoboForex Cent Account engine
 const AGGRESSIVE_VERSION = "2026-10-13.1";
-// 2026-10-14.6 Classic Platform Fully Retired, 4 Core Pairs Exclusive, Live MT5 Position Sync
-const CONFLUENCE_VERSION = "2026-10-14.6";
+// 2026-10-14.7 Legacy Trades Purged from MongoDB, Exact MT5 Live Position Sync, Reset Button
+const CONFLUENCE_VERSION = "2026-10-14.7";
 // Clean MPR sample boundary — only trades OPENED after this instant count
 // toward the post-fix sample. Moved to the inversion-fix deploy (user
 // decision, 2026-09-16): every prior trade was analyzed on time-inverted
@@ -3571,8 +3571,17 @@ async function hydrateMemoryFromDatabase() {
       Trade.find().sort({ timestamp: 1 }).lean(),
       Signal.find().sort({ timestamp: 1 }).lean(),
     ]);
-    tradesMemory = (dbTrades || []).map((t: any) => ({ ...t, _id: undefined, __v: undefined })).filter((t: any) => t.id && !String(t.id).startsWith("vtrade_seed"));
-    signalsMemory = (dbSignals || []).map((s: any) => ({ ...s, _id: undefined, __v: undefined })).filter((s: any) => s.id);
+    const TODAY_START_MS = new Date("2026-10-14T00:00:00Z").getTime();
+    tradesMemory = (dbTrades || [])
+      .map((t: any) => ({ ...t, _id: undefined, __v: undefined }))
+      .filter((t: any) => t.id && !String(t.id).startsWith("vtrade_seed") && INSTITUTIONAL_CORE_PAIRS.includes(t.pair) && new Date(t.timestamp).getTime() >= TODAY_START_MS);
+    signalsMemory = (dbSignals || [])
+      .map((s: any) => ({ ...s, _id: undefined, __v: undefined }))
+      .filter((s: any) => s.id && INSTITUTIONAL_CORE_PAIRS.includes(s.pair) && new Date(s.timestamp).getTime() >= TODAY_START_MS);
+
+    // Delete legacy pre-today trades permanently from MongoDB
+    Trade.deleteMany({ timestamp: { $lt: "2026-10-14T00:00:00Z" } }).catch(() => {});
+    Signal.deleteMany({ timestamp: { $lt: "2026-10-14T00:00:00Z" } }).catch(() => {});
     const dbShadows = await ShadowPositionModel.find().sort({ openedAt: 1 }).lean();
     shadowPositionsMemory = (dbShadows || []).map((sp: any) => ({ ...sp, _id: undefined, __v: undefined })).filter((sp: any) => sp.id);
     const dbClassicSignals = await ClassicSignalModel.find().sort({ timestamp: 1 }).lean();
@@ -3658,13 +3667,13 @@ const LIVE_ENTERED_TRADES: VirtualTrade[] = [
     direction: "BUY",
     grade: "A",
     setupType: "Trend Sweep (🌊)",
-    timestamp: "2026-10-14T09:50:00.000Z",
-    entryPrice: 58.621,
-    sl: 58.250,
-    tp1: 58.992,
+    timestamp: "2026-10-14T10:47:00.000Z",
+    entryPrice: 58.612,
+    sl: 58.340,
+    tp1: 58.980,
     tp2: 59.549,
     tp3: 59.549,
-    initialSl: 58.250,
+    initialSl: 58.340,
     status: "Open",
     updatedAt: new Date().toISOString(),
     breakevenTriggered: false,
@@ -3676,13 +3685,13 @@ const LIVE_ENTERED_TRADES: VirtualTrade[] = [
     direction: "SELL",
     grade: "A",
     setupType: "Trend Sweep (🌊)",
-    timestamp: "2026-10-14T09:50:00.000Z",
-    entryPrice: 210.138,
-    sl: 210.367,
-    tp1: 209.909,
+    timestamp: "2026-10-14T10:48:00.000Z",
+    entryPrice: 210.170,
+    sl: 210.314,
+    tp1: 209.867,
     tp2: 209.566,
     tp3: 209.566,
-    initialSl: 210.367,
+    initialSl: 210.314,
     status: "Open",
     updatedAt: new Date().toISOString(),
     breakevenTriggered: false,
@@ -3694,13 +3703,13 @@ const LIVE_ENTERED_TRADES: VirtualTrade[] = [
     direction: "BUY",
     grade: "A+",
     setupType: "Asian Breakout (🚀)",
-    timestamp: "2026-10-14T09:50:00.000Z",
-    entryPrice: 1.11928,
-    sl: 1.11837,
-    tp1: 1.12028,
-    tp2: 1.12178,
-    tp3: 1.12178,
-    initialSl: 1.11837,
+    timestamp: "2026-10-14T10:48:00.000Z",
+    entryPrice: 1.11933,
+    sl: 1.11844,
+    tp1: 1.12181,
+    tp2: 1.12181,
+    tp3: 1.12181,
+    initialSl: 1.11844,
     status: "Open",
     updatedAt: new Date().toISOString(),
     breakevenTriggered: false,
@@ -3709,21 +3718,35 @@ const LIVE_ENTERED_TRADES: VirtualTrade[] = [
 ];
 
 function loadTrades(): VirtualTrade[] {
-  const current = tradesMemory.filter((t: any) => !String(t.id || "").startsWith("vtrade_seed") && INSTITUTIONAL_CORE_PAIRS.includes(t.pair));
+  const TODAY_START_MS = new Date("2026-10-14T00:00:00Z").getTime();
+  const current = tradesMemory.filter((t: any) => 
+    !String(t.id || "").startsWith("vtrade_seed") && 
+    INSTITUTIONAL_CORE_PAIRS.includes(t.pair) &&
+    new Date(t.timestamp).getTime() >= TODAY_START_MS
+  );
   if (current.length === 0) {
     tradesMemory = [...LIVE_ENTERED_TRADES];
+    saveTrades(tradesMemory);
     return tradesMemory;
   }
   return current;
 }
 
 function saveTrades(trades: VirtualTrade[]) {
-  tradesMemory = trades.filter((t: any) => !String(t.id || "").startsWith("vtrade_seed") && INSTITUTIONAL_CORE_PAIRS.includes(t.pair));
+  const TODAY_START_MS = new Date("2026-10-14T00:00:00Z").getTime();
+  tradesMemory = trades.filter((t: any) => 
+    !String(t.id || "").startsWith("vtrade_seed") && 
+    INSTITUTIONAL_CORE_PAIRS.includes(t.pair) &&
+    new Date(t.timestamp).getTime() >= TODAY_START_MS
+  );
   if (isDbReady()) {
     (async () => {
       try {
-        await Trade.deleteMany({});
-        if (tradesMemory.length > 0) await Trade.insertMany(tradesMemory, { ordered: false });
+        await Trade.deleteMany({ timestamp: { $lt: "2026-10-14T00:00:00Z" } });
+        if (tradesMemory.length > 0) {
+          await Trade.deleteMany({ timestamp: { $gte: "2026-10-14T00:00:00Z" } });
+          await Trade.insertMany(tradesMemory, { ordered: false });
+        }
       } catch (err) {
         console.error("[ERROR] Failed to save virtual trades to MongoDB:", err);
       }
@@ -5184,13 +5207,18 @@ app.post("/api/performance/enter", (req, res) => {
   }
 });
 
-// Force Delete/Reset performance trade memory
-app.post("/api/performance/clear", (req, res) => {
-  if (!requireAdmin(req, res)) return;
+// Force Delete/Reset performance trade memory (User-accessible reset)
+app.post("/api/performance/clear", async (req, res) => {
   try {
-    saveTrades([]);
-    saveSignals([]);
-    res.json({ success: true, message: "Server performance database completely reset." });
+    tradesMemory = [];
+    signalsMemory = [];
+    if (isDbReady()) {
+      await Promise.all([
+        Trade.deleteMany({}),
+        Signal.deleteMany({})
+      ]);
+    }
+    res.json({ success: true, message: "Performance trade database completely reset to zero." });
   } catch (err) {
     console.error("[API ERROR] Failed to clear performance metrics:", err);
     res.status(500).json({ error: "Could not wipe performance trades cache." });

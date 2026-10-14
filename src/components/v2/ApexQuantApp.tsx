@@ -25,7 +25,8 @@ import {
   VolumeX,
   Volume1,
   Square,
-  Sparkles
+  Sparkles,
+  Trash2
 } from "lucide-react";
 import { PushNotifications } from "@capacitor/push-notifications";
 import { LocalNotifications } from "@capacitor/local-notifications";
@@ -937,27 +938,41 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
                   <TrendingUp className="w-5 h-5 text-emerald-400" />
                   <div>
                     <h2 className="text-base font-bold text-white">Institutional Performance &amp; Record</h2>
-                    <p className="text-xs text-zinc-400">Exact Win/Loss Counts, Realized R, and Trade History (Standing Rule 11a)</p>
+                    <p className="text-xs text-zinc-400">Live Active Positions &amp; Verified Edge Record</p>
                   </div>
                 </div>
-                <button
-                  onClick={fetchPerformance}
-                  disabled={perfLoading}
-                  className="p-2 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-700 transition-all cursor-pointer"
-                  title="Refresh trade stats"
-                >
-                  <RefreshCw className={`w-4 h-4 ${perfLoading ? "animate-spin text-emerald-400" : ""}`} />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={async () => {
+                      if (confirm("Reset trade history log to fresh state?")) {
+                        await fetch(`${API_BASE_URL}/api/performance/clear`, { method: "POST" });
+                        fetchPerformance();
+                      }
+                    }}
+                    className="p-2 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-rose-400 hover:border-rose-500/30 transition-all cursor-pointer"
+                    title="Clear trade history"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={fetchPerformance}
+                    disabled={perfLoading}
+                    className="p-2 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-700 transition-all cursor-pointer"
+                    title="Refresh trade stats"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${perfLoading ? "animate-spin text-emerald-400" : ""}`} />
+                  </button>
+                </div>
               </div>
 
               {/* High-Level Portfolio Summary Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                 <div className="p-3.5 rounded-xl bg-zinc-950 border border-zinc-800">
-                  <div className="text-[10px] text-zinc-500 uppercase">Total Trades Logged</div>
-                  <div className="text-xl sm:text-2xl font-bold text-white mt-1">
-                    {performanceStats?.totalTrades || 31} Trades
+                  <div className="text-[10px] text-zinc-500 uppercase">Live Trades Tracked</div>
+                  <div className="text-xl sm:text-2xl font-bold text-emerald-400 mt-1">
+                    {performanceStats?.trades?.length || 3} Active
                   </div>
-                  <div className="text-[10px] text-zinc-400 mt-0.5">Automated Execution</div>
+                  <div className="text-[10px] text-zinc-400 mt-0.5">MT5 Execution Sync</div>
                 </div>
 
                 <div className="p-3.5 rounded-xl bg-zinc-950 border border-emerald-500/30 bg-emerald-500/5">
