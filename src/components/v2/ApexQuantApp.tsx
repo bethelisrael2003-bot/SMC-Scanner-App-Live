@@ -313,7 +313,8 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
               title,
               body,
               id: (Date.now() % 100000) + 1,
-              sound: "beep.wav",
+              sound: undefined,
+              channelId: "signals",
               vibrate: true,
               ongoing: false,
               autoCancel: true
@@ -350,6 +351,31 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
   const requestNotificationPermission = async () => {
     if (isNativePlatform()) {
       try {
+        try {
+          await PushNotifications.createChannel({
+            id: 'signals',
+            name: 'Trading Signals & Alerts',
+            description: 'Real-time Apex SMC trading signals, break-even alerts, and execution orders',
+            importance: 5,
+            visibility: 1,
+            sound: 'default',
+            vibration: true,
+            lights: true,
+          });
+        } catch (e) {
+          console.warn('Channel creation error:', e);
+        }
+
+        await PushNotifications.removeAllListeners();
+        PushNotifications.addListener('registration', (token) => {
+          console.log('[PUSH] Native device token registered:', token.value);
+          fetch(`${API_BASE_URL}/api/device/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: token.value }),
+          }).catch((err) => console.error('[PUSH] Failed to register token with server:', err));
+        });
+
         const pushPerm = await PushNotifications.requestPermissions();
         if (pushPerm.receive === "granted") {
           await PushNotifications.register();
@@ -1145,6 +1171,25 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
                   <div>1. Tap <strong>"Enable Phone Notifications"</strong> above and tap <strong>"Allow"</strong> when Android prompts.</div>
                   <div>2. If you are using the installed app (APK), ensure notification permissions are toggled ON in your phone's <em>Settings &rarr; Apps &rarr; SMC Scanner &rarr; Notifications</em>.</div>
                   <div>3. When a signal triggers, your phone rings the 1-minute alarm and drops the trade ticket directly into your Android status bar—even from across the room!</div>
+                </div>
+
+                {/* Android Background & Spontaneous Alerts Guide */}
+                <div className="p-3 rounded-lg bg-black/60 border border-amber-500/20 text-[10px] text-zinc-300 space-y-2">
+                  <div className="text-amber-400 font-bold text-xs uppercase flex items-center gap-1.5">
+                    <Shield className="w-3.5 h-3.5 text-amber-400" />
+                    Background Execution &amp; Spontaneous Push Guide
+                  </div>
+                  <div className="space-y-1.5 text-zinc-400">
+                    <div>
+                      <strong className="text-zinc-200">1. Open Once After Install:</strong> Android OS security mandates opening the app at least once after install and tapping "Allow" so Google Play Services can register your device token with our scanner backend.
+                    </div>
+                    <div>
+                      <strong className="text-zinc-200">2. Close App Anytime (100% Spontaneous):</strong> After that 1st launch, you do NOT need to leave the app open or in your recent apps. You can lock your phone or reboot it. Whenever your phone is on and mobile data is active, Google Play Services delivers incoming trade signals to your notification drawer spontaneously!
+                    </div>
+                    <div>
+                      <strong className="text-zinc-200">3. Disable Battery Saver (Tecno / Infinix / Samsung):</strong> In <em>Settings &rarr; Apps &rarr; SMC Scanner &rarr; Battery</em>, select <strong>"Unrestricted"</strong> (or "Don't optimize") and enable <strong>"Auto-start"</strong> so Android's task killer never freezes background alerts when the screen is locked.
+                    </div>
+                  </div>
                 </div>
               </div>
 

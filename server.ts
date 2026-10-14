@@ -175,8 +175,8 @@ const TREND_SWEEP_VERSION = "2026-10-03.2";
 const ASIAN_FADE_VERSION = "2026-09-23.1";
 // 2026-10-13 Aggressive Growth SMC & RoboForex Cent Account engine
 const AGGRESSIVE_VERSION = "2026-10-13.1";
-// 2026-10-13 Pair-Specific Dedicated Grade A & Confluence Scoring engine
-const CONFLUENCE_VERSION = "2026-10-13.1";
+// 2026-10-14 Pair-Specific Dedicated Grade A & Confluence Scoring engine + Background Push Persistence
+const CONFLUENCE_VERSION = "2026-10-14.1";
 // Clean MPR sample boundary — only trades OPENED after this instant count
 // toward the post-fix sample. Moved to the inversion-fix deploy (user
 // decision, 2026-09-16): every prior trade was analyzed on time-inverted
@@ -217,8 +217,33 @@ const RESOLUTIONS: Record<string, string> = {
   "D1": "DAY",
 };
 
-// Device tokens registration store
+// Device tokens registration store (persisted to disk to survive server reboots)
 let deviceTokens: string[] = [];
+const DEVICE_TOKENS_FILE = path.join(process.cwd(), "device_tokens.json");
+
+function loadDeviceTokens() {
+  try {
+    if (fs.existsSync(DEVICE_TOKENS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(DEVICE_TOKENS_FILE, "utf-8"));
+      if (Array.isArray(data)) {
+        deviceTokens = data.filter((t) => typeof t === "string" && t.length >= 20 && t.length <= 512);
+        console.log(`[PUSH] Loaded ${deviceTokens.length} persisted device tokens from disk.`);
+      }
+    }
+  } catch (err) {
+    console.warn("[WARN] Failed to load persisted device tokens:", err);
+  }
+}
+
+function saveDeviceTokens() {
+  try {
+    fs.writeFileSync(DEVICE_TOKENS_FILE, JSON.stringify(deviceTokens), "utf-8");
+  } catch (err) {
+    console.warn("[WARN] Failed to persist device tokens:", err);
+  }
+}
+
+loadDeviceTokens();
 
 // Simple In-Memory and Disk-Persisted Cache for Capital.com Session
 let cstToken: string | null = null;
@@ -1840,6 +1865,17 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
               asianSignalsMemory.push(newAsianSig);
               saveAsianSignals(asianSignalsMemory);
 
+              sendPushNotification({
+                pair,
+                direction: asianSetup.direction,
+                grade: "A (Asian Breakout 🚀)",
+                entryPrice: asianFill,
+                sl: asianSetup.sl,
+                tp1: asianSetup.tp1,
+                rr: (Math.abs(asianSetup.tp1 - asianFill) / Math.max(1e-6, Math.abs(asianFill - asianSetup.sl))).toFixed(1),
+                session: "London Open Breakout",
+              }).catch(err => console.error('[PUSH] Asian Breakout error:', err));
+
               if (!asianAlreadyOpen) {
                 const newAsianTrade: AsianBreakoutTrade = {
                   id: `atrade_${Date.now()}_${pair.replace("/", "")}`,
@@ -1921,6 +1957,17 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
               trendSweepSignalsMemory.push(newSweepSig);
               saveTrendSweepSignals(trendSweepSignalsMemory);
 
+              sendPushNotification({
+                pair,
+                direction: setup.direction,
+                grade: "A (Trend Sweep 🌊)",
+                entryPrice: sweepFill,
+                sl: setup.sl,
+                tp1: setup.tp1,
+                rr: (Math.abs(setup.tp1 - sweepFill) / Math.max(1e-6, Math.abs(sweepFill - setup.sl))).toFixed(1),
+                session: "London / NY Sweep",
+              }).catch(err => console.error('[PUSH] Trend Sweep error:', err));
+
               if (!sweepAlreadyOpen) {
                 const newSweepTrade: TrendSweepTrade = {
                   id: `tstrade_${Date.now()}_${pair.replace("/", "")}`,
@@ -2000,6 +2047,17 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
               };
               asianFadeSignalsMemory.push(newFadeSig);
               saveAsianFadeSignals(asianFadeSignalsMemory);
+
+              sendPushNotification({
+                pair,
+                direction: setup.direction,
+                grade: "Fade (Asian Fade 🎯)",
+                entryPrice: fadeFill,
+                sl: setup.sl,
+                tp1: setup.tp1,
+                rr: (Math.abs(setup.tp1 - fadeFill) / Math.max(1e-6, Math.abs(fadeFill - setup.sl))).toFixed(1),
+                session: "London False Breakout Fade",
+              }).catch(err => console.error('[PUSH] Asian Fade error:', err));
 
               if (!fadeAlreadyOpen) {
                 const newFadeTrade: AsianFadeTrade = {
@@ -3649,7 +3707,6 @@ async function sendPushNotification(signal: any): Promise<{ success: boolean; se
         priority: 'max' as const,
         sound: 'default',
         vibrate: [200, 100, 200],
-        icon: 'ic_stat_icon',
       },
     },
     tokens: deviceTokens,
@@ -4915,6 +4972,7 @@ app.post("/api/device/register", (req, res) => {
       deviceTokens.shift(); // bound the list: drop the oldest registration
     }
     deviceTokens.push(token);
+    saveDeviceTokens();
     console.log(`[PUSH] Registered device token. Total registered devices: ${deviceTokens.length}`);
   }
   res.json({ success: true, registered: deviceTokens.length });
