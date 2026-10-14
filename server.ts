@@ -175,8 +175,8 @@ const TREND_SWEEP_VERSION = "2026-10-03.2";
 const ASIAN_FADE_VERSION = "2026-09-23.1";
 // 2026-10-13 Aggressive Growth SMC & RoboForex Cent Account engine
 const AGGRESSIVE_VERSION = "2026-10-13.1";
-// 2026-10-14.4 Strict Institutional Gating Restored + Dedicated Performance & Verified Track Record Hub
-const CONFLUENCE_VERSION = "2026-10-14.4";
+// 2026-10-14.5 High-Confluence (Score >= 80% with Confirmed Sweep & Session) Signal Gating Enabled
+const CONFLUENCE_VERSION = "2026-10-14.5";
 // Clean MPR sample boundary — only trades OPENED after this instant count
 // toward the post-fix sample. Moved to the inversion-fix deploy (user
 // decision, 2026-09-16): every prior trade was analyzed on time-inverted
@@ -6558,6 +6558,25 @@ async function analyzePairConfluence(pair: string, balance = 677): Promise<any> 
     riskPct = 2.0; // 2.0% Controlled Risk
     candidateDir = dirB;
     reasoning = `GRADE B+ SECONDARY CONFLUENCE (${totalScore}% Conviction): Alternative models (${gradeBEngine} & ${gradeCEngine}) agree on ${dirB}. (Primary model is quiet).`;
+  } else if (totalScore >= 80 && sweepPts === 25 && isKillZone && candidateDir) {
+    confluenceGrade = "A";
+    riskPct = 4.0; // 4.0% Standard Risk
+    const entryP = candidateDir === "BUY" ? curAsk : curBid;
+    const slBuffer = 1.2 * m15AtrVal;
+    const extreme = sweepExtreme > 0 ? sweepExtreme : (candidateDir === "BUY" ? priorLow20 : priorHigh20);
+    const slP = candidateDir === "BUY" ? extreme - slBuffer : extreme + slBuffer;
+    const rDist = Math.max(pSize * 10, Math.abs(entryP - slP));
+    const tp1P = candidateDir === "BUY" ? entryP + 1.0 * rDist : entryP - 1.0 * rDist;
+    const tp2P = candidateDir === "BUY" ? entryP + 2.5 * rDist : entryP - 2.5 * rDist;
+
+    activeSetup = {
+      direction: candidateDir,
+      entry: entryP,
+      sl: slP,
+      tp1: tp1P,
+      tp2: tp2P
+    };
+    reasoning = `GRADE A HIGH-CONFLUENCE SETUP (${totalScore}% Conviction): Confirmed 20-bar liquidity sweep, trend alignment, and rejection displacement during ${sessionName}.`;
   } else {
     confluenceGrade = "WAIT";
     candidateDir = null;

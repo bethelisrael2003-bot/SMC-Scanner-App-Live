@@ -64,6 +64,7 @@ export interface TrendSweepCheckResult {
 }
 
 export const TREND_SWEEP_PAIRS = [
+  "EUR/USD",
   "XAU/USD",
   "XAG/USD",
   "USD/JPY",
@@ -241,12 +242,17 @@ export function evaluateTrendSweep(
   const m15Atrs = computeAtr(m15Candles, 14);
   const curAtr = m15Atrs[idx] || (candleRange * 1.5);
   const bodyFraction = Math.abs(bar.close - bar.open) / candleRange;
+  const lowerWickFraction = (Math.min(bar.open, bar.close) - bar.low) / candleRange;
+  const upperWickFraction = (bar.high - Math.max(bar.open, bar.close)) / candleRange;
 
-  const bodyOk = bodyFraction >= 0.50;
+  const isHammerRejection = macroRegime === "BUY" && lowerWickFraction >= 0.40;
+  const isShootingStarRejection = macroRegime === "SELL" && upperWickFraction >= 0.40;
+  const bodyOk = bodyFraction >= 0.40 || isHammerRejection || isShootingStarRejection;
+
   if (bodyOk) {
-    checks.push(`[OK] Candle Body Rejection: ${(bodyFraction * 100).toFixed(0)}% body (>= 50% min)`);
+    checks.push(`[OK] Candle Rejection: ${(Math.max(bodyFraction, lowerWickFraction, upperWickFraction) * 100).toFixed(0)}% rejection (${bodyFraction >= 0.40 ? "solid body" : "institutional pin bar"})`);
   } else {
-    checks.push(`[X] Weak candle body: ${(bodyFraction * 100).toFixed(0)}% body (< 50% required)`);
+    checks.push(`[X] Weak candle rejection: ${(bodyFraction * 100).toFixed(0)}% body & wicks (< 40% required)`);
   }
 
   if (!inWindow || !isWeekday || (macroRegime !== "BUY" && macroRegime !== "SELL") || !bodyOk) {
