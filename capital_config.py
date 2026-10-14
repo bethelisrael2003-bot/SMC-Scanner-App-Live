@@ -17,7 +17,7 @@ CAPITAL_EMAIL = os.getenv("CAPITAL_EMAIL", "betfintech@gmail.com")
 CAPITAL_PASSWORD = os.getenv("CAPITAL_PASSWORD", "Bios@2003")
 
 # API base URLs
-CAPITAL_REST_URL = "https://api-capital.backend-capital.com/api/v1"
+CAPITAL_REST_URL = "https://demo-api-capital.backend-capital.com/api/v1"
 CAPITAL_WS_URL = "wss://api-streaming-capital.backend-capital.com/"
 
 # Epic mapping: pair -> Capital.com epic ID

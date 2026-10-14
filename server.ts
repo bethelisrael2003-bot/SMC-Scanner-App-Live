@@ -184,11 +184,11 @@ const CONFLUENCE_VERSION = "2026-10-14.7";
 // guard blocked all scans), so nothing was discarded.
 const CLEAN_SAMPLE_SINCE = "2026-09-16T18:15:00Z";
 
-// Capital.com Configuration
+// Capital.com Configuration (Demo API with $11,000 USD Active Account)
 const CAPITAL_API_KEY = process.env.CAPITAL_API_KEY || "e0o59JYjc0VLlQay";
 const CAPITAL_EMAIL = process.env.CAPITAL_EMAIL || "betfintech@gmail.com";
 const CAPITAL_PASSWORD = process.env.CAPITAL_PASSWORD || "Bios@2003";
-const CAPITAL_REST_URL = "https://api-capital.backend-capital.com/api/v1";
+const CAPITAL_REST_URL = "https://demo-api-capital.backend-capital.com/api/v1";
 
 const EPICS: Record<string, string> = {
   "EUR/USD": "EURUSD",
@@ -385,6 +385,241 @@ async function getCapitalHeaders() {
     "X-SECURITY-TOKEN": xSecToken || "",
     "Accept": "application/json",
   };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// CAPITAL.COM AUTOMATED DEMO EXECUTION ENGINE & POSITION MANAGER
+// ═══════════════════════════════════════════════════════════════════════
+
+interface CapitalTradeRequest {
+  pair: string;
+  direction: "BUY" | "SELL";
+  entryPrice: number;
+  sl: number;
+  tp1: number;
+  tp2?: number;
+  riskPct: number;
+  grade: string;
+  source: string;
+}
+
+let autoTradingEnabled = true;
+const executedTradeHashes = new Set<string>();
+const lastExecutionTimes = new Map<string, number>();
+let isExecutionLockActive = false;
+
+async function getCapitalOpenPositions(): Promise<any[]> {
+  try {
+    const headers = await getCapitalHeaders();
+    const res = await fetchWithRetry(`${CAPITAL_REST_URL}/positions`, { headers });
+    if (!res || !res.ok) return [];
+    const data = await res.json();
+    return data.positions || [];
+  } catch (err) {
+    console.error("[CAPITAL DEMO] Failed to fetch open positions:", err);
+    return [];
+  }
+}
+
+async function getCapitalAccountBalance(): Promise<{ balance: number; available: number; deposit: number; profitLoss: number }> {
+  try {
+    const headers = await getCapitalHeaders();
+    const res = await fetchWithRetry(`${CAPITAL_REST_URL}/accounts`, { headers });
+    if (!res || !res.ok) return { balance: 11000, available: 11000, deposit: 11000, profitLoss: 0 };
+    const data = await res.json();
+    const acc = (data.accounts || [])[0] || {};
+    const b = acc.balance || {};
+    return {
+      balance: b.balance || 11000,
+      available: b.available || 11000,
+      deposit: b.deposit || 11000,
+      profitLoss: b.profitLoss || 0,
+    };
+  } catch {
+    return { balance: 11000, available: 11000, deposit: 11000, profitLoss: 0 };
+  }
+}
+
+async function closeCapitalPosition(dealId: string): Promise<boolean> {
+  try {
+    const headers = await getCapitalHeaders();
+    const res = await fetchWithRetry(`${CAPITAL_REST_URL}/positions/${dealId}`, {
+      headers,
+      method: "DELETE"
+    });
+    return res && res.ok;
+  } catch (err) {
+    console.error(`[CAPITAL DEMO] Failed to close position ${dealId}:`, err);
+    return false;
+  }
+}
+
+async function updateCapitalPositionStop(dealId: string, newStopLevel: number): Promise<boolean> {
+  try {
+    const headers = await getCapitalHeaders();
+    const payload = {
+      stopLevel: newStopLevel,
+      guaranteedStop: false
+    };
+    const res = await fetchWithRetry(`${CAPITAL_REST_URL}/positions/${dealId}`, {
+      headers: { ...headers, "Content-Type": "application/json" },
+      method: "PUT",
+      body: JSON.stringify(payload)
+    });
+    return res && res.ok;
+  } catch (err) {
+    console.error(`[CAPITAL DEMO] Failed to update stop on position ${dealId}:`, err);
+    return false;
+  }
+}
+
+async function executeCapitalDemoTrade(trade: CapitalTradeRequest): Promise<{ success: boolean; dealReference?: string; reason?: string }> {
+  if (!autoTradingEnabled) {
+    console.log(`[CAPITAL DEMO] Auto-trade skipped: Feature is currently toggled OFF.`);
+    return { success: false, reason: "Auto-trading is toggled OFF" };
+  }
+
+  const epic = EPICS[trade.pair];
+  if (!epic) {
+    return { success: false, reason: `Unknown epic for pair ${trade.pair}` };
+  }
+
+  // MUTEX LOCK: Prevent concurrent execution races
+  if (isExecutionLockActive) {
+    console.log(`[CAPITAL DEMO] Execution lock active. Trade on ${trade.pair} queued/rejected.`);
+    return { success: false, reason: "Execution lock active" };
+  }
+  isExecutionLockActive = true;
+
+  try {
+    // ── GUARD 1: Active Position on Same Pair ─────────────────────────
+    const openPositions = await getCapitalOpenPositions();
+    const isAlreadyOpenOnBroker = openPositions.some(
+      (p: any) => p.market && (p.market.epic === epic || p.market.symbol === trade.pair)
+    );
+    if (isAlreadyOpenOnBroker) {
+      console.log(`[CAPITAL DEMO] Blocked: Active position on ${trade.pair} already open on broker.`);
+      return { success: false, reason: "Active position already open on broker" };
+    }
+
+    // ── GUARD 2: 30-Minute Cooldown Timer ─────────────────────────────
+    const lastExec = lastExecutionTimes.get(trade.pair) || 0;
+    const cooldownMs = 30 * 60 * 1000;
+    if (Date.now() - lastExec < cooldownMs) {
+      const minsLeft = Math.ceil((cooldownMs - (Date.now() - lastExec)) / (60 * 1000));
+      console.log(`[CAPITAL DEMO] Blocked: ${trade.pair} in cooldown (${minsLeft}m remaining).`);
+      return { success: false, reason: `Cooldown active (${minsLeft}m remaining)` };
+    }
+
+    // ── GUARD 3: Maximum 2 Concurrent Trades Portfolio-Wide ───────────
+    if (openPositions.length >= 2) {
+      console.log(`[CAPITAL DEMO] Blocked: Maximum portfolio concurrency reached (${openPositions.length}/2 open).`);
+      return { success: false, reason: "Maximum 2 open positions reached" };
+    }
+
+    // ── GUARD 4: Setup Hash Deduplication ─────────────────────────────
+    const dayKey = new Date().toISOString().slice(0, 10);
+    const setupHash = `${trade.pair}:${trade.direction}:${trade.entryPrice.toFixed(3)}:${dayKey}`;
+    if (executedTradeHashes.has(setupHash)) {
+      console.log(`[CAPITAL DEMO] Blocked: Duplicate setup hash already executed today (${setupHash}).`);
+      return { success: false, reason: "Duplicate setup already executed today" };
+    }
+
+    // ── Calculate Deal Size (Units) ───────────────────────────────────
+    let dealSize = 1000;
+    if (trade.pair.includes("XAU")) dealSize = 1.0;
+    else if (trade.pair.includes("XAG")) dealSize = 50.0;
+    else if (trade.pair.includes("JPY")) dealSize = 3000;
+    else dealSize = 5000; // EUR/USD
+
+    // Round Stop Loss and Take Profit to exact precision
+    const decDigits = trade.pair.includes("JPY") ? 3 : (trade.pair.includes("XAG") || trade.pair.includes("XAU") ? 2 : 5);
+    const stopLevel = Number(trade.sl.toFixed(decDigits));
+    const profitLevel = Number(trade.tp1.toFixed(decDigits));
+
+    const payload = {
+      epic,
+      direction: trade.direction,
+      size: dealSize,
+      stopLevel,
+      profitLevel,
+      guaranteedStop: false
+    };
+
+    const headers = await getCapitalHeaders();
+    if (!headers) {
+      return { success: false, reason: "Broker authentication failed" };
+    }
+
+    console.log(`[CAPITAL DEMO] Submitting order for ${trade.pair} ${trade.direction}: Size=${dealSize}, SL=${stopLevel}, TP=${profitLevel}...`);
+
+    const res = await fetchWithRetry(`${CAPITAL_REST_URL}/positions`, {
+      method: "POST",
+      headers: {
+        ...headers,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res || !res.ok) {
+      const errText = res ? await res.text() : "Network error";
+      console.error(`[CAPITAL DEMO] Order rejected by broker (${res ? res.status : 0}):`, errText);
+      return { success: false, reason: `Broker rejected: ${errText}` };
+    }
+
+    const resData = await res.json();
+    const dealRef = resData.dealReference || `deal_${Date.now()}`;
+    console.log(`[CAPITAL DEMO] 🔥 TRADE EXECUTED SUCCESSFULLY on Capital.com Demo! DealRef: ${dealRef}`);
+
+    // Update safety guards
+    executedTradeHashes.add(setupHash);
+    lastExecutionTimes.set(trade.pair, Date.now());
+
+    // Record in local trade history
+    const newVirtualTrade: VirtualTrade = {
+      id: `vtrade_cap_${dealRef}`,
+      pair: trade.pair,
+      direction: trade.direction,
+      grade: trade.grade || "A",
+      setupType: trade.source || "Automated Demo Execution",
+      timestamp: new Date().toISOString(),
+      entryPrice: trade.entryPrice,
+      sl: stopLevel,
+      tp1: profitLevel,
+      tp2: trade.tp2 || profitLevel,
+      tp3: trade.tp2 || profitLevel,
+      initialSl: stopLevel,
+      status: "Open",
+      updatedAt: new Date().toISOString(),
+      breakevenTriggered: false,
+      rrGained: 0,
+      dealReference: dealRef
+    };
+
+    const currentTrades = loadTrades();
+    currentTrades.unshift(newVirtualTrade);
+    saveTrades(currentTrades);
+
+    // Send high-priority phone notification
+    sendPushNotification({
+      pair: trade.pair,
+      direction: trade.direction,
+      grade: `${trade.grade} (AUTO-EXECUTED)`,
+      entryPrice: trade.entryPrice,
+      sl: stopLevel,
+      tp1: profitLevel,
+      rr: 1.5,
+      session: `Capital.com Demo Deal #${dealRef.slice(0, 16)}`
+    }).catch(() => {});
+
+    return { success: true, dealReference: dealRef };
+  } catch (err: any) {
+    console.error(`[CAPITAL DEMO] Critical execution error on ${trade.pair}:`, err);
+    return { success: false, reason: err.message };
+  } finally {
+    isExecutionLockActive = false;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -3538,6 +3773,7 @@ interface VirtualTrade {
   /* ── 2026-09-15 additions ── */
   fillDriftAtr?: number;    // signed fill-vs-plan drift in ATR units (+ = favorable, − = adverse)
   closeNote?: string;       // audit note for manual closes
+  dealReference?: string;   // Capital.com broker deal reference
 }
 
 interface SignalLog {
@@ -6700,6 +6936,24 @@ async function analyzePairConfluence(pair: string, balance = 677): Promise<any> 
 
     potentialGainTp1 = Math.round(cashRisk * 0.50 * 100) / 100;
     potentialGainTp2 = Math.round(cashRisk * (0.50 + 0.50 * 2.50) * 100) / 100;
+
+    // ════════════════════════════════════════════════════════════════
+    // AUTOMATED CAPITAL.COM DEMO ORDER TRIGGER
+    // Protected by 5 Anti-Duplicate Execution Locks
+    // ════════════════════════════════════════════════════════════════
+    if (autoTradingEnabled && (confluenceGrade === "A+" || confluenceGrade === "A")) {
+      executeCapitalDemoTrade({
+        pair,
+        direction: activeSetup.direction,
+        entryPrice,
+        sl,
+        tp1,
+        tp2,
+        riskPct,
+        grade: confluenceGrade,
+        source: gradeAEngine
+      }).catch(err => console.error(`[CAPITAL DEMO] Auto-execution error on ${pair}:`, err));
+    }
   }
 
   const m15Recent = m15.slice(-20);
@@ -6794,6 +7048,62 @@ app.get("/api/confluence/:pair", async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: (err as any).message || "Confluence analysis failed" });
   }
+});
+
+// ── Capital.com Automated Demo Execution Endpoints ─────────────────────────
+app.get("/api/capital/status", async (req, res) => {
+  try {
+    const [openPositions, balanceInfo] = await Promise.all([
+      getCapitalOpenPositions(),
+      getCapitalAccountBalance()
+    ]);
+
+    const cooldownList = Array.from(lastExecutionTimes.entries()).map(([pair, time]) => {
+      const elapsed = Date.now() - time;
+      const cooldownMs = 30 * 60 * 1000;
+      const minsLeft = Math.max(0, Math.ceil((cooldownMs - elapsed) / (60 * 1000)));
+      return { pair, minsLeft, inCooldown: minsLeft > 0 };
+    });
+
+    res.json({
+      autoTradingEnabled,
+      broker: "Capital.com Demo Account",
+      balance: balanceInfo.balance,
+      available: balanceInfo.available,
+      deposit: balanceInfo.deposit,
+      profitLoss: balanceInfo.profitLoss,
+      openPositionsCount: openPositions.length,
+      openPositions: openPositions.map((p: any) => ({
+        dealId: p.position.dealId,
+        pair: p.market.symbol || p.market.epic,
+        direction: p.position.direction,
+        size: p.position.size,
+        entryPrice: p.position.level,
+        stopLevel: p.position.stopLevel,
+        profitLevel: p.position.profitLevel,
+        upl: p.position.upl,
+        createdDateUTC: p.position.createdDateUTC
+      })),
+      cooldowns: cooldownList,
+      maxConcurrent: 2,
+      activePairs: INSTITUTIONAL_CORE_PAIRS
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to fetch Capital status" });
+  }
+});
+
+app.post("/api/capital/toggle-auto", (req, res) => {
+  autoTradingEnabled = !autoTradingEnabled;
+  console.log(`[CAPITAL DEMO] Auto-trading toggled: ${autoTradingEnabled ? "ACTIVE (ON)" : "DISABLED (OFF)"}`);
+  res.json({ success: true, autoTradingEnabled });
+});
+
+app.post("/api/capital/close-position", async (req, res) => {
+  const { dealId } = req.body;
+  if (!dealId) return res.status(400).json({ error: "Missing dealId" });
+  const success = await closeCapitalPosition(dealId);
+  res.json({ success, message: success ? `Position ${dealId} closed at market.` : "Failed to close position." });
 });
 
 

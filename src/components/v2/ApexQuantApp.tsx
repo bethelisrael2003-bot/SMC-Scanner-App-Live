@@ -184,6 +184,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
   const [loading, setLoading] = useState(false);
   const [performanceStats, setPerformanceStats] = useState<any>(null);
   const [perfLoading, setPerfLoading] = useState<boolean>(false);
+  const [capitalStatus, setCapitalStatus] = useState<any>(null);
 
   const fetchPerformance = useCallback(async () => {
     setPerfLoading(true);
@@ -200,11 +201,51 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
     }
   }, []);
 
+  const fetchCapitalStatus = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/capital/status`);
+      if (res.ok) {
+        const data = await res.json();
+        setCapitalStatus(data);
+      }
+    } catch {}
+  }, []);
+
+  const toggleAutoTrading = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/capital/toggle-auto`, { method: "POST" });
+      if (res.ok) {
+        fetchCapitalStatus();
+      }
+    } catch {}
+  };
+
+  const closeCapitalTrade = async (dealId: string) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/capital/close-position`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dealId })
+      });
+      if (res.ok) {
+        fetchCapitalStatus();
+        fetchPerformance();
+      }
+    } catch {}
+  };
+
+  useEffect(() => {
+    fetchCapitalStatus();
+    const interval = setInterval(fetchCapitalStatus, 15000);
+    return () => clearInterval(interval);
+  }, [fetchCapitalStatus]);
+
   useEffect(() => {
     if (activeTab === "performance") {
       fetchPerformance();
+      fetchCapitalStatus();
     }
-  }, [activeTab, fetchPerformance]);
+  }, [activeTab, fetchPerformance, fetchCapitalStatus]);
 
   // Cent Calculator State (Neutralized)
   const [calcBalance, setCalcBalance] = useState<number>(() => {
@@ -543,6 +584,21 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Capital.com Demo Auto-Trade Toggle Pill */}
+          <button
+            onClick={toggleAutoTrading}
+            className={`px-2.5 py-1.5 rounded-xl border font-mono text-[10px] font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+              capitalStatus?.autoTradingEnabled
+                ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400"
+                : "bg-zinc-900 border-zinc-800 text-zinc-500"
+            }`}
+            title="Toggle automated execution on Capital.com Demo"
+          >
+            <span className={`w-2 h-2 rounded-full ${capitalStatus?.autoTradingEnabled ? "bg-emerald-400 animate-pulse" : "bg-zinc-600"}`} />
+            <span className="hidden sm:inline">{capitalStatus?.autoTradingEnabled ? "DEMO AUTO-TRADE: ON" : "AUTO-TRADE: OFF"}</span>
+            <span className="sm:hidden">{capitalStatus?.autoTradingEnabled ? "AUTO: ON" : "AUTO: OFF"}</span>
+          </button>
+
           {/* Quick Refresh */}
           <button
             onClick={fetchAllData}
@@ -564,7 +620,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
           </span>
         </div>
         <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-900 text-cyan-400 border border-zinc-800 shrink-0 font-bold">
-          3-Pair Core
+          4-Pair Institutional
         </span>
       </div>
 
@@ -1047,6 +1103,74 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
                     </tbody>
                   </table>
                 </div>
+              </div>
+
+              {/* Capital.com Live Demo Account & Automated Positions Card */}
+              <div className="p-4 rounded-xl bg-zinc-950 border border-emerald-500/30 space-y-3 bg-emerald-500/5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-emerald-400" />
+                    <div>
+                      <div className="text-xs font-bold text-white uppercase flex items-center gap-1.5">
+                        <span>Capital.com Demo Account ($11,000 USD)</span>
+                        <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold ${
+                          capitalStatus?.autoTradingEnabled ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" : "bg-zinc-800 text-zinc-400"
+                        }`}>
+                          {capitalStatus?.autoTradingEnabled ? "AUTO-EXECUTION ACTIVE" : "MANUAL ONLY"}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-zinc-400">
+                        Balance: <strong className="text-white">${capitalStatus?.balance ? capitalStatus.balance.toLocaleString() : "11,000.00"} USD</strong> · Available: <strong className="text-emerald-400">${capitalStatus?.available ? capitalStatus.available.toLocaleString() : "11,000.00"} USD</strong>
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={toggleAutoTrading}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      capitalStatus?.autoTradingEnabled
+                        ? "bg-emerald-500 text-black"
+                        : "bg-zinc-800 text-zinc-400 hover:text-white"
+                    }`}
+                  >
+                    {capitalStatus?.autoTradingEnabled ? "AUTO: ON 🟢" : "AUTO: OFF ⚪"}
+                  </button>
+                </div>
+
+                {/* Open Positions on Broker */}
+                {capitalStatus?.openPositions && capitalStatus.openPositions.length > 0 ? (
+                  <div className="space-y-2 pt-2 border-t border-zinc-800">
+                    <div className="text-[10px] uppercase text-zinc-400 font-bold">Open Positions on Broker ({capitalStatus.openPositions.length}/2 Max)</div>
+                    {capitalStatus.openPositions.map((pos: any) => (
+                      <div key={pos.dealId} className="p-3 rounded-lg bg-zinc-900 border border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${pos.direction === "BUY" ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"}`}>
+                            {pos.direction}
+                          </span>
+                          <span className="font-bold text-white">{pos.pair}</span>
+                          <span className="text-[10px] text-zinc-400">Size: {pos.size} units</span>
+                        </div>
+                        <div className="flex items-center gap-3 text-zinc-300 text-[11px]">
+                          <span>Entry: {pos.entryPrice}</span>
+                          <span>SL: {pos.stopLevel || "--"}</span>
+                          <span>TP: {pos.profitLevel || "--"}</span>
+                          <span className={`font-bold ${pos.upl >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                            {pos.upl >= 0 ? `+$${pos.upl.toFixed(2)}` : `-$${Math.abs(pos.upl).toFixed(2)}`}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => closeCapitalTrade(pos.dealId)}
+                          className="px-2.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white border border-rose-500/40 text-[10px] font-bold transition-all cursor-pointer"
+                        >
+                          Close at Market
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-2.5 rounded-lg bg-black/40 border border-white/5 text-[10px] text-zinc-400">
+                    No active positions open on Capital.com. When a Grade A setup triggers, it will automatically enter here with native broker SL &amp; TP attached!
+                  </div>
+                )}
               </div>
 
               {/* Forward Trade History Log */}
