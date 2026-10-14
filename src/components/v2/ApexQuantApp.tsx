@@ -158,7 +158,7 @@ const isNativePlatform = () => {
          (window as any).Capacitor.isNativePlatform();
 };
 
-export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => void }) {
+export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => void } = {}) {
   const [activeTab, setActiveTab] = useState<BottomTabId>("command");
   const [selectedPairIndex, setSelectedPairIndex] = useState<number>(0);
   const [copiedTradeId, setCopiedTradeId] = useState<string | null>(null);
@@ -1319,42 +1319,22 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
                 </div>
               </div>
 
-              {/* Mode Switcher Buttons */}
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-white uppercase block">Select Interface View</label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                  <div className="p-4 rounded-xl border border-amber-500/60 bg-amber-500/10 text-white flex flex-col justify-between">
-                    <div>
-                      <div className="font-bold text-amber-400 text-sm flex items-center gap-1.5">
-                        <Zap className="w-4 h-4" />
-                        Apex Pro Command (Active)
-                      </div>
-                      <p className="text-[11px] text-zinc-300 mt-1">
-                        Dedicated 3-Pair Terminal (Silver, GBP/JPY, EUR/USD). Zero clutter, Grade A models, and A+ confluence grading.
-                      </p>
+              {/* Architecture & Institutional Protocol Banner */}
+              <div className="p-4 rounded-xl border border-amber-500/40 bg-amber-500/10 text-white flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <Zap className="w-5 h-5 text-amber-400 shrink-0" />
+                  <div>
+                    <div className="font-bold text-amber-400 text-sm">
+                      Apex Institutional Pro v3.5 (Active System)
                     </div>
-                    <span className="mt-3 text-[10px] text-emerald-400 font-bold">CURRENT ACTIVE VIEW</span>
+                    <p className="text-[11px] text-zinc-300 mt-0.5">
+                      Dedicated 4-Pair Terminal (EUR/USD, GBP/JPY, XAG/USD, XAU/USD). High-confluence scoring, AI reasoning, and RoboForex Cent Account lot sizing. Classic terminal retired.
+                    </p>
                   </div>
-
-                  <button
-                    onClick={onSwitchToClassic}
-                    className="p-4 rounded-xl border border-zinc-800 bg-zinc-950 hover:border-zinc-600 text-zinc-300 text-left flex flex-col justify-between cursor-pointer transition-all"
-                  >
-                    <div>
-                      <div className="font-bold text-white text-sm flex items-center gap-1.5">
-                        <Layers className="w-4 h-4 text-cyan-400" />
-                        Classic Multi-Tab Terminal
-                      </div>
-                      <p className="text-[11px] text-zinc-400 mt-1">
-                        Original view with all 8 strategy tabs, deep dive panels, candle charts, and news advisories.
-                      </p>
-                    </div>
-                    <div className="mt-3 text-xs text-cyan-400 font-bold flex items-center gap-1">
-                      <span>Switch to Classic</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </div>
-                  </button>
                 </div>
+                <span className="text-[10px] px-2 py-1 rounded bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/40 shrink-0">
+                  EXCLUSIVE ACTIVE VIEW
+                </span>
               </div>
 
               {/* Account Capital Presets */}

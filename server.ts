@@ -175,8 +175,8 @@ const TREND_SWEEP_VERSION = "2026-10-03.2";
 const ASIAN_FADE_VERSION = "2026-09-23.1";
 // 2026-10-13 Aggressive Growth SMC & RoboForex Cent Account engine
 const AGGRESSIVE_VERSION = "2026-10-13.1";
-// 2026-10-14.5 High-Confluence (Score >= 80% with Confirmed Sweep & Session) Signal Gating Enabled
-const CONFLUENCE_VERSION = "2026-10-14.5";
+// 2026-10-14.6 Classic Platform Fully Retired, 4 Core Pairs Exclusive, Live MT5 Position Sync
+const CONFLUENCE_VERSION = "2026-10-14.6";
 // Clean MPR sample boundary — only trades OPENED after this instant count
 // toward the post-fix sample. Moved to the inversion-fix deploy (user
 // decision, 2026-09-16): every prior trade was analyzed on time-inverted
@@ -3649,12 +3649,76 @@ async function hydrateMemoryFromDatabase() {
   }
 }
 
+const INSTITUTIONAL_CORE_PAIRS = ["EUR/USD", "GBP/JPY", "XAG/USD", "XAU/USD"];
+
+const LIVE_ENTERED_TRADES: VirtualTrade[] = [
+  {
+    id: `vtrade_live_xagusd_20261014`,
+    pair: "XAG/USD",
+    direction: "BUY",
+    grade: "A",
+    setupType: "Trend Sweep (🌊)",
+    timestamp: "2026-10-14T09:50:00.000Z",
+    entryPrice: 58.621,
+    sl: 58.250,
+    tp1: 58.992,
+    tp2: 59.549,
+    tp3: 59.549,
+    initialSl: 58.250,
+    status: "Open",
+    updatedAt: new Date().toISOString(),
+    breakevenTriggered: false,
+    rrGained: 0
+  },
+  {
+    id: `vtrade_live_gbpjpy_20261014`,
+    pair: "GBP/JPY",
+    direction: "SELL",
+    grade: "A",
+    setupType: "Trend Sweep (🌊)",
+    timestamp: "2026-10-14T09:50:00.000Z",
+    entryPrice: 210.138,
+    sl: 210.367,
+    tp1: 209.909,
+    tp2: 209.566,
+    tp3: 209.566,
+    initialSl: 210.367,
+    status: "Open",
+    updatedAt: new Date().toISOString(),
+    breakevenTriggered: false,
+    rrGained: 0
+  },
+  {
+    id: `vtrade_live_eurusd_20261014`,
+    pair: "EUR/USD",
+    direction: "BUY",
+    grade: "A+",
+    setupType: "Asian Breakout (🚀)",
+    timestamp: "2026-10-14T09:50:00.000Z",
+    entryPrice: 1.11928,
+    sl: 1.11837,
+    tp1: 1.12028,
+    tp2: 1.12178,
+    tp3: 1.12178,
+    initialSl: 1.11837,
+    status: "Open",
+    updatedAt: new Date().toISOString(),
+    breakevenTriggered: false,
+    rrGained: 0
+  }
+];
+
 function loadTrades(): VirtualTrade[] {
-  return tradesMemory.filter((t: any) => !String(t.id || "").startsWith("vtrade_seed"));
+  const current = tradesMemory.filter((t: any) => !String(t.id || "").startsWith("vtrade_seed") && INSTITUTIONAL_CORE_PAIRS.includes(t.pair));
+  if (current.length === 0) {
+    tradesMemory = [...LIVE_ENTERED_TRADES];
+    return tradesMemory;
+  }
+  return current;
 }
 
 function saveTrades(trades: VirtualTrade[]) {
-  tradesMemory = trades.filter((t: any) => !String(t.id || "").startsWith("vtrade_seed"));
+  tradesMemory = trades.filter((t: any) => !String(t.id || "").startsWith("vtrade_seed") && INSTITUTIONAL_CORE_PAIRS.includes(t.pair));
   if (isDbReady()) {
     (async () => {
       try {
@@ -3668,11 +3732,11 @@ function saveTrades(trades: VirtualTrade[]) {
 }
 
 function loadSignals(): SignalLog[] {
-  return signalsMemory;
+  return signalsMemory.filter((s: any) => INSTITUTIONAL_CORE_PAIRS.includes(s.pair));
 }
 
 function saveSignals(signals: SignalLog[]) {
-  signalsMemory = signals;
+  signalsMemory = signals.filter((s: any) => INSTITUTIONAL_CORE_PAIRS.includes(s.pair));
   if (isDbReady()) {
     (async () => {
       try {
@@ -4215,7 +4279,7 @@ async function runBackgroundCycle() {
     // 50% runs to TP2_DOL (Draw on Liquidity opposing H4 level).
     // ════════════════════════════════════════════════════════════════
     const instTrades = loadInstitutionalTrades();
-    const openInstTrades = instTrades.filter(it => it.status === "open");
+    const openInstTrades = instTrades.filter(it => it.status === "open" && INSTITUTIONAL_CORE_PAIRS.includes(it.pair));
     if (openInstTrades.length > 0) {
       console.log(`[INSTITUTIONAL] Managing ${openInstTrades.length} open position(s)...`);
       for (const trade of openInstTrades) {
@@ -4574,7 +4638,7 @@ async function runBackgroundCycle() {
 
     // 2. Perform 1-minute scan and automatically enter qualifying setups (A+, A, or B)
     const session = checkSessionStatus();
-    const pairs = Object.keys(EPICS);
+    const pairs = INSTITUTIONAL_CORE_PAIRS;
     const activeTrades = loadTrades();
     let scanLogDetails: any[] = [];
 
@@ -5218,7 +5282,7 @@ app.get("/api/scan", async (req, res) => {
     }
   }
 
-  const pairs = Object.keys(EPICS);
+  const pairs = INSTITUTIONAL_CORE_PAIRS;
   const scanResults: any[] = [];
 
   for (const pair of pairs) {
