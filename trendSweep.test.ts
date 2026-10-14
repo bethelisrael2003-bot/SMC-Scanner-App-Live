@@ -177,7 +177,7 @@ console.log("\n=== Trend Sweep Engine Test Suite ===\n");
         const sl = bar.low - 1.2 * m15Atr[i];
         const risk = entry - sl;
         if (risk <= 0) continue;
-        signals.append ? null : signals.push({
+        signals.push({
           idx: i, direction: "BUY", sl, targets: [[0.50, entry + 1.0 * risk], [0.50, entry + 2.50 * risk]], be_r: 1.0, stale_h: 8
         });
       } else if (regime === "SELL" && bar.high > priorHigh && bar.close < priorHigh && bar.close < bar.open) {

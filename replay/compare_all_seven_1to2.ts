@@ -239,7 +239,7 @@ for (const [pair, epic] of PAIRS) {
   const d1C = d1.map(toCandle);
   const h1Atr = atrWilder(h1C, 14);
 
-  allData.append ? null : allData.push({ pair, epic, mult: pipMult(pair), m15, h1, h4, d1, m15C, h1C, h4C, d1C, h1Atr });
+  allData.push({ pair, epic, mult: pipMult(pair), m15, h1, h4, d1, m15C, h1C, h4C, d1C, h1Atr });
 }
 console.log(`Loaded ${allData.length} pairs successfully.`);
 

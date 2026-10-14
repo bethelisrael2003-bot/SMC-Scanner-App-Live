@@ -315,7 +315,6 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
               id: (Date.now() % 100000) + 1,
               sound: undefined,
               channelId: "signals",
-              vibrate: true,
               ongoing: false,
               autoCancel: true
             }
@@ -338,7 +337,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic: () => v
               tag: "apex-alert-" + Date.now(),
               renotify: true,
               data: { url: "/?v=2" }
-            });
+            } as any);
           });
         } else {
           new Notification(title, { body, icon: "/icon.png" });

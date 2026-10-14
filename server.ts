@@ -175,8 +175,8 @@ const TREND_SWEEP_VERSION = "2026-10-03.2";
 const ASIAN_FADE_VERSION = "2026-09-23.1";
 // 2026-10-13 Aggressive Growth SMC & RoboForex Cent Account engine
 const AGGRESSIVE_VERSION = "2026-10-13.1";
-// 2026-10-14 Pair-Specific Dedicated Grade A & Confluence Scoring engine + Background Push Persistence
-const CONFLUENCE_VERSION = "2026-10-14.1";
+// 2026-10-14.2 Fix d1Oldest reference in analyzePair & await getLivePrice calls
+const CONFLUENCE_VERSION = "2026-10-14.2";
 // Clean MPR sample boundary — only trades OPENED after this instant count
 // toward the post-fix sample. Moved to the inversion-fix deploy (user
 // decision, 2026-09-16): every prior trade was analyzed on time-inverted
@@ -1091,6 +1091,7 @@ async function analyzePair(pair: string, bypassCache = false): Promise<any> {
   // root cause of the wide-SL saga. Arrays are now used exactly as delivered.
   const wOldest = weekly;
   const dOldest = daily;
+  const d1Oldest = daily;
   const h4Oldest = h4;
   const h1Oldest = h1;
   const m15Oldest = m15;
@@ -3341,7 +3342,7 @@ async function analyzeAggressivePair(pair: string): Promise<any> {
     const h1Bars = h1.map(toBar);
     const h4Bars = h4 ? h4.map(toBar) : [];
 
-    const livePrice = getLivePrice(pair);
+    const livePrice = await getLivePrice(pair);
     const curPrice = (livePrice && livePrice.bid) ? livePrice.bid : (m15Bars[m15Bars.length - 1]?.close || 0);
 
     const result = analyzeSmcChart({
@@ -6247,7 +6248,7 @@ app.get("/api/daily-briefing", async (req, res) => {
 
     const pairBriefings = await Promise.all(
       pairs.map(async (pair) => {
-        const livePrice = getLivePrice(pair);
+        const livePrice = await getLivePrice(pair);
         const [m15, h1] = await Promise.all([
           getCandles(pair, "15min", 30),
           getCandles(pair, "1h", 25),
@@ -6319,7 +6320,7 @@ async function analyzePairConfluence(pair: string, balance = 677): Promise<any> 
   const h1C = h1.map(toCandle);
   const d1C = d1 ? d1.map(toCandle) : undefined;
 
-  const livePrice = getLivePrice(pair);
+  const livePrice = await getLivePrice(pair);
   const lastM15 = m15[m15.length - 1];
   const curBid = (livePrice && livePrice.bid) ? livePrice.bid : lastM15.c;
   const curAsk = (livePrice && livePrice.ask) ? livePrice.ask : (lastM15.ac || lastM15.c);
