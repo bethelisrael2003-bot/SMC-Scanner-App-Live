@@ -25,8 +25,7 @@ import {
   VolumeX,
   Volume1,
   Square,
-  Sparkles,
-  Trash2
+  Sparkles
 } from "lucide-react";
 import { PushNotifications } from "@capacitor/push-notifications";
 import { LocalNotifications } from "@capacitor/local-notifications";
@@ -998,18 +997,6 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={async () => {
-                      if (confirm("Reset trade history log to fresh state?")) {
-                        await fetch(`${API_BASE_URL}/api/performance/clear`, { method: "POST" });
-                        fetchPerformance();
-                      }
-                    }}
-                    className="p-2 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-rose-400 hover:border-rose-500/30 transition-all cursor-pointer"
-                    title="Clear trade history"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
                   <button
                     onClick={fetchPerformance}
                     disabled={perfLoading}
