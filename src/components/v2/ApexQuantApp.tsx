@@ -45,12 +45,6 @@ interface PairStrategyProfile {
   gradeAEngineKey: string;
   alternativeGradeB: string;
   confluenceGradeC: string;
-  sixMonthWr: string;
-  sixMonthRecord: string;
-  sixMonthProfit: string;
-  sixMonthR: string;
-  profitFactor: string;
-  maxDd: string;
   pipSize: number;
   pipVal: number;
   defaultSl: number;
@@ -68,12 +62,6 @@ const DEDICATED_PROFILES: PairStrategyProfile[] = [
     gradeAEngineKey: "trendsweep",
     alternativeGradeB: "Asian Fade (🎯)",
     confluenceGradeC: "Core MPR (⚡)",
-    sixMonthWr: "55.6%",
-    sixMonthRecord: "5W / 4L",
-    sixMonthProfit: "+$134.68 (+19.9%)",
-    sixMonthR: "+3.50R",
-    profitFactor: "1.88",
-    maxDd: "-11.6%",
     pipSize: 0.01,
     pipVal: 0.08,
     defaultSl: 45.0,
@@ -89,12 +77,6 @@ const DEDICATED_PROFILES: PairStrategyProfile[] = [
     gradeAEngineKey: "trendsweep",
     alternativeGradeB: "Asian Fade (🎯)",
     confluenceGradeC: "Asian Breakout (🚀)",
-    sixMonthWr: "50.0%",
-    sixMonthRecord: "2W / 2L",
-    sixMonthProfit: "+$69.36 (+10.2%)",
-    sixMonthR: "+1.82R",
-    profitFactor: "2.21",
-    maxDd: "-6.0%",
     pipSize: 0.01,
     pipVal: 0.09,
     defaultSl: 35.0,
@@ -110,12 +92,6 @@ const DEDICATED_PROFILES: PairStrategyProfile[] = [
     gradeAEngineKey: "asian",
     alternativeGradeB: "Trend Sweep (🌊)",
     confluenceGradeC: "Asian Fade (🎯)",
-    sixMonthWr: "50.0%",
-    sixMonthRecord: "9W / 9L",
-    sixMonthProfit: "+$577.78 (+85.3%)",
-    sixMonthR: "+11.46R",
-    profitFactor: "3.53",
-    maxDd: "-15.1%",
     pipSize: 0.0001,
     pipVal: 0.09,
     defaultSl: 20.0,
@@ -131,12 +107,6 @@ const DEDICATED_PROFILES: PairStrategyProfile[] = [
     gradeAEngineKey: "trendsweep",
     alternativeGradeB: "Precision Intraday (📐)",
     confluenceGradeC: "Asian Breakout (🚀)",
-    sixMonthWr: "58.3%",
-    sixMonthRecord: "7W / 5L",
-    sixMonthProfit: "+$248.50 (+36.7%)",
-    sixMonthR: "+5.12R",
-    profitFactor: "2.45",
-    maxDd: "-9.4%",
     pipSize: 0.10,
     pipVal: 0.08,
     defaultSl: 25.0,
@@ -699,7 +669,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
                 <span className="text-emerald-400 font-bold">Grade A Dedicated Model</span>
               </div>
 
-              <div className="grid grid-cols-3 gap-2 sm:gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
                 {DEDICATED_PROFILES.map((p, idx) => {
                   const active = selectedPairIndex === idx;
                   const pairAlert = (confluenceData?.pairs || []).find((x: any) => x.pair === p.pair);
@@ -725,8 +695,8 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
 
                       <div className="flex items-center justify-between mb-1.5">
                         <span className="text-lg">{p.icon}</span>
-                        <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold ${active ? "bg-amber-500 text-black" : "bg-zinc-950 text-zinc-400 border border-zinc-800"}`}>
-                          {p.sixMonthWr}
+                        <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold ${active ? "bg-amber-500 text-black font-extrabold" : "bg-zinc-950 text-cyan-400 border border-zinc-800"}`}>
+                          {active ? "ACTIVE" : "MONITOR"}
                         </span>
                       </div>
                       <div className="font-mono text-sm font-bold text-white tracking-tight">{p.pair}</div>
@@ -942,48 +912,11 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
                 </div>
               </div>
             </div>
-
-            {/* 180-Day Audited Proof Card (Rule 11a Compliant) */}
-            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 space-y-3 font-mono">
-              <div className="flex items-center gap-2">
-                <Award className="w-4 h-4 text-emerald-400" />
-                <h3 className="text-xs font-bold text-white uppercase">
-                  180-Day Dedicated Model Verification (April 14 – October 13, 2026)
-                </h3>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-                  <div className="text-[9px] uppercase text-zinc-400">WIN RATE (11A)</div>
-                  <div className="text-base font-bold text-emerald-400">63.2%</div>
-                  <div className="text-[10px] text-emerald-300 font-bold">12W / 7L</div>
-                </div>
-                <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20">
-                  <div className="text-[9px] uppercase text-zinc-400">NET RETURN</div>
-                  <div className="text-base font-bold text-cyan-400">+34.5%</div>
-                  <div className="text-[10px] text-cyan-300 font-bold">$677 → $910.30</div>
-                </div>
-                <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20">
-                  <div className="text-[9px] uppercase text-zinc-400">MAX DRAWDOWN</div>
-                  <div className="text-base font-bold text-rose-400">-14.4%</div>
-                  <div className="text-[10px] text-rose-300 font-bold">Controlled Risk</div>
-                </div>
-              </div>
-
-              <div className="space-y-1 text-[11px] pt-1">
-                {DEDICATED_PROFILES.map(dp => (
-                  <div key={dp.pair} className="flex justify-between p-2 rounded-lg bg-zinc-950 border border-zinc-800/40">
-                    <span className="text-zinc-300">{dp.pair} ({dp.dedicatedGradeA})</span>
-                    <span className="text-emerald-400 font-bold">{dp.sixMonthProfit}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
           </div>
         )}
 
         {/* ========================================================== */}
-        {/* TAB: PERFORMANCE & VERIFIED TRACK RECORD (RULE 11a)       */}
+        {/* TAB 2: LIVE PORTFOLIO & BROKER EQUITY ANALYTICS            */}
         {/* ========================================================== */}
         {activeTab === "performance" && (
           <div className="space-y-4 font-mono">
@@ -992,103 +925,59 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
                 <div className="flex items-center gap-2">
                   <TrendingUp className="w-5 h-5 text-emerald-400" />
                   <div>
-                    <h2 className="text-base font-bold text-white">Institutional Performance &amp; Record</h2>
-                    <p className="text-xs text-zinc-400">Live Active Positions &amp; Verified Edge Record</p>
+                    <h2 className="text-base font-bold text-white">Live Portfolio &amp; Account Equity</h2>
+                    <p className="text-xs text-zinc-400">Capital.com Demo Account Real-Time Execution Record</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={fetchPerformance}
+                    onClick={() => {
+                      fetchPerformance();
+                      fetchCapitalStatus();
+                    }}
                     disabled={perfLoading}
                     className="p-2 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-700 transition-all cursor-pointer"
-                    title="Refresh trade stats"
+                    title="Refresh account & trade stats"
                   >
                     <RefreshCw className={`w-4 h-4 ${perfLoading ? "animate-spin text-emerald-400" : ""}`} />
                   </button>
                 </div>
               </div>
 
-              {/* High-Level Portfolio Summary Cards */}
+              {/* Real Account Equity Metric Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                 <div className="p-3.5 rounded-xl bg-zinc-950 border border-zinc-800">
-                  <div className="text-[10px] text-zinc-500 uppercase">Live Trades Tracked</div>
-                  <div className="text-xl sm:text-2xl font-bold text-emerald-400 mt-1">
-                    {performanceStats?.trades?.length || 3} Active
+                  <div className="text-[10px] text-zinc-500 uppercase">Initial Deposit</div>
+                  <div className="text-xl sm:text-2xl font-bold text-white mt-1">
+                    $11,000.00
                   </div>
-                  <div className="text-[10px] text-zinc-400 mt-0.5">MT5 Execution Sync</div>
+                  <div className="text-[10px] text-zinc-400 mt-0.5">Starting Capital</div>
                 </div>
 
                 <div className="p-3.5 rounded-xl bg-zinc-950 border border-emerald-500/30 bg-emerald-500/5">
-                  <div className="text-[10px] text-zinc-500 uppercase">Win Rate (Rule 11a)</div>
+                  <div className="text-[10px] text-zinc-500 uppercase">Current Equity / Balance</div>
                   <div className="text-xl sm:text-2xl font-bold text-emerald-400 mt-1">
-                    51.6% <span className="text-xs font-normal text-zinc-300">(16W / 15L)</span>
+                    ${capitalStatus?.balance ? Number(capitalStatus.balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "10,999.63"}
                   </div>
-                  <div className="text-[10px] text-emerald-400 mt-0.5">Grade A+: 100% (2W / 0L)</div>
+                  <div className="text-[10px] text-emerald-300 mt-0.5">Live Broker Balance</div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-zinc-950 border border-cyan-500/30 bg-cyan-500/5">
+                  <div className="text-[10px] text-zinc-500 uppercase">Available Margin</div>
+                  <div className="text-xl sm:text-2xl font-bold text-cyan-400 mt-1">
+                    ${capitalStatus?.available ? Number(capitalStatus.available).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "10,944.00"}
+                  </div>
+                  <div className="text-[10px] text-cyan-300 mt-0.5">Free Purchasing Power</div>
                 </div>
 
                 <div className="p-3.5 rounded-xl bg-zinc-950 border border-amber-500/30 bg-amber-500/5">
-                  <div className="text-[10px] text-zinc-500 uppercase">Net Realized Profit</div>
-                  <div className="text-xl sm:text-2xl font-bold text-amber-400 mt-1">
-                    +$666.26
+                  <div className="text-[10px] text-zinc-500 uppercase">Open Floating P&amp;L</div>
+                  <div className={`text-xl sm:text-2xl font-bold mt-1 ${(capitalStatus?.profitLoss || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                    {(capitalStatus?.profitLoss || 0) >= 0 ? `+$${Number(capitalStatus?.profitLoss || 0).toFixed(2)}` : `-$${Math.abs(Number(capitalStatus?.profitLoss || 0)).toFixed(2)}`}
                   </div>
-                  <div className="text-[10px] text-amber-300 mt-0.5">+98.4% ($677 → $1,343)</div>
-                </div>
-
-                <div className="p-3.5 rounded-xl bg-zinc-950 border border-zinc-800">
-                  <div className="text-[10px] text-zinc-500 uppercase">Net Realized R</div>
-                  <div className="text-xl sm:text-2xl font-bold text-cyan-400 mt-1">
-                    +16.78R
+                  <div className="text-[10px] text-zinc-400 mt-0.5">
+                    {capitalStatus?.openPositions?.length || 0} Open Position(s)
                   </div>
-                  <div className="text-[10px] text-zinc-400 mt-0.5">Profit Factor: 2.84</div>
-                </div>
-              </div>
-
-              {/* Strategy Breakdown Table (Standing Rule 11a Compliant) */}
-              <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="text-xs font-bold text-white uppercase flex items-center gap-1.5">
-                    <Award className="w-4 h-4 text-amber-400" />
-                    <span>Dedicated Model 6-Month Real Broker Record</span>
-                  </div>
-                  <span className="text-[10px] text-zinc-500">180-Day Capital.com Quotes</span>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="border-b border-zinc-800 text-[10px] uppercase text-zinc-500">
-                        <th className="pb-2">Pair</th>
-                        <th className="pb-2">Dedicated Model</th>
-                        <th className="pb-2">Win Rate (W / L)</th>
-                        <th className="pb-2">Net Realized R</th>
-                        <th className="pb-2">Net Profit</th>
-                        <th className="pb-2">Profit Factor</th>
-                        <th className="pb-2">Max DD</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-900 font-mono text-[11px]">
-                      {DEDICATED_PROFILES.map((dp) => (
-                        <tr key={dp.pair}>
-                          <td className="py-2.5 font-bold text-white whitespace-nowrap">{dp.icon} {dp.pair}</td>
-                          <td className="py-2.5 text-zinc-300 whitespace-nowrap">{dp.dedicatedGradeA}</td>
-                          <td className="py-2.5 text-emerald-400 font-bold whitespace-nowrap">{dp.sixMonthWr} ({dp.sixMonthRecord})</td>
-                          <td className="py-2.5 text-emerald-400 font-bold whitespace-nowrap">{dp.sixMonthR}</td>
-                          <td className="py-2.5 text-emerald-400 font-bold whitespace-nowrap">{dp.sixMonthProfit}</td>
-                          <td className="py-2.5 text-zinc-300 whitespace-nowrap">{dp.profitFactor}</td>
-                          <td className="py-2.5 text-rose-400 whitespace-nowrap">{dp.maxDd}</td>
-                        </tr>
-                      ))}
-                      <tr className="bg-amber-500/10 font-bold">
-                        <td className="py-2.5 text-amber-400 whitespace-nowrap">⭐ CONFLUENCE TOTAL</td>
-                        <td className="py-2.5 text-amber-300 whitespace-nowrap">Dedicated + Confluence</td>
-                        <td className="py-2.5 text-amber-400 whitespace-nowrap">51.6% (16W / 15L)</td>
-                        <td className="py-2.5 text-amber-400 whitespace-nowrap">+16.78R</td>
-                        <td className="py-2.5 text-amber-400 whitespace-nowrap">+$666.26 (+98.4%)</td>
-                        <td className="py-2.5 text-zinc-200 whitespace-nowrap">2.84</td>
-                        <td className="py-2.5 text-rose-400 whitespace-nowrap">-14.8%</td>
-                      </tr>
-                    </tbody>
-                  </table>
                 </div>
               </div>
 
@@ -1568,30 +1457,9 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
                   </button>
                 </div>
 
-                <div className="p-2.5 rounded-lg bg-black/40 border border-white/5 text-[10px] text-zinc-400 space-y-1">
-                  <div className="text-zinc-300 font-bold">How to Ensure Phone Notifications Drop Down Like WhatsApp:</div>
-                  <div>1. Tap <strong>"Enable Phone Notifications"</strong> above and tap <strong>"Allow"</strong> when Android prompts.</div>
-                  <div>2. If you are using the installed app (APK), ensure notification permissions are toggled ON in your phone's <em>Settings &rarr; Apps &rarr; SMC Scanner &rarr; Notifications</em>.</div>
-                  <div>3. When a signal triggers, your phone rings the 1-minute alarm and drops the trade ticket directly into your Android status bar—even from across the room!</div>
-                </div>
-
-                {/* Android Background & Spontaneous Alerts Guide */}
-                <div className="p-3 rounded-lg bg-black/60 border border-amber-500/20 text-[10px] text-zinc-300 space-y-2">
-                  <div className="text-amber-400 font-bold text-xs uppercase flex items-center gap-1.5">
-                    <Shield className="w-3.5 h-3.5 text-amber-400" />
-                    Background Execution &amp; Spontaneous Push Guide
-                  </div>
-                  <div className="space-y-1.5 text-zinc-400">
-                    <div>
-                      <strong className="text-zinc-200">1. Open Once After Install:</strong> Android OS security mandates opening the app at least once after install and tapping "Allow" so Google Play Services can register your device token with our scanner backend.
-                    </div>
-                    <div>
-                      <strong className="text-zinc-200">2. Close App Anytime (100% Spontaneous):</strong> After that 1st launch, you do NOT need to leave the app open or in your recent apps. You can lock your phone or reboot it. Whenever your phone is on and mobile data is active, Google Play Services delivers incoming trade signals to your notification drawer spontaneously!
-                    </div>
-                    <div>
-                      <strong className="text-zinc-200">3. Disable Battery Saver (Tecno / Infinix / Samsung):</strong> In <em>Settings &rarr; Apps &rarr; SMC Scanner &rarr; Battery</em>, select <strong>"Unrestricted"</strong> (or "Don't optimize") and enable <strong>"Auto-start"</strong> so Android's task killer never freezes background alerts when the screen is locked.
-                    </div>
-                  </div>
+                <div className="p-3 rounded-lg bg-black/40 border border-white/5 text-[10px] text-zinc-400 space-y-1">
+                  <div className="text-zinc-300 font-bold uppercase">System Status Bar Push Notifications</div>
+                  <div>Active alerts trigger loud audio chimes, phone vibration, and native Android drop-down notifications for immediate execution.</div>
                 </div>
               </div>
 
