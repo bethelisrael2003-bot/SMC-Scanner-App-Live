@@ -175,8 +175,8 @@ const TREND_SWEEP_VERSION = "2026-10-03.2";
 const ASIAN_FADE_VERSION = "2026-09-23.1";
 // 2026-10-13 Aggressive Growth SMC & RoboForex Cent Account engine
 const AGGRESSIVE_VERSION = "2026-10-13.1";
-// 2026-10-14.11 Target Payout Display (+$ USD) on Active Broker Positions
-const CONFLUENCE_VERSION = "2026-10-14.11";
+// 2026-10-14.12 Live Price Drift Guard, Stale Timeout & Instant Remote Webview APK Sync
+const CONFLUENCE_VERSION = "2026-10-14.12";
 // Clean MPR sample boundary — only trades OPENED after this instant count
 // toward the post-fix sample. Moved to the inversion-fix deploy (user
 // decision, 2026-09-16): every prior trade was analyzed on time-inverted
@@ -6929,6 +6929,19 @@ async function analyzePairConfluence(pair: string, balance = 677): Promise<any> 
     tp2 = activeSetup.tp2 || activeSetup.tp;
     const riskDist = Math.abs(entryPrice - sl);
     slPips = Math.round((riskDist / pSize) * 10) / 10;
+
+    // ── LIVE PRICE DRIFT & STALE GUARD ───────────────────────────────
+    // If market price has already moved favorably away from entry by more than maxDrift,
+    // the entry window has closed. Mark as IN PROGRESS so user does not chase.
+    const curP = activeSetup.direction === "BUY" ? curAsk : curBid;
+    const driftPips = Math.round((Math.abs(curP - entryPrice) / pSize) * 10) / 10;
+    const maxDriftPips = pair.includes("XAU") ? 35 : (pair.includes("XAG") ? 15 : (pair.includes("JPY") ? 12 : 7));
+    const movedInFavor = activeSetup.direction === "BUY" ? curP > entryPrice : curP < entryPrice;
+
+    if (movedInFavor && driftPips > maxDriftPips) {
+      confluenceGrade = "WAIT";
+      reasoning = `TRADE IN PROGRESS / ENTRY MISSED: Price moved +${driftPips} pips past planned entry. Entry window closed. Do not chase.`;
+    }
 
     cashRisk = Math.round(balance * (riskPct / 100.0) * 100) / 100;
     const rawLots = (slPips > 0 && pipVal > 0) ? (cashRisk / (slPips * pipVal)) / 100.0 : 0.01;
