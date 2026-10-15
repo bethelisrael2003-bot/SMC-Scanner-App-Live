@@ -1025,13 +1025,18 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
                           <span className="font-bold text-white">{pos.pair}</span>
                           <span className="text-[10px] text-zinc-400">Size: {pos.size} units</span>
                         </div>
-                        <div className="flex items-center gap-3 text-zinc-300 text-[11px]">
+                        <div className="flex items-center gap-3 text-zinc-300 text-[11px] font-mono flex-wrap">
                           <span>Entry: {pos.entryPrice}</span>
-                          <span>SL: {pos.stopLevel || "--"}</span>
-                          <span>TP: {pos.profitLevel || "--"}</span>
+                          <span className="text-rose-400">SL: {pos.stopLevel || "--"}</span>
+                          <span className="text-emerald-400 font-bold">TP: {pos.profitLevel || "--"}</span>
                           <span className={`font-bold ${pos.upl >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                            {pos.upl >= 0 ? `+$${pos.upl.toFixed(2)}` : `-$${Math.abs(pos.upl).toFixed(2)}`}
+                            Live PnL: {pos.upl >= 0 ? `+$${Number(pos.upl).toFixed(2)}` : `-$${Math.abs(Number(pos.upl)).toFixed(2)}`}
                           </span>
+                          {pos.profitLevel && pos.entryPrice && (
+                            <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30">
+                              Target Payout @ TP: +${(Math.abs(Number(pos.profitLevel) - Number(pos.entryPrice)) * Number(pos.size)).toFixed(2)} USD
+                            </span>
+                          )}
                         </div>
                         <button
                           onClick={() => closeCapitalTrade(pos.dealId)}
