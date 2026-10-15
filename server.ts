@@ -175,8 +175,8 @@ const TREND_SWEEP_VERSION = "2026-10-03.2";
 const ASIAN_FADE_VERSION = "2026-09-23.1";
 // 2026-10-13 Aggressive Growth SMC & RoboForex Cent Account engine
 const AGGRESSIVE_VERSION = "2026-10-13.1";
-// 2026-10-14.9 Purge Backtest Claims, Live Capital Account Equity View & Executive UI Overhaul
-const CONFLUENCE_VERSION = "2026-10-14.9";
+// 2026-10-14.10 Standard 2.0R Take Profit Restored Across All Engines & Capital.com Orders
+const CONFLUENCE_VERSION = "2026-10-14.10";
 // Clean MPR sample boundary — only trades OPENED after this instant count
 // toward the post-fix sample. Moved to the inversion-fix deploy (user
 // decision, 2026-09-16): every prior trade was analyzed on time-inverted
@@ -609,7 +609,7 @@ async function executeCapitalDemoTrade(trade: CapitalTradeRequest): Promise<{ su
       entryPrice: trade.entryPrice,
       sl: stopLevel,
       tp1: profitLevel,
-      rr: 1.5,
+      rr: 2.0,
       session: `Capital.com Demo Deal #${dealRef.slice(0, 16)}`
     }).catch(() => {});
 
@@ -6894,8 +6894,8 @@ async function analyzePairConfluence(pair: string, balance = 677): Promise<any> 
     const extreme = sweepExtreme > 0 ? sweepExtreme : (candidateDir === "BUY" ? priorLow20 : priorHigh20);
     const slP = candidateDir === "BUY" ? extreme - slBuffer : extreme + slBuffer;
     const rDist = Math.max(pSize * 10, Math.abs(entryP - slP));
-    const tp1P = candidateDir === "BUY" ? entryP + 1.0 * rDist : entryP - 1.0 * rDist;
-    const tp2P = candidateDir === "BUY" ? entryP + 2.5 * rDist : entryP - 2.5 * rDist;
+    const tp1P = candidateDir === "BUY" ? entryP + 2.0 * rDist : entryP - 2.0 * rDist;
+    const tp2P = candidateDir === "BUY" ? entryP + 3.0 * rDist : entryP - 3.0 * rDist;
 
     activeSetup = {
       direction: candidateDir,

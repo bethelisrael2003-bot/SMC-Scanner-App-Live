@@ -272,9 +272,9 @@ export function evaluateTrendSweep(
       const risk = roundToPairTick(pair, entry - sl);
 
       if (risk > 0) {
-        const tp1 = roundToPairTick(pair, entry + 1.0 * risk);
-        let tp2 = roundToPairTick(pair, entry + 2.50 * risk);
-        let tp2Note = "2.50R Runner";
+        const tp1 = roundToPairTick(pair, entry + 2.0 * risk);
+        let tp2 = roundToPairTick(pair, entry + 3.0 * risk);
+        let tp2Note = "3.00R Runner";
 
         if (d1Candles && d1Candles.length >= 2) {
           const lastD1 = d1Candles[d1Candles.length - 1];
@@ -332,9 +332,9 @@ export function evaluateTrendSweep(
       const risk = roundToPairTick(pair, sl - entry);
 
       if (risk > 0) {
-        const tp1 = roundToPairTick(pair, entry - 1.0 * risk);
-        let tp2 = roundToPairTick(pair, entry - 2.50 * risk);
-        let tp2Note = "2.50R Runner";
+        const tp1 = roundToPairTick(pair, entry - 2.0 * risk);
+        let tp2 = roundToPairTick(pair, entry - 3.0 * risk);
+        let tp2Note = "3.00R Runner";
 
         if (d1Candles && d1Candles.length >= 2) {
           const lastD1 = d1Candles[d1Candles.length - 1];
