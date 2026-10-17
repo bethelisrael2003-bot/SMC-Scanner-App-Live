@@ -833,11 +833,16 @@ behaviors, you must monitor and manage them yourself.
   ╚════════════════════════════════════════════════════════════════╝
 
   ╔════════════════════════════════════════════════════════════════╗
-  ║  B5. NEWS IS ADVISORY ONLY                                    ║
-  ║  High-impact news events are flagged but do NOT block trades. ║
-  ║  If NFP/CPI/FOMC is today, the system will still enter setups ║
-  ║  during Kill Zones. You must check the calendar yourself      ║
-  ║  if you want to avoid trading around news.                    ║
+  ║  B5. HIGH-IMPACT NEWS EXECUTION GATE (HARD LOCKOUT ENFORCED)   ║
+  ║  High-impact economic news (CPI, NFP, FOMC) triggers automated ║
+  ║  protection:                                                  ║
+  ║  1. Entry Freeze: No entries within 60m pre / 30m post news.  ║
+  ║  2. Open Trade Defense: At 15m pre-news, profitable trades    ║
+  ║     move SL to Breakeven; stagnant/losing trades exit to      ║
+  ║     eliminate catastrophic slippage gaps (e.g. CPI -5.73R).   ║
+  ║  3. Friday Weekend Flattener: Post-17:00 UTC entry freeze &    ║
+  ║     20:00 UTC auto-flatten to prevent weekend gap exposure.   ║
+  ║  4. Fixed $25 Risk Sizing: Positions normalized to $25 flat.  ║
   ╚════════════════════════════════════════════════════════════════╝
 
   ╔════════════════════════════════════════════════════════════════╗

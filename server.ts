@@ -175,8 +175,8 @@ const TREND_SWEEP_VERSION = "2026-10-03.2";
 const ASIAN_FADE_VERSION = "2026-09-23.1";
 // 2026-10-13 Aggressive Growth SMC & RoboForex Cent Account engine
 const AGGRESSIVE_VERSION = "2026-10-13.1";
-// 2026-10-14.15 Universal Android Installer Fix (TargetSdk 34 + Dual Named APKs + PWA 1-Tap Home Screen)
-const CONFLUENCE_VERSION = "2026-10-14.15";
+// 2026-10-17.1 Defenses Deploy: High-Impact News Gate (60m lock/15m protect), Weekend Flattener (Fri 17h/20h), $25 Fixed Risk Sizer
+const CONFLUENCE_VERSION = "2026-10-17.1-defenses";
 // Clean MPR sample boundary — only trades OPENED after this instant count
 // toward the post-fix sample. Moved to the inversion-fix deploy (user
 // decision, 2026-09-16): every prior trade was analyzed on time-inverted
@@ -473,6 +473,118 @@ async function updateCapitalPositionStop(dealId: string, newStopLevel: number): 
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// HIGH-IMPACT ECONOMIC NEWS INTELLIGENCE & SLIPPAGE GAP DEFENSE
+// ═══════════════════════════════════════════════════════════════════════
+
+interface NewsProximityResult {
+  isNear: boolean;
+  event?: string;
+  currency?: string;
+  minutesAway?: number;
+  impact?: string;
+}
+
+let cachedFfCalendarJson: any[] | null = null;
+let lastFfCalendarFetch = 0;
+
+async function getFfCalendarEvents(): Promise<any[]> {
+  const now = Date.now();
+  if (cachedFfCalendarJson && (now - lastFfCalendarFetch < 20 * 60 * 1000)) {
+    return cachedFfCalendarJson;
+  }
+  try {
+    const res = await fetch("https://nfs.faireconomy.media/ff_calendar_thisweek.json", {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json"
+      }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        cachedFfCalendarJson = data;
+        lastFfCalendarFetch = now;
+        return data;
+      }
+    }
+  } catch (err) {
+    console.warn("[NEWS GUARD] Failed to fetch Forex Factory JSON feed:", err);
+  }
+  return cachedFfCalendarJson || [];
+}
+
+async function checkHighImpactNewsProximity(pair: string, preMinutes = 60, postMinutes = 30): Promise<NewsProximityResult> {
+  try {
+    const events = await getFfCalendarEvents();
+    if (!events || events.length === 0) return { isNear: false };
+
+    const relevantCurrencies: string[] = [];
+    if (pair.includes("XAU") || pair.includes("XAG")) {
+      relevantCurrencies.push("USD");
+    } else {
+      const parts = pair.split("/");
+      parts.forEach(p => relevantCurrencies.push(p.trim()));
+    }
+
+    const now = Date.now();
+
+    for (const e of events) {
+      if (e.impact !== "High") continue;
+      if (!relevantCurrencies.includes(e.country)) continue;
+      if (!e.date) continue;
+
+      const eventTime = new Date(e.date).getTime();
+      if (isNaN(eventTime)) continue;
+
+      const diffMs = eventTime - now;
+      const minutesAway = Math.round(diffMs / (60 * 1000));
+
+      if (minutesAway >= -postMinutes && minutesAway <= preMinutes) {
+        return {
+          isNear: true,
+          event: e.title,
+          currency: e.country,
+          minutesAway,
+          impact: e.impact
+        };
+      }
+    }
+  } catch (err) {
+    console.error("[NEWS GUARD] Error checking news proximity:", err);
+  }
+  return { isNear: false };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// FIXED-DOLLAR RISK POSITION SIZER ($25 FLAT USD RISK PER TRADE)
+// ═══════════════════════════════════════════════════════════════════════
+
+function calculateFixedDollarDealSize(pair: string, entryPrice: number, sl: number, targetRiskUsd = 25.0): number {
+  const stopDist = Math.abs(entryPrice - sl);
+  if (!stopDist || stopDist <= 0) {
+    if (pair.includes("XAU")) return 1.0;
+    if (pair.includes("XAG")) return 50.0;
+    if (pair.includes("JPY")) return 3000;
+    return 5000;
+  }
+
+  if (pair.includes("XAU")) {
+    const raw = targetRiskUsd / stopDist;
+    return Number(Math.max(0.5, Math.min(4.0, Math.round(raw * 10) / 10)).toFixed(1));
+  } else if (pair.includes("XAG")) {
+    const raw = targetRiskUsd / stopDist;
+    return Math.max(10, Math.min(120, Math.round(raw)));
+  } else if (pair.includes("JPY")) {
+    const usdJpyEst = 150.0;
+    const raw = (targetRiskUsd * usdJpyEst) / stopDist;
+    return Math.max(1000, Math.min(20000, Math.round(raw / 500) * 500));
+  } else {
+    const raw = targetRiskUsd / stopDist;
+    return Math.max(1000, Math.min(25000, Math.round(raw / 500) * 500));
+  }
+}
+
 async function executeCapitalDemoTrade(trade: CapitalTradeRequest): Promise<{ success: boolean; dealReference?: string; reason?: string }> {
   if (!autoTradingEnabled) {
     console.log(`[CAPITAL DEMO] Auto-trade skipped: Feature is currently toggled OFF.`);
@@ -492,6 +604,26 @@ async function executeCapitalDemoTrade(trade: CapitalTradeRequest): Promise<{ su
   isExecutionLockActive = true;
 
   try {
+    // ── GUARD 0A: Weekend Protection (Friday Cutoff & Weekend Lockout) ──
+    const nowExec = new Date();
+    const dowExec = nowExec.getUTCDay();
+    const utcHourExec = nowExec.getUTCHours() + nowExec.getUTCMinutes() / 60;
+    if (dowExec === 5 && utcHourExec >= 17.0) {
+      console.log(`[CAPITAL DEMO] Blocked: Friday weekend entry cutoff reached (17:00 UTC / 18:00 WAT).`);
+      return { success: false, reason: "Weekend Protection: Friday entry cutoff (17:00 UTC)" };
+    }
+    if (dowExec === 6 || (dowExec === 0 && utcHourExec < 22.0)) {
+      console.log(`[CAPITAL DEMO] Blocked: Market closed over weekend.`);
+      return { success: false, reason: "Weekend Protection: Market closed over weekend" };
+    }
+
+    // ── GUARD 0B: High-Impact Economic News Proximity Gate (60m) ───────
+    const newsCheck = await checkHighImpactNewsProximity(trade.pair, 60, 30);
+    if (newsCheck.isNear) {
+      console.log(`[CAPITAL DEMO] Blocked by News Guard: ${trade.pair} has high-impact ${newsCheck.currency} event "${newsCheck.event}" scheduled in ${newsCheck.minutesAway}m.`);
+      return { success: false, reason: `News Guard: High-impact ${newsCheck.currency} event (${newsCheck.event}) within ${newsCheck.minutesAway}m` };
+    }
+
     // ── GUARD 1: Active Position on Same Pair ─────────────────────────
     const openPositions = await getCapitalOpenPositions();
     const isAlreadyOpenOnBroker = openPositions.some(
@@ -525,17 +657,14 @@ async function executeCapitalDemoTrade(trade: CapitalTradeRequest): Promise<{ su
       return { success: false, reason: "Duplicate setup already executed today" };
     }
 
-    // ── Calculate Deal Size (Units) ───────────────────────────────────
-    let dealSize = 1000;
-    if (trade.pair.includes("XAU")) dealSize = 1.0;
-    else if (trade.pair.includes("XAG")) dealSize = 50.0;
-    else if (trade.pair.includes("JPY")) dealSize = 3000;
-    else dealSize = 5000; // EUR/USD
-
     // Round Stop Loss and Take Profit to exact precision
     const decDigits = trade.pair.includes("JPY") ? 3 : (trade.pair.includes("XAG") || trade.pair.includes("XAU") ? 2 : 5);
     const stopLevel = Number(trade.sl.toFixed(decDigits));
     const profitLevel = Number(trade.tp1.toFixed(decDigits));
+
+    // ── Calculate Deal Size ($25.00 Flat Risk Normalization) ──────────
+    const targetRiskUsd = 25.0; // Flat $25.00 USD risk per trade
+    const dealSize = calculateFixedDollarDealSize(trade.pair, trade.entryPrice, stopLevel, targetRiskUsd);
 
     const payload = {
       epic,
@@ -551,7 +680,7 @@ async function executeCapitalDemoTrade(trade: CapitalTradeRequest): Promise<{ su
       return { success: false, reason: "Broker authentication failed" };
     }
 
-    console.log(`[CAPITAL DEMO] Submitting order for ${trade.pair} ${trade.direction}: Size=${dealSize}, SL=${stopLevel}, TP=${profitLevel}...`);
+    console.log(`[CAPITAL DEMO] Submitting order for ${trade.pair} ${trade.direction}: Size=${dealSize} (Target Risk $${targetRiskUsd}), SL=${stopLevel}, TP=${profitLevel}...`);
 
     const res = await fetchWithRetry(`${CAPITAL_REST_URL}/positions`, {
       method: "POST",
@@ -1226,6 +1355,9 @@ function checkSessionStatus() {
   }
   if (dow === 0 && hour < 21) {
     return { session: "WEEKEND", message: "Sunday - market closed until ~21:00 GMT", canTrade: false, mondayReduced: false, currentGmt: currentGmtStr };
+  }
+  if (dow === 5 && hour >= 17.0) {
+    return { session: "WEEKEND_LOCKOUT", message: "Friday evening (post-17:00 GMT / 18:00 WAT) - Weekend entry lockout to prevent gap exposure", canTrade: false, mondayReduced: false, currentGmt: currentGmtStr };
   }
 
   const mondayReduced = (dow === 1 && hour < 4);
@@ -4392,13 +4524,88 @@ async function runBackgroundCycle() {
           // Fast trades lose (10% WR). Cutting trades early kills the winners.
           // Trades now run to TP/SL or EOD exit only.
 
+          // ========== FRIDAY WEEKEND AUTO-FLATTENER ==========
+          // Automatically close all open positions on Friday at 20:00 UTC (21:00 WAT)
+          // 60 minutes before market closes at 21:00 UTC, preventing weekend gap exposure and 3x rollover fees.
+          const nowUtc = new Date();
+          const dowNow = nowUtc.getUTCDay();
+          const gmtHour = nowUtc.getUTCHours() + nowUtc.getUTCMinutes() / 60;
+          if (dowNow === 5 && gmtHour >= 20.0) {
+            if (trade.dealReference || trade.isLiveOnBroker) {
+              try {
+                const openBrokerPositions = await getCapitalOpenPositions();
+                const brokerPos = openBrokerPositions.find((p: any) => {
+                  const pEpic = p.market?.instrumentName || p.position?.epic;
+                  return trade.pair.replace("/", "") === pEpic || trade.pair === pEpic;
+                });
+                if (brokerPos && brokerPos.position?.dealId) {
+                  console.log(`[WEEKEND AUTO-FLATTEN] Closing Capital.com deal ${brokerPos.position.dealId} for ${trade.pair}...`);
+                  await closeCapitalPosition(brokerPos.position.dealId);
+                }
+              } catch (err) {
+                console.error(`[WEEKEND AUTO-FLATTEN] Error closing broker position for ${trade.pair}:`, err);
+              }
+            }
+            const exitR = trade.direction === "BUY"
+              ? (checkPrice - trade.entryPrice) / Math.max(1e-5, slDist)
+              : (trade.entryPrice - checkPrice) / Math.max(1e-5, slDist);
+            trade.status = exitR >= 0 ? "Closed - WIN" : "Closed - LOSS";
+            trade.rrGained = Number(exitR.toFixed(2));
+            trade.closePrice = Number(checkPrice.toFixed(5));
+            trade.closeReason = "WEEKEND_AUTO_CLOSE";
+            trade.closeTimestamp = new Date().toISOString();
+            trade.updatedAt = new Date().toISOString();
+            console.log(`[BACKGROUND ENGINE] WEEKEND AUTO-CLOSE: Trade ${trade.id} (${trade.pair}) closed at ${checkPrice} (${trade.rrGained}R) ahead of Friday 21:00 UTC market close`);
+            continue;
+          }
+
+          // ========== HIGH-IMPACT NEWS AUTO-PROTECTION FOR OPEN POSITIONS ==========
+          // If high-impact news on this currency/metal is within 15 minutes:
+          // 1. If in profit (>= 0.5R) and BE not triggered, move SL to breakeven immediately.
+          // 2. If in negative or stagnant (< 0.3R), close at market to avoid slippage gap (e.g. CPI -5.73R disaster).
+          const openNewsCheck = await checkHighImpactNewsProximity(trade.pair, 15, 5);
+          if (openNewsCheck.isNear) {
+            const currentR = trade.direction === "BUY"
+              ? (checkPrice - trade.entryPrice) / Math.max(1e-5, slDist)
+              : (trade.entryPrice - checkPrice) / Math.max(1e-5, slDist);
+
+            if (currentR >= 0.5 && !trade.breakevenTriggered) {
+              trade.sl = trade.entryPrice;
+              trade.breakevenTriggered = true;
+              trade.updatedAt = new Date().toISOString();
+              console.log(`[NEWS AUTO-PROTECT] Moved SL to Breakeven for ${trade.pair} ahead of ${openNewsCheck.currency} ${openNewsCheck.event} in ${openNewsCheck.minutesAway}m.`);
+            } else if (currentR < 0.3) {
+              if (trade.dealReference || trade.isLiveOnBroker) {
+                try {
+                  const openBrokerPositions = await getCapitalOpenPositions();
+                  const brokerPos = openBrokerPositions.find((p: any) => {
+                    const pEpic = p.market?.instrumentName || p.position?.epic;
+                    return trade.pair.replace("/", "") === pEpic || trade.pair === pEpic;
+                  });
+                  if (brokerPos && brokerPos.position?.dealId) {
+                    console.log(`[NEWS AUTO-PROTECT] Closing Capital.com deal ${brokerPos.position.dealId} for ${trade.pair} ahead of high-impact news...`);
+                    await closeCapitalPosition(brokerPos.position.dealId);
+                  }
+                } catch (err) {
+                  console.error(`[NEWS AUTO-PROTECT] Error closing broker position for ${trade.pair}:`, err);
+                }
+              }
+              trade.status = currentR >= 0 ? "Closed - WIN" : "Closed - LOSS";
+              trade.rrGained = Number(currentR.toFixed(2));
+              trade.closePrice = Number(checkPrice.toFixed(5));
+              trade.closeReason = "NEWS_PRE_EVENT_CLOSE";
+              trade.closeTimestamp = new Date().toISOString();
+              trade.updatedAt = new Date().toISOString();
+              console.log(`[NEWS AUTO-PROTECT] Exited ${trade.pair} at market (${trade.rrGained}R) ahead of ${openNewsCheck.currency} ${openNewsCheck.event} in ${openNewsCheck.minutesAway}m.`);
+              continue;
+            }
+          }
+
           // ========== VOLATILITY-BASED COOLDOWN (Part 1) ==========
           // Replaces blind "close everything at 20:00 GMT" rule.
           // After 20:00 GMT, check if the PAIR is still active.
           // Active pairs (gold, silver, volatile FX) keep running.
           // Quiet pairs get closed. Uniform — no hardcoded exceptions.
-          const nowUtc = new Date();
-          const gmtHour = nowUtc.getUTCHours() + nowUtc.getUTCMinutes() / 60;
           if (gmtHour >= 20.0) {
             const volCheck = await checkVolatilityCooldown(trade.pair);
             if (volCheck.shouldClose) {
@@ -6599,9 +6806,18 @@ app.get("/api/daily-briefing", async (req, res) => {
     const watMinute = wat.getUTCMinutes();
     const totalMinutes = watHour * 60 + watMinute;
 
+    const dow = now.getUTCDay();
+    const utcHour = now.getUTCHours() + now.getUTCMinutes() / 60;
+
     let briefingPhase = "Session 1: London Open Live Briefing (09:00 - 12:00 WAT)";
     let isKillZone = false;
-    if (totalMinutes >= 9 * 60 && totalMinutes <= 12 * 60) {
+    if (dow === 6 || (dow === 0 && utcHour < 21) || (dow === 5 && utcHour >= 21)) {
+      briefingPhase = "Weekend Market Closure — Full Capital Protection Active (Reopens Sun 10:00 PM WAT)";
+      isKillZone = false;
+    } else if (dow === 5 && utcHour >= 17) {
+      briefingPhase = "Friday Weekend Lockout — Capital Protected Ahead of Close (Reopens Sun 10:00 PM WAT)";
+      isKillZone = false;
+    } else if (totalMinutes >= 9 * 60 && totalMinutes <= 12 * 60) {
       briefingPhase = "Session 1: London Open Live Briefing (09:00 - 12:00 WAT)";
       isKillZone = true;
     } else if (totalMinutes >= 13 * 60 + 30 && totalMinutes < 15 * 60 + 30) {
@@ -6954,6 +7170,23 @@ async function analyzePairConfluence(pair: string, balance = 677): Promise<any> 
     candidateDir = null;
     activeSetup = null;
     reasoning = `STATUS: WAITING FOR DEDICATED SETUP (${totalScore}% Confluence Score). Primary model (${gradeAEngine}) is monitoring for strict structural alignment. No forced trades.`;
+  }
+
+  // ── WEEKEND LOCKOUT & NEWS HARD EXECUTION GATES ──────────────────
+  const weekendStatus = checkSessionStatus();
+  if (weekendStatus.session === "WEEKEND" || weekendStatus.session === "WEEKEND_LOCKOUT") {
+    confluenceGrade = "WAIT";
+    activeSetup = null;
+    candidateDir = null;
+    reasoning = `WEEKEND LOCKOUT ACTIVE: ${weekendStatus.message}. System execution locked to protect capital from weekend gaps.`;
+  } else if (confluenceGrade !== "WAIT") {
+    const liveNewsCheck = await checkHighImpactNewsProximity(pair, 60, 30);
+    if (liveNewsCheck.isNear) {
+      confluenceGrade = "WAIT";
+      activeSetup = null;
+      candidateDir = null;
+      reasoning = `NEWS LOCKOUT ACTIVE: High-impact ${liveNewsCheck.currency} event (${liveNewsCheck.event}) within ${liveNewsCheck.minutesAway}m. New entries frozen to prevent slippage gaps.`;
+    }
   }
 
   let entryPrice = null;
