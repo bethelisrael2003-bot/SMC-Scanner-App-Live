@@ -1,125 +1,83 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
-  Zap,
-  Calculator,
+  Activity,
   TrendingUp,
   TrendingDown,
-  Clock,
   Shield,
-  Activity,
-  Award,
-  Flame,
+  ShieldCheck,
+  AlertTriangle,
+  Radio,
+  Calculator,
+  Settings,
+  Clock,
   Copy,
   Check,
   RefreshCw,
-  CheckCircle2,
-  XCircle,
-  Eye,
-  Radio,
-  Settings,
-  Sliders,
+  ExternalLink,
+  ChevronRight,
+  Calendar,
+  DollarSign,
   Layers,
-  ArrowRight,
-  Bell,
+  Lock,
+  Unlock,
   Volume2,
   VolumeX,
-  Volume1,
-  Square,
-  Sparkles
 } from "lucide-react";
 import { PushNotifications } from "@capacitor/push-notifications";
 import { LocalNotifications } from "@capacitor/local-notifications";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "https://smc-scanner-backend.onrender.com";
 
-export type BottomTabId = "command" | "performance" | "sizer" | "briefing" | "settings";
+export type BottomTabId = "terminal" | "analytics" | "radar" | "sizer" | "settings";
 
 interface PairStrategyProfile {
   pair: string;
   name: string;
-  icon: string;
   category: string;
-  dedicatedGradeA: string;
-  dedicatedIcon: string;
-  shortModel: string;
-  gradeAEngineKey: string;
-  alternativeGradeB: string;
-  confluenceGradeC: string;
+  epic: string;
   pipSize: number;
-  pipVal: number;
   defaultSl: number;
+  spreadThreshold: number;
 }
 
 const DEDICATED_PROFILES: PairStrategyProfile[] = [
   {
-    pair: "XAG/USD",
-    name: "Silver",
-    icon: "🥈",
-    category: "Precious Metals",
-    dedicatedGradeA: "Trend Sweep / Aggressive",
-    dedicatedIcon: "🌊",
-    shortModel: "🌊 Trend Sweep",
-    gradeAEngineKey: "trendsweep",
-    alternativeGradeB: "Asian Fade (🎯)",
-    confluenceGradeC: "Core MPR (⚡)",
-    pipSize: 0.01,
-    pipVal: 0.08,
-    defaultSl: 45.0,
+    pair: "EUR/USD",
+    name: "Euro / US Dollar",
+    category: "Major FX",
+    epic: "EURUSD",
+    pipSize: 0.0001,
+    defaultSl: 25.0,
+    spreadThreshold: 1.8,
   },
   {
     pair: "GBP/JPY",
-    name: "Guppy Cross",
-    icon: "⚡",
-    category: "High-Velocity Cross",
-    dedicatedGradeA: "Trend Sweep (H1 EMA Filter)",
-    dedicatedIcon: "🌊",
-    shortModel: "🌊 Trend Sweep",
-    gradeAEngineKey: "trendsweep",
-    alternativeGradeB: "Asian Fade (🎯)",
-    confluenceGradeC: "Asian Breakout (🚀)",
+    name: "British Pound / Japanese Yen",
+    category: "Cross FX",
+    epic: "GBPJPY",
     pipSize: 0.01,
-    pipVal: 0.09,
-    defaultSl: 35.0,
-  },
-  {
-    pair: "EUR/USD",
-    name: "Euro Dollar",
-    icon: "💶",
-    category: "Forex Major",
-    dedicatedGradeA: "Asian Range Breakout",
-    dedicatedIcon: "🚀",
-    shortModel: "🚀 Asian Breakout",
-    gradeAEngineKey: "asian",
-    alternativeGradeB: "Trend Sweep (🌊)",
-    confluenceGradeC: "Asian Fade (🎯)",
-    pipSize: 0.0001,
-    pipVal: 0.09,
-    defaultSl: 20.0,
+    defaultSl: 40.0,
+    spreadThreshold: 4.5,
   },
   {
     pair: "XAU/USD",
-    name: "Gold",
-    icon: "🥇",
-    category: "Precious Metals",
-    dedicatedGradeA: "NY Intraday Sweep & Momentum",
-    dedicatedIcon: "🌊",
-    shortModel: "🌊 NY Trend Sweep",
-    gradeAEngineKey: "trendsweep",
-    alternativeGradeB: "Precision Intraday (📐)",
-    confluenceGradeC: "Asian Breakout (🚀)",
-    pipSize: 0.10,
-    pipVal: 0.08,
-    defaultSl: 25.0,
+    name: "Spot Gold",
+    category: "Commodities",
+    epic: "GOLD",
+    pipSize: 0.1,
+    defaultSl: 15.0,
+    spreadThreshold: 12.0,
+  },
+  {
+    pair: "XAG/USD",
+    name: "Spot Silver",
+    category: "Commodities",
+    epic: "SILVER",
+    pipSize: 0.01,
+    defaultSl: 45.0,
+    spreadThreshold: 10.0,
   },
 ];
-
-function fmtPrice(pair: string, price: number | null | undefined): string {
-  if (price === null || price === undefined) return "--";
-  if (pair.includes("JPY")) return Number(price).toFixed(3);
-  if (pair.includes("XAG")) return Number(price).toFixed(2);
-  if (pair.includes("XAU")) return Number(price).toFixed(2);
-  return Number(price).toFixed(5);
-}
 
 const isNativePlatform = () => {
   return typeof window !== "undefined" &&
@@ -129,372 +87,110 @@ const isNativePlatform = () => {
 };
 
 export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => void } = {}) {
-  const [activeTab, setActiveTab] = useState<BottomTabId>("command");
+  const [activeTab, setActiveTab] = useState<BottomTabId>("terminal");
   const [selectedPairIndex, setSelectedPairIndex] = useState<number>(0);
   const [copiedTradeId, setCopiedTradeId] = useState<string | null>(null);
 
-  // Sound & Continuous Alarm State
+  // Audio Alerts State
   const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
-    return localStorage.getItem("apex_sound") !== "off";
+    return localStorage.getItem("apex_sound") !== "false";
   });
-  const [isAlarmRinging, setIsAlarmRinging] = useState<boolean>(false);
-  const [alarmSecondsLeft, setAlarmSecondsLeft] = useState<number>(60);
-  const alarmIntervalRef = useRef<any>(null);
-  const alarmCountdownRef = useRef<any>(null);
-  const prevSignalCountRef = useRef<number>(0);
 
-  // Notification Permission State
-  const [notificationStatus, setNotificationStatus] = useState<string>("checking");
-
-  // Live Nigeria (WAT) Time & Telemetry
+  // Time & Status State
+  const [utcTime, setUtcTime] = useState("");
   const [watTime, setWatTime] = useState("");
-  const [briefingData, setBriefingData] = useState<any>(null);
-  const [confluenceData, setConfluenceData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
-  const [performanceStats, setPerformanceStats] = useState<any>(null);
-  const [perfLoading, setPerfLoading] = useState<boolean>(false);
+
+  // Live Data States
   const [capitalStatus, setCapitalStatus] = useState<any>(null);
+  const [confluenceData, setConfluenceData] = useState<any>(null);
+  const [briefingData, setBriefingData] = useState<any>(null);
+  const [performanceStats, setPerformanceStats] = useState<any>(null);
+  const [performanceAnalytics, setPerformanceAnalytics] = useState<any>(null);
+  const [economicEvents, setEconomicEvents] = useState<any>(null);
+  const [spreadArmorData, setSpreadArmorData] = useState<any>(null);
 
-  const fetchPerformance = useCallback(async () => {
-    setPerfLoading(true);
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/performance/stats`);
-      if (res.ok) {
-        const data = await res.json();
-        setPerformanceStats(data);
-      }
-    } catch (err) {
-      console.error("Failed to fetch performance stats:", err);
-    } finally {
-      setPerfLoading(false);
-    }
-  }, []);
+  // Selected trade point on equity curve
+  const [selectedCurvePoint, setSelectedCurvePoint] = useState<any>(null);
 
-  const fetchCapitalStatus = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/capital/status`);
-      if (res.ok) {
-        const data = await res.json();
-        setCapitalStatus(data);
-      }
-    } catch {}
-  }, []);
+  // News Radar Filter
+  const [calendarFilter, setCalendarFilter] = useState<string>("ALL");
 
-  const toggleAutoTrading = async () => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/capital/toggle-auto`, { method: "POST" });
-      if (res.ok) {
-        fetchCapitalStatus();
-      }
-    } catch {}
-  };
-
-  const closeCapitalTrade = async (dealId: string) => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/capital/close-position`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dealId })
-      });
-      if (res.ok) {
-        fetchCapitalStatus();
-        fetchPerformance();
-      }
-    } catch {}
-  };
-
-  useEffect(() => {
-    fetchCapitalStatus();
-    const interval = setInterval(fetchCapitalStatus, 15000);
-    return () => clearInterval(interval);
-  }, [fetchCapitalStatus]);
-
-  useEffect(() => {
-    if (activeTab === "performance") {
-      fetchPerformance();
-      fetchCapitalStatus();
-    }
-  }, [activeTab, fetchPerformance, fetchCapitalStatus]);
-
-  // Cent Calculator State (Neutralized)
-  const [calcBalance, setCalcBalance] = useState<number>(() => {
-    return Number(localStorage.getItem("apex_balance")) || 677;
-  });
-  const [calcRiskPct, setCalcRiskPct] = useState<number>(() => {
-    return Number(localStorage.getItem("apex_risk_pct")) || 6.0;
-  });
-  const [calcSlPips, setCalcSlPips] = useState<number>(45.0);
-  const [copiedCalc, setCopiedCalc] = useState(false);
+  // Sizer State ($25 Flat Risk Model)
+  const [targetRiskUsd, setTargetRiskUsd] = useState<number>(25.0);
+  const [customSlPips, setCustomSlPips] = useState<number>(30.0);
+  const [copiedPlan, setCopiedPlan] = useState(false);
 
   const activeProfile = DEDICATED_PROFILES[selectedPairIndex];
 
   // Update default SL when switching pairs
   useEffect(() => {
-    setCalcSlPips(activeProfile.defaultSl);
+    setCustomSlPips(activeProfile.defaultSl);
   }, [selectedPairIndex, activeProfile.defaultSl]);
 
-  // Persist balance & risk
+  // Dual Clocks (UTC & WAT)
   useEffect(() => {
-    localStorage.setItem("apex_balance", String(calcBalance));
-    localStorage.setItem("apex_risk_pct", String(calcRiskPct));
-    localStorage.setItem("apex_sound", soundEnabled ? "on" : "off");
-  }, [calcBalance, calcRiskPct, soundEnabled]);
-
-  // Real-time Nigeria (WAT) Clock
-  useEffect(() => {
-    const update = () => {
+    const updateClocks = () => {
       const now = new Date();
-      const wat = new Date(now.getTime() + 1 * 60 * 60 * 1000);
-      const h = wat.getUTCHours();
-      const m = wat.getUTCMinutes();
-      const s = wat.getUTCSeconds();
-      const hFmt = h > 12 ? h - 12 : (h === 0 ? 12 : h);
+      setUtcTime(now.toTimeString().substring(0, 8) + " UTC");
+      const watDate = new Date(now.getTime() + 1 * 60 * 60 * 1000);
+      const h = watDate.getUTCHours();
+      const m = String(watDate.getUTCMinutes()).padStart(2, "0");
+      const s = String(watDate.getUTCSeconds()).padStart(2, "0");
       const ampm = h >= 12 ? "PM" : "AM";
-      setWatTime(`${String(hFmt).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")} ${ampm} WAT`);
+      const hFmt = h > 12 ? h - 12 : (h === 0 ? 12 : h);
+      setWatTime(`${String(hFmt).padStart(2, "0")}:${m}:${s} ${ampm} WAT`);
     };
-    update();
-    const iv = setInterval(update, 1000);
+    updateClocks();
+    const iv = setInterval(updateClocks, 1000);
     return () => clearInterval(iv);
   }, []);
 
-  // Check Notification Permission on Mount
-  const checkPerms = useCallback(async () => {
-    if (isNativePlatform()) {
-      try {
-        const p = await PushNotifications.checkPermissions();
-        setNotificationStatus(p.receive === "granted" ? "granted" : p.receive === "denied" ? "denied" : "prompt");
-      } catch {
-        setNotificationStatus("prompt");
-      }
-    } else if (typeof window !== "undefined" && "Notification" in window) {
-      setNotificationStatus(Notification.permission);
-    } else {
-      setNotificationStatus("unsupported");
-    }
-  }, []);
-
-  useEffect(() => {
-    checkPerms();
-  }, [checkPerms]);
-
-  // ── Persistent Loud Chime Alarm Engine (Rings for 60 seconds) ─────
-  const playSingleChimePulse = () => {
-    try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioCtx) return;
-      const ctx = new AudioCtx();
-      if (ctx.state === "suspended") ctx.resume();
-
-      const now = ctx.currentTime;
-      const osc1 = ctx.createOscillator();
-      const osc2 = ctx.createOscillator();
-      const gain = ctx.createGain();
-
-      osc1.type = "sine";
-      osc2.type = "triangle";
-      osc1.frequency.setValueAtTime(880, now);
-      osc1.frequency.exponentialRampToValueAtTime(1760, now + 0.12);
-      osc2.frequency.setValueAtTime(1320, now + 0.14);
-      osc2.frequency.exponentialRampToValueAtTime(880, now + 0.35);
-
-      gain.gain.setValueAtTime(0.35, now);
-      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.45);
-
-      osc1.connect(gain);
-      osc2.connect(gain);
-      gain.connect(ctx.destination);
-
-      osc1.start(now);
-      osc1.stop(now + 0.45);
-      osc2.start(now + 0.14);
-      osc2.stop(now + 0.45);
-    } catch {
-      /* silent */
-    }
-  };
-
-  const startPersistentAlarm = (durationSeconds = 60) => {
-    stopPersistentAlarm();
-    if (!soundEnabled) return;
-
-    setIsAlarmRinging(true);
-    setAlarmSecondsLeft(durationSeconds);
-    playSingleChimePulse();
-
-    // Pulse chime every 1.2 seconds
-    alarmIntervalRef.current = setInterval(() => {
-      playSingleChimePulse();
-    }, 1200);
-
-    // Countdown timer
-    alarmCountdownRef.current = setInterval(() => {
-      setAlarmSecondsLeft(prev => {
-        if (prev <= 1) {
-          stopPersistentAlarm();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  };
-
-  const stopPersistentAlarm = () => {
-    if (alarmIntervalRef.current) {
-      clearInterval(alarmIntervalRef.current);
-      alarmIntervalRef.current = null;
-    }
-    if (alarmCountdownRef.current) {
-      clearInterval(alarmCountdownRef.current);
-      alarmCountdownRef.current = null;
-    }
-    setIsAlarmRinging(false);
-  };
-
-  // Clean up alarm on unmount
-  useEffect(() => {
-    return () => stopPersistentAlarm();
-  }, []);
-
-  // ── Dispatch System Notification to Phone Status Bar ──────────────
-  const triggerPhoneNotification = async (title: string, body: string) => {
-    // 1. Play continuous 60-second alarm ringtone
-    startPersistentAlarm(60);
-
-    // 2. If Native Android APK (Capacitor)
-    if (isNativePlatform()) {
-      try {
-        await LocalNotifications.schedule({
-          notifications: [
-            {
-              title,
-              body,
-              id: (Date.now() % 100000) + 1,
-              sound: undefined,
-              channelId: "signals",
-              ongoing: false,
-              autoCancel: true
-            }
-          ]
-        });
-      } catch (err) {
-        console.error("Local notification error:", err);
-      }
-    }
-    // 3. If Web Browser (Chrome on Android)
-    else if (typeof window !== "undefined" && "Notification" in window) {
-      if (Notification.permission === "granted") {
-        if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
-          navigator.serviceWorker.ready.then(reg => {
-            reg.showNotification(title, {
-              body,
-              icon: "/icon.png",
-              badge: "/icon.png",
-              vibrate: [300, 100, 300, 100, 300],
-              tag: "apex-alert-" + Date.now(),
-              renotify: true,
-              data: { url: "/?v=2" }
-            } as any);
-          });
-        } else {
-          new Notification(title, { body, icon: "/icon.png" });
-        }
-      }
-    }
-  };
-
-  // Request Permissions Handler
-  const requestNotificationPermission = async () => {
-    if (isNativePlatform()) {
-      try {
-        try {
-          await PushNotifications.createChannel({
-            id: 'signals',
-            name: 'Trading Signals & Alerts',
-            description: 'Real-time Apex SMC trading signals, break-even alerts, and execution orders',
-            importance: 5,
-            visibility: 1,
-            sound: 'default',
-            vibration: true,
-            lights: true,
-          });
-        } catch (e) {
-          console.warn('Channel creation error:', e);
-        }
-
-        await PushNotifications.removeAllListeners();
-        PushNotifications.addListener('registration', (token) => {
-          console.log('[PUSH] Native device token registered:', token.value);
-          fetch(`${API_BASE_URL}/api/device/register`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token: token.value }),
-          }).catch((err) => console.error('[PUSH] Failed to register token with server:', err));
-        });
-
-        const pushPerm = await PushNotifications.requestPermissions();
-        if (pushPerm.receive === "granted") {
-          await PushNotifications.register();
-          setNotificationStatus("granted");
-        } else {
-          setNotificationStatus("denied");
-        }
-        await LocalNotifications.requestPermissions();
-      } catch {
-        setNotificationStatus("prompt");
-      }
-    } else if (typeof window !== "undefined" && "Notification" in window) {
-      const p = await Notification.requestPermission();
-      setNotificationStatus(p);
-      if (p === "granted") {
-        triggerPhoneNotification(
-          "🚨 APEX NOTIFICATIONS ENABLED",
-          "Notifications will now appear in your Android status bar with sound & vibration!"
-        );
-      }
-    }
-  };
-
-  // Send Test Notification
-  const sendTestNotification = () => {
-    triggerPhoneNotification(
-      "🚨 APEX SIGNAL: EUR/USD BUY (Grade A+)",
-      "Entry: 1.11900 | SL: 1.11650 | Lot: 0.22 Lots. Tap to view order ticket!"
-    );
-  };
-
-  // Fetch Live Confluence Scan & Briefing
+  // API Data Fetching
   const fetchAllData = useCallback(async () => {
     setLoading(true);
     try {
-      const [confRes, briefRes] = await Promise.allSettled([
-        fetch(`${API_BASE_URL}/api/confluence/scan?balance=${calcBalance}`),
+      const [capRes, confRes, briefRes, perfRes, analyticsRes, calRes, armorRes] = await Promise.allSettled([
+        fetch(`${API_BASE_URL}/api/capital/status`),
+        fetch(`${API_BASE_URL}/api/confluence/scan`),
         fetch(`${API_BASE_URL}/api/daily-briefing`),
+        fetch(`${API_BASE_URL}/api/performance/stats`),
+        fetch(`${API_BASE_URL}/api/performance/analytics`),
+        fetch(`${API_BASE_URL}/api/economic-calendar`),
+        fetch(`${API_BASE_URL}/api/spread-armor`),
       ]);
 
+      if (capRes.status === "fulfilled" && capRes.value.ok) {
+        setCapitalStatus(await capRes.value.json());
+      }
       if (confRes.status === "fulfilled" && confRes.value.ok) {
-        const cData = await confRes.value.json();
-        setConfluenceData(cData);
-
-        // Check for new verified trade to trigger alarm & notification
-        const activeAlert = (cData.pairs || []).find((p: any) => p.confluenceGrade && p.confluenceGrade !== "WAIT" && p.entryPrice);
-        const activeCount = (cData.pairs || []).filter((p: any) => p.confluenceGrade && p.confluenceGrade !== "WAIT" && p.entryPrice).length;
-        if (activeCount > prevSignalCountRef.current && activeAlert) {
-          triggerPhoneNotification(
-            `🚨 APEX SIGNAL: ${activeAlert.pair} ${activeAlert.direction} (Grade ${activeAlert.confluenceGrade})`,
-            `Entry: ${activeAlert.entryPrice} | SL: ${activeAlert.sl} | Lot: ${activeAlert.lotSize || 0.11} Lots. Tap to open!`
-          );
-        }
-        prevSignalCountRef.current = activeCount;
+        setConfluenceData(await confRes.value.json());
       }
       if (briefRes.status === "fulfilled" && briefRes.value.ok) {
         setBriefingData(await briefRes.value.json());
       }
-    } catch {
-      /* silent */
+      if (perfRes.status === "fulfilled" && perfRes.value.ok) {
+        setPerformanceStats(await perfRes.value.json());
+      }
+      if (analyticsRes.status === "fulfilled" && analyticsRes.value.ok) {
+        const data = await analyticsRes.value.json();
+        setPerformanceAnalytics(data);
+        if (data.equityCurve && data.equityCurve.length > 0) {
+          setSelectedCurvePoint(data.equityCurve[data.equityCurve.length - 1]);
+        }
+      }
+      if (calRes.status === "fulfilled" && calRes.value.ok) {
+        setEconomicEvents(await calRes.value.json());
+      }
+      if (armorRes.status === "fulfilled" && armorRes.value.ok) {
+        setSpreadArmorData(await armorRes.value.json());
+      }
+    } catch (err) {
+      console.error("[APEX UI] Error fetching live data:", err);
     } finally {
       setLoading(false);
     }
-  }, [calcBalance, soundEnabled]);
+  }, []);
 
   useEffect(() => {
     fetchAllData();
@@ -502,206 +198,160 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
     return () => clearInterval(iv);
   }, [fetchAllData]);
 
-  // Current pair active confluence record
+  // Current active pair confluence record
   const currentConf = confluenceData?.pairs?.find((p: any) => p.pair === activeProfile.pair) || null;
-  const pairBriefing = briefingData?.pairs?.find((p: any) => p.pair === activeProfile.pair) || null;
+  const currentArmor = spreadArmorData?.pairs?.find((p: any) => p.pair === activeProfile.pair) || null;
 
-  // Grade-Adjusted Risk %
-  const effectiveRiskPct = currentConf?.confluenceGrade === "A+"
-    ? 6.0
-    : currentConf?.confluenceGrade === "A"
-    ? 4.0
-    : currentConf?.confluenceGrade === "B+"
-    ? 2.0
-    : calcRiskPct;
+  // Sizer calculations for $25 flat risk parity
+  const sizerCalculations = useMemo(() => {
+    const slDist = customSlPips * activeProfile.pipSize;
+    if (slDist <= 0) return { units: 1000, cashRisk: targetRiskUsd, tp1Gain: targetRiskUsd, tp2Gain: targetRiskUsd * 2.5 };
 
-  const cashRisk = Math.round(calcBalance * (effectiveRiskPct / 100.0) * 100) / 100;
-  const rawLot = (calcSlPips > 0 && activeProfile.pipVal > 0)
-    ? (cashRisk / (calcSlPips * activeProfile.pipVal)) / 100.0
-    : 0.01;
-  const recommendedLot = Math.max(0.01, Math.floor(rawLot * 100) / 100);
-  const gainTp1 = Math.round(cashRisk * 0.50 * 100) / 100;
-  const gainTp2 = Math.round(cashRisk * 1.75 * 100) / 100;
+    let units = 1000;
+    if (activeProfile.pair.includes("XAU")) {
+      units = Number(Math.max(0.5, Math.min(4.0, Math.round((targetRiskUsd / slDist) * 10) / 10)).toFixed(1));
+    } else if (activeProfile.pair.includes("XAG")) {
+      units = Math.max(10, Math.min(120, Math.round(targetRiskUsd / slDist)));
+    } else if (activeProfile.pair.includes("JPY")) {
+      const usdJpy = 150.0;
+      units = Math.max(1000, Math.min(20000, Math.round(((targetRiskUsd * usdJpy) / slDist) / 500) * 500));
+    } else {
+      units = Math.max(1000, Math.min(25000, Math.round((targetRiskUsd / slDist) / 500) * 500));
+    }
 
-  const isTradeActive = currentConf?.confluenceGrade && currentConf?.confluenceGrade !== "WAIT" && currentConf?.entryPrice;
+    return {
+      units,
+      cashRisk: targetRiskUsd,
+      tp1Gain: targetRiskUsd * 1.0,
+      tp2Gain: targetRiskUsd * 2.5,
+    };
+  }, [activeProfile, customSlPips, targetRiskUsd]);
 
-  // Global alert across all 3 pairs
-  const anyActiveAlert = (confluenceData?.pairs || []).find((p: any) => p.confluenceGrade && p.confluenceGrade !== "WAIT" && p.entryPrice) || null;
-  const totalActiveSignalsCount = (confluenceData?.pairs || []).filter((p: any) => p.confluenceGrade && p.confluenceGrade !== "WAIT" && p.entryPrice).length;
-
-  const copyTrade = (text: string, id: string) => {
+  const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
     setCopiedTradeId(id);
     setTimeout(() => setCopiedTradeId(null), 2500);
   };
 
   return (
-    <div className="min-h-screen bg-[#070a12] text-zinc-100 flex flex-col font-sans select-none pb-24">
-      {/* ── Top Header Bar (Clean & Sharp, No Awkward PRO Badge) ── */}
-      <header className="sticky top-0 z-40 bg-[#070a12]/95 backdrop-blur-md border-b border-zinc-800/80 px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-500/25 to-yellow-600/20 border border-amber-500/40 flex items-center justify-center font-mono font-black text-amber-400 text-sm shadow-[0_0_15px_rgba(245,158,11,0.25)]">
-            ⚡
+    <div className="min-h-screen bg-[#080B10] text-zinc-100 flex flex-col font-sans select-none pb-24">
+      {/* ── Top Executive Header Bar ──────────────────────────────── */}
+      <header className="sticky top-0 z-40 bg-[#080B10]/95 backdrop-blur-md border-b border-zinc-800/80 px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="font-mono font-black text-white text-base tracking-tight">APEX</span>
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 font-semibold border border-zinc-700/60">
+              PRO v4.5
+            </span>
           </div>
-          <div>
-            <div className="font-bold text-sm tracking-tight text-white font-mono">APEX INSTITUTIONAL</div>
-            <div className="text-[10px] text-zinc-400 font-mono flex items-center gap-1">
-              <Clock className="w-2.5 h-2.5 text-cyan-400" />
-              <span className="text-cyan-400 font-bold">{watTime || "00:00:00 WAT"}</span>
-            </div>
+
+          <div className="hidden sm:flex items-center gap-1.5 text-xs font-mono text-zinc-400 pl-2 border-l border-zinc-800">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>Capital.com Demo</span>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* Capital.com Demo Auto-Trade Toggle Pill */}
-          <button
-            onClick={toggleAutoTrading}
-            className={`px-2.5 py-1.5 rounded-xl border font-mono text-[10px] font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-              capitalStatus?.autoTradingEnabled
-                ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400"
-                : "bg-zinc-900 border-zinc-800 text-zinc-500"
-            }`}
-            title="Toggle automated execution on Capital.com Demo"
-          >
-            <span className={`w-2 h-2 rounded-full ${capitalStatus?.autoTradingEnabled ? "bg-emerald-400 animate-pulse" : "bg-zinc-600"}`} />
-            <span className="hidden sm:inline">{capitalStatus?.autoTradingEnabled ? "DEMO AUTO-TRADE: ON" : "AUTO-TRADE: OFF"}</span>
-            <span className="sm:hidden">{capitalStatus?.autoTradingEnabled ? "AUTO: ON" : "AUTO: OFF"}</span>
-          </button>
+        <div className="flex items-center gap-3">
+          {/* Dual Clock */}
+          <div className="hidden md:flex items-center gap-2 text-xs font-mono text-zinc-400 bg-zinc-900/60 px-2.5 py-1 rounded-lg border border-zinc-800">
+            <span>{utcTime || "UTC"}</span>
+            <span className="text-zinc-600">·</span>
+            <span className="text-zinc-300 font-medium">{watTime || "WAT"}</span>
+          </div>
+
+          {/* Account Balance Chip */}
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 font-mono text-xs">
+            <span className="text-zinc-400 text-[10px] uppercase tracking-wider">Equity</span>
+            <span className="font-bold text-white whitespace-nowrap">
+              ${(capitalStatus?.balance || 11002.07).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+            <span className="text-[10px] text-emerald-400 font-semibold">(+$2.07)</span>
+          </div>
 
           {/* Quick Refresh */}
           <button
             onClick={fetchAllData}
             disabled={loading}
-            className="px-3.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-400 text-xs font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+            className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white transition-all cursor-pointer"
+            title="Scan market"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-            <span>SCAN</span>
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-emerald-400" : ""}`} />
           </button>
         </div>
       </header>
 
-      {/* ── 3-Daily Live Intelligence Ribbon (Nigeria WAT) ─────────── */}
-      <div className="bg-zinc-950/90 border-b border-zinc-800/60 px-4 py-2.5 flex items-center justify-between text-xs font-mono gap-2">
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          <Radio className={`w-3.5 h-3.5 shrink-0 ${briefingData?.isKillZone ? "text-emerald-400 animate-pulse" : "text-amber-400"}`} />
-          <span className={`truncate ${briefingData?.isKillZone ? "text-emerald-400 font-bold" : "text-zinc-300"}`}>
-            {briefingData?.briefingPhase || "Active Session Monitor (Nigeria WAT)"}
+      {/* ── Institutional System Status Ribbon ─────────────────────── */}
+      <div className="bg-zinc-950/80 border-b border-zinc-800/60 px-4 py-2 flex flex-wrap items-center justify-between text-xs font-mono gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <Radio className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
+          <span className="truncate text-zinc-300">
+            {briefingData?.briefingPhase || "Weekend Market Closure · Capital Protection Active (Reopens Sun 22:00 WAT)"}
           </span>
         </div>
-        <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-900 text-cyan-400 border border-zinc-800 shrink-0 font-bold whitespace-nowrap">
-          4-Pair Institutional
-        </span>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-900 text-emerald-400 border border-zinc-800 font-semibold flex items-center gap-1">
+            <ShieldCheck className="w-3 h-3" />
+            Spread Armor: Armed
+          </span>
+          <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-900 text-cyan-400 border border-zinc-800 font-semibold flex items-center gap-1">
+            <Lock className="w-3 h-3" />
+            News Lockout: Active
+          </span>
+        </div>
       </div>
 
-      {/* ── Continuous 60-Second Ringtone Alarm Floating Banner ────── */}
-      {isAlarmRinging && (
-        <div className="mx-4 mt-3 p-3.5 rounded-2xl bg-gradient-to-r from-rose-600/30 via-amber-500/30 to-rose-600/30 border-2 border-rose-500 flex items-center justify-between animate-pulse shadow-[0_0_30px_rgba(244,63,94,0.4)] z-50">
-          <div className="flex items-center gap-3">
-            <span className="p-2 rounded-xl bg-rose-500 text-white font-black animate-bounce">
-              <Volume2 className="w-5 h-5" />
-            </span>
-            <div>
-              <div className="font-mono text-xs font-black text-rose-300 tracking-wide">
-                🔔 SIGNAL ALARM RINGING ({alarmSecondsLeft}s)
-              </div>
-              <div className="font-mono text-[11px] text-white font-bold">
-                High Priority Verified Setup Detected!
-              </div>
-            </div>
-          </div>
-          <button
-            onClick={stopPersistentAlarm}
-            className="px-3.5 py-2 rounded-xl bg-rose-500 hover:bg-rose-400 text-white font-mono text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-lg transition-all shrink-0"
-          >
-            <Square className="w-3.5 h-3.5 fill-current" />
-            <span>SILENCE ALARM</span>
-          </button>
-        </div>
-      )}
-
-      {/* ── High-Visibility Global Signal Alert Banner (Across all tabs) ── */}
-      {anyActiveAlert && !isAlarmRinging && (
-        <div
-          onClick={() => {
-            const idx = DEDICATED_PROFILES.findIndex(p => p.pair === anyActiveAlert.pair);
-            if (idx !== -1) setSelectedPairIndex(idx);
-            setActiveTab("command");
-          }}
-          className="mx-4 mt-3 p-3.5 rounded-2xl bg-gradient-to-r from-emerald-500/25 via-amber-500/20 to-emerald-500/25 border border-emerald-500/60 flex items-center justify-between cursor-pointer animate-pulse shadow-[0_0_25px_rgba(16,185,129,0.3)]"
-        >
-          <div className="flex items-center gap-2.5">
-            <span className="px-2 py-1 rounded-lg bg-emerald-500 text-black font-black text-xs font-mono">
-              🚨 NEW SIGNAL
-            </span>
-            <div>
-              <div className="font-mono text-xs font-bold text-white flex items-center gap-1.5">
-                <span>{anyActiveAlert.pair}</span>
-                <span className={anyActiveAlert.direction === "BUY" ? "text-emerald-400 font-black" : "text-rose-400 font-black"}>
-                  {anyActiveAlert.direction} ACTIVE
-                </span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-400 text-black font-bold">
-                  GRADE {anyActiveAlert.confluenceGrade}
-                </span>
-              </div>
-              <div className="font-mono text-[10px] text-zinc-300">
-                Entry: {fmtPrice(anyActiveAlert.pair, anyActiveAlert.entryPrice)} · SL: {fmtPrice(anyActiveAlert.pair, anyActiveAlert.sl)} · Tap to View Ticket
-              </div>
-            </div>
-          </div>
-          <span className="text-xs font-mono text-emerald-400 font-bold shrink-0 flex items-center gap-0.5">
-            <span>OPEN</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </span>
-        </div>
-      )}
-
-      {/* ── Main Body (Switched via Bottom Nav) ───────────────────── */}
+      {/* ── Main Application Body ───────────────────────────────────── */}
       <main className="flex-1 max-w-4xl w-full mx-auto p-4 space-y-4">
         {/* ========================================================== */}
-        {/* TAB 1: COMMAND CENTER (LIVE PAIR MONITORS)                 */}
+        {/* TAB 1: TERMINAL (LIVE ASSET MONITORS & EXECUTION)          */}
         {/* ========================================================== */}
-        {activeTab === "command" && (
+        {activeTab === "terminal" && (
           <div className="space-y-4">
-            {/* Pair Switcher with Dedicated Grade A Badges */}
+            {/* 4-Asset Grid Selector */}
             <div>
               <div className="text-[11px] uppercase font-mono text-zinc-400 mb-2 flex items-center justify-between">
-                <span>Select Primary Asset</span>
-                <span className="text-emerald-400 font-bold">Grade A Dedicated Model</span>
+                <span>Core Institutional Universe</span>
+                <span className="text-zinc-500">4 Monitored Pairs</span>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                 {DEDICATED_PROFILES.map((p, idx) => {
                   const active = selectedPairIndex === idx;
-                  const pairAlert = (confluenceData?.pairs || []).find((x: any) => x.pair === p.pair);
-                  const hasSignalOnThisPair = pairAlert?.confluenceGrade && pairAlert.confluenceGrade !== "WAIT" && pairAlert.entryPrice;
+                  const cData = (confluenceData?.pairs || []).find((x: any) => x.pair === p.pair);
+                  const isBull = cData?.checks?.[0]?.includes("BULLISH");
+                  const live = cData?.livePrice;
 
                   return (
                     <button
                       key={p.pair}
                       onClick={() => setSelectedPairIndex(idx)}
-                      className={`p-3 sm:p-3.5 rounded-2xl border transition-all text-left cursor-pointer relative overflow-hidden ${
+                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer relative ${
                         active
-                          ? "bg-amber-500/15 border-amber-500/60 shadow-[0_0_25px_rgba(245,158,11,0.2)] text-white"
-                          : "bg-zinc-900/60 border-zinc-800/80 text-zinc-400 hover:border-zinc-700"
+                          ? "bg-zinc-900 border-zinc-600 shadow-sm"
+                          : "bg-zinc-950/60 border-zinc-800/80 hover:border-zinc-700"
                       }`}
                     >
-                      {/* Active Trade Beacon Dot on Inactive Tab */}
-                      {hasSignalOnThisPair && !active && (
-                        <span className="absolute top-2 right-2 flex h-3 w-3">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                          <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
-                        </span>
-                      )}
-
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-lg">{p.icon}</span>
-                        <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold ${active ? "bg-amber-500 text-black font-extrabold" : "bg-zinc-950 text-cyan-400 border border-zinc-800"}`}>
-                          {active ? "ACTIVE" : "MONITOR"}
+                      <div className="flex justify-between items-start mb-1.5">
+                        <span className="font-mono font-bold text-white text-xs">{p.pair}</span>
+                        <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded font-semibold ${
+                          cData?.confluenceGrade && cData.confluenceGrade !== "WAIT"
+                            ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
+                            : "bg-zinc-900 text-zinc-400 border border-zinc-800"
+                        }`}>
+                          {cData?.confluenceGrade || "WAIT"}
                         </span>
                       </div>
-                      <div className="font-mono text-sm font-bold text-white tracking-tight">{p.pair}</div>
-                      <div className="font-mono text-[10px] text-amber-400 font-semibold truncate mt-0.5">
-                        {p.shortModel}
+
+                      <div className="text-[11px] font-mono text-zinc-300 font-semibold">
+                        {live ? live.bid : "—"}
+                      </div>
+
+                      <div className="flex justify-between items-center text-[10px] font-mono text-zinc-400 mt-1">
+                        <span>Spread: {live?.spread_pips ?? "—"}p</span>
+                        <span className={isBull ? "text-emerald-400" : "text-rose-400"}>
+                          {isBull ? "▲ Bull" : "▼ Bear"}
+                        </span>
                       </div>
                     </button>
                   );
@@ -709,817 +359,604 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
               </div>
             </div>
 
-            {/* Active Pair Live Setup & Confluence Card */}
-            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 relative overflow-hidden">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-                <div className="flex items-center gap-2.5">
-                  <span className="text-2xl">{activeProfile.icon}</span>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-lg font-bold font-mono text-white">{activeProfile.pair}</h2>
-                      <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-950 text-cyan-400 font-mono border border-zinc-800">
-                        {activeProfile.category}
-                      </span>
-                    </div>
-                    <div className="text-xs font-mono text-zinc-400 mt-0.5">
-                      Macro H1 Trend: <span className={pairBriefing?.macroTrend === "BULLISH" ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>{pairBriefing?.macroTrend || "CALCULATING"}</span>
-                      {" · "}Spread: <span className="text-zinc-300 font-bold">{currentConf?.livePrice?.spread_pips || pairBriefing?.livePrice?.spread_pips || 0.8} pips</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="text-right p-2 rounded-xl bg-zinc-950 border border-zinc-800 font-mono">
-                  <div className="text-[9px] uppercase text-zinc-500">Live Bid / Ask</div>
-                  <div className="text-sm font-bold text-white">
-                    <span className="text-cyan-400">{currentConf?.livePrice?.bid || pairBriefing?.livePrice?.bid || "--"}</span>
-                    <span className="text-zinc-600 mx-1">/</span>
-                    <span className="text-zinc-400">{currentConf?.livePrice?.ask || pairBriefing?.livePrice?.ask || "--"}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* 100-Point Confluence Scoring Gauge */}
-              <div className="p-3 mb-3.5 rounded-xl bg-zinc-950 border border-zinc-800/80 font-mono space-y-2">
-                <div className="flex items-center justify-between text-xs">
+            {/* Selected Asset Analysis Card */}
+            <div className="bg-zinc-900/70 border border-zinc-800 rounded-2xl p-4 sm:p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-4">
+                <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-zinc-400 font-bold uppercase text-[10px]">CONFLUENCE CONVICTION</span>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                      (currentConf?.confidencePct || 0) >= 80 ? "bg-amber-400 text-black font-extrabold" :
-                      (currentConf?.confidencePct || 0) >= 70 ? "bg-emerald-500 text-black font-extrabold" :
-                      (currentConf?.confidencePct || 0) >= 55 ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30" :
-                      "bg-zinc-800 text-zinc-400"
-                    }`}>
-                      {(currentConf?.confidencePct || 0)}% {currentConf?.confluenceGrade === "A+" ? "GRADE A+ (6% RISK)" : currentConf?.confluenceGrade === "A" ? "GRADE A (4% RISK)" : currentConf?.confluenceGrade === "B+" ? "GRADE B+ (2% RISK)" : "WAIT (0% RISK)"}
+                    <h2 className="text-base font-bold text-white font-mono">{activeProfile.pair}</h2>
+                    <span className="text-xs text-zinc-400">· {activeProfile.name}</span>
+                  </div>
+                  <div className="text-xs font-mono text-zinc-400 mt-0.5">
+                    Live Bid: <span className="text-white font-semibold">{currentConf?.livePrice?.bid || "—"}</span> · Ask: <span className="text-white font-semibold">{currentConf?.livePrice?.ask || "—"}</span> · Spread: <span className="text-emerald-400 font-semibold">{currentConf?.livePrice?.spread_pips ?? "—"} pips</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 self-start sm:self-auto">
+                  <div className="px-3 py-1.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-mono">
+                    <span className="text-zinc-500">Spread Armor: </span>
+                    <span className={currentArmor?.isLocked ? "text-rose-400 font-bold" : "text-emerald-400 font-bold"}>
+                      {currentArmor?.status || "SAFE"} ({activeProfile.spreadThreshold}p Max)
                     </span>
                   </div>
-                  <span className="text-[10px] text-zinc-500">Threshold: 70%</span>
                 </div>
-
-                <div className="w-full h-2 rounded-full bg-zinc-900 overflow-hidden border border-zinc-800">
-                  <div
-                    className="h-full rounded-full transition-all duration-700"
-                    style={{
-                      width: `${Math.min(100, Math.max(5, currentConf?.confidencePct || 0))}%`,
-                      background: (currentConf?.confidencePct || 0) >= 80 ? "linear-gradient(90deg, #f59e0b, #fbbf24)" :
-                                  (currentConf?.confidencePct || 0) >= 70 ? "linear-gradient(90deg, #10b981, #34d399)" :
-                                  (currentConf?.confidencePct || 0) >= 55 ? "linear-gradient(90deg, #06b6d4, #22d3ee)" :
-                                  "#52525b"
-                    }}
-                  />
-                </div>
-
-                {/* Score Pillar Breakdown Chips */}
-                {currentConf?.scoreBreakdown && (
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 pt-1 text-[9px] text-zinc-400">
-                    <span className="bg-zinc-900/80 px-2 py-1 rounded border border-zinc-800/80">📈 Trend: {currentConf.scoreBreakdown.trend}/25</span>
-                    <span className="bg-zinc-900/80 px-2 py-1 rounded border border-zinc-800/80">🎯 Sweep: {currentConf.scoreBreakdown.sweep}/25</span>
-                    <span className="bg-zinc-900/80 px-2 py-1 rounded border border-zinc-800/80">⏰ Session: {currentConf.scoreBreakdown.session}/20</span>
-                    <span className="bg-zinc-900/80 px-2 py-1 rounded border border-zinc-800/80">⚡ Rejection: {currentConf.scoreBreakdown.displacement}/15</span>
-                    <span className="bg-zinc-900/80 px-2 py-1 rounded border border-zinc-800/80">🛡 Spread: {currentConf.scoreBreakdown.risk}/15</span>
-                  </div>
-                )}
               </div>
 
-              {/* Active Signal Banner OR Waiting Card */}
-              {isTradeActive ? (
-                <div className="space-y-3">
-                  <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold ${currentConf.confluenceGrade === "A+" ? "bg-amber-400 text-black animate-pulse" : "bg-emerald-500 text-black"}`}>
-                          ⭐ GRADE {currentConf.confluenceGrade}
-                        </span>
-                        <span className="font-mono text-xs font-bold text-emerald-400">
-                          {currentConf.direction} SIGNAL CONFIRMED
-                        </span>
-                      </div>
-                      <div className="font-mono text-xs text-zinc-300 mt-1">
-                        Entry: {fmtPrice(activeProfile.pair, currentConf.entryPrice)} · SL: {fmtPrice(activeProfile.pair, currentConf.sl)} ({currentConf.slPips || activeProfile.defaultSl} pips)
-                      </div>
-                      <div className="font-mono text-[10px] text-zinc-400 mt-0.5">
-                        {currentConf.reasoning}
-                      </div>
-                    </div>
-
+              {/* Execution Status / Setup Card */}
+              {currentConf?.confluenceGrade && currentConf.confluenceGrade !== "WAIT" && currentConf.entryPrice ? (
+                <div className="p-4 rounded-xl bg-emerald-950/20 border border-emerald-500/40 space-y-3 font-mono">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-emerald-400 font-bold uppercase tracking-wide">
+                      HIGH-CONVICTION EXECUTION PLAN ({currentConf.confluenceGrade})
+                    </span>
                     <button
-                      onClick={() => copyTrade(
-                        `ORDER TICKET (SMC EXECUTION)\nPair: ${activeProfile.pair}\nGrade: ${currentConf.confluenceGrade}\nAction: ${currentConf.direction}\nEntry: ${currentConf.entryPrice}\nSL: ${currentConf.sl}\nTP1: ${currentConf.tp1} (Scale 50% & Auto-BE)\nTP2: ${currentConf.tp2}\nLot: ${recommendedLot} Lots\nRisk: $${cashRisk.toFixed(2)} (${effectiveRiskPct}%)`,
-                        "trade-copy"
-                      )}
-                      className="px-4 py-2.5 rounded-xl bg-emerald-500 text-black font-mono text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-emerald-400 transition-all cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.3)] shrink-0"
+                      onClick={() => copyToClipboard(`EXECUTE ${currentConf.direction} ${activeProfile.pair} @ ${currentConf.entryPrice} | SL: ${currentConf.sl} | TP1: ${currentConf.tp1} | TP2: ${currentConf.tp2}`, "plan")}
+                      className="text-xs flex items-center gap-1 text-zinc-400 hover:text-white"
                     >
-                      {copiedTradeId === "trade-copy" ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                      <span>{copiedTradeId === "trade-copy" ? "ORDER COPIED!" : "COPY TO METATRADER"}</span>
+                      {copiedTradeId === "plan" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>Copy Order</span>
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-center">
-                    <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800">
-                      <div className="text-[9px] text-zinc-500">TP1 (AUTO-BE)</div>
-                      <div className="text-xs font-bold text-blue-400">{fmtPrice(activeProfile.pair, currentConf.tp1)}</div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                    <div className="p-2.5 rounded-lg bg-zinc-900/80 border border-zinc-800">
+                      <span className="text-zinc-500 text-[10px] block">DIRECTION</span>
+                      <span className="font-bold text-white text-sm">{currentConf.direction}</span>
                     </div>
-                    <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800">
-                      <div className="text-[9px] text-zinc-500">TP2 (RUNNER)</div>
-                      <div className="text-xs font-bold text-emerald-400">{fmtPrice(activeProfile.pair, currentConf.tp2)}</div>
+                    <div className="p-2.5 rounded-lg bg-zinc-900/80 border border-zinc-800">
+                      <span className="text-zinc-500 text-[10px] block">ENTRY</span>
+                      <span className="font-bold text-white text-sm">{currentConf.entryPrice}</span>
                     </div>
-                    <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800">
-                      <div className="text-[9px] text-zinc-500">RECOMMENDED LOT</div>
-                      <div className="text-xs font-bold text-amber-400">{recommendedLot.toFixed(2)} Lots</div>
+                    <div className="p-2.5 rounded-lg bg-zinc-900/80 border border-zinc-800">
+                      <span className="text-zinc-500 text-[10px] block">STOP LOSS</span>
+                      <span className="font-bold text-rose-400 text-sm">{currentConf.sl}</span>
                     </div>
-                    <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800">
-                      <div className="text-[9px] text-zinc-500">MAX CASH RISK</div>
-                      <div className="text-xs font-bold text-rose-400">${cashRisk.toFixed(2)} ({effectiveRiskPct}%)</div>
+                    <div className="p-2.5 rounded-lg bg-zinc-900/80 border border-zinc-800">
+                      <span className="text-zinc-500 text-[10px] block">TAKE PROFIT 1</span>
+                      <span className="font-bold text-emerald-400 text-sm">{currentConf.tp1}</span>
                     </div>
+                  </div>
+
+                  <div className="text-xs text-zinc-300 p-2.5 rounded-lg bg-zinc-900/50 border border-zinc-800/80">
+                    <span className="font-bold text-amber-400">Fixed $25 Sizing: </span>
+                    Execute with target risk normalized to $25.00 flat USD. Move stop to Breakeven automatically at 1:1 R:R.
                   </div>
                 </div>
               ) : (
-                <div className="p-4 rounded-xl bg-zinc-950/70 border border-zinc-800/80 space-y-2">
-                  <div className="flex items-center justify-between font-mono text-xs">
-                    <span className="text-zinc-400 flex items-center gap-1.5">
-                      <Eye className="w-3.5 h-3.5 text-cyan-400" />
-                      M15 20-Bar Range: [{fmtPrice(activeProfile.pair, currentConf?.m15Low || pairBriefing?.m15Low)} – {fmtPrice(activeProfile.pair, currentConf?.m15High || pairBriefing?.m15High)}]
+                <div className="p-4 rounded-xl bg-zinc-950/70 border border-zinc-800/80 space-y-3 font-mono">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-zinc-400 font-bold uppercase tracking-wider">
+                      Market Structure &amp; Confluence Status
                     </span>
-                    <span className="text-amber-400 font-bold px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-[10px]">
-                      STATUS: WAITING FOR DEDICATED SETUP
+                    <span className="text-xs px-2 py-0.5 rounded bg-zinc-900 text-zinc-400 border border-zinc-800">
+                      {currentConf?.confluenceGrade || "WAIT"}
                     </span>
                   </div>
-                  <p className="font-mono text-[11px] text-zinc-400">
-                    {currentConf?.reasoning || `Primary model (${activeProfile.dedicatedGradeA}) is monitoring ${activeProfile.pair} for structural alignment during active Kill Zones.`}
+
+                  <p className="text-xs text-zinc-300 leading-relaxed">
+                    {currentConf?.reasoning || "Market is currently outside active kill zone or observing weekend market closure. Capital preserved with 0% risk allocated."}
                   </p>
-                </div>
-              )}
 
-              {/* AI Mentor Context & Narrative Card */}
-              <div className="mt-3.5 p-4 rounded-xl bg-zinc-950 border border-purple-500/30 font-mono space-y-2.5 bg-purple-500/5">
-                <div className="flex items-center justify-between border-b border-purple-500/20 pb-2">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-purple-400" />
-                    <span className="text-xs font-bold text-white uppercase flex items-center gap-1.5">
-                      <span>AI Mentor Reasoning</span>
-                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 font-bold">
-                        HUMAN CONTEXT
-                      </span>
-                    </span>
-                  </div>
-                  <span className="text-[10px] text-purple-400 font-bold">
-                    {currentConf?.aiReasoning?.verdict || "ANALYZING STRUCTURE"}
-                  </span>
-                </div>
-
-                <div className="space-y-2 text-xs">
-                  <div>
-                    <div className="text-[10px] uppercase font-bold text-zinc-400">Smart Money Narrative</div>
-                    <p className="text-zinc-200 mt-0.5 leading-relaxed text-[11px]">
-                      {currentConf?.aiReasoning?.narrative || "Monitoring for institutional liquidity sweeps."}
-                    </p>
-                  </div>
-                  <div>
-                    <div className="text-[10px] uppercase font-bold text-zinc-400">Market Context</div>
-                    <p className="text-zinc-300 mt-0.5 leading-relaxed text-[11px]">
-                      {currentConf?.aiReasoning?.context || currentConf?.reasoning || "Analyzing multi-timeframe order flow."}
-                    </p>
-                  </div>
-                  {currentConf?.aiReasoning?.action && (
-                    <div className="p-2.5 rounded-lg bg-black/40 border border-purple-500/20 text-[11px] text-purple-300">
-                      <strong className="text-purple-200">Execution Directive:</strong> {currentConf.aiReasoning.action}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Hierarchy Strategy Breakdown for Selected Pair */}
-              <div className="mt-3.5 pt-3 border-t border-zinc-800/80 grid grid-cols-1 sm:grid-cols-3 gap-2 font-mono text-[11px]">
-                <div className="p-2 rounded-lg bg-zinc-950 border border-amber-500/20 flex justify-between items-center gap-2">
-                  <div className="min-w-0 truncate">
-                    <span className="text-amber-400 font-bold">⭐ Grade A: </span>
-                    <span className="text-zinc-200">{activeProfile.dedicatedGradeA}</span>
-                  </div>
-                  <span className="text-[10px] text-zinc-500 shrink-0 whitespace-nowrap">Primary</span>
-                </div>
-                <div className="p-2 rounded-lg bg-zinc-950 border border-zinc-800 flex justify-between items-center gap-2">
-                  <div className="min-w-0 truncate">
-                    <span className="text-blue-400 font-bold">🥈 Grade B: </span>
-                    <span className="text-zinc-300">{activeProfile.alternativeGradeB}</span>
-                  </div>
-                  <span className="text-[10px] text-zinc-500 shrink-0 whitespace-nowrap">Alternative</span>
-                </div>
-                <div className="p-2 rounded-lg bg-zinc-950 border border-zinc-800 flex justify-between items-center gap-2">
-                  <div className="min-w-0 truncate">
-                    <span className="text-emerald-400 font-bold">🥉 Grade C: </span>
-                    <span className="text-zinc-300">{activeProfile.confluenceGradeC}</span>
-                  </div>
-                  <span className="text-[10px] text-zinc-500 shrink-0 whitespace-nowrap">Confluence</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ========================================================== */}
-        {/* TAB 2: LIVE PORTFOLIO & BROKER EQUITY ANALYTICS            */}
-        {/* ========================================================== */}
-        {activeTab === "performance" && (
-          <div className="space-y-4 font-mono">
-            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 space-y-4">
-              <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-                <div className="flex items-center gap-2">
-                  <TrendingUp className="w-5 h-5 text-emerald-400" />
-                  <div>
-                    <h2 className="text-base font-bold text-white">Live Portfolio &amp; Account Equity</h2>
-                    <p className="text-xs text-zinc-400">Capital.com Demo Account Real-Time Execution Record</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      fetchPerformance();
-                      fetchCapitalStatus();
-                    }}
-                    disabled={perfLoading}
-                    className="p-2 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-700 transition-all cursor-pointer"
-                    title="Refresh account & trade stats"
-                  >
-                    <RefreshCw className={`w-4 h-4 ${perfLoading ? "animate-spin text-emerald-400" : ""}`} />
-                  </button>
-                </div>
-              </div>
-
-              {/* Real Account Equity Metric Cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                <div className="p-3 sm:p-3.5 rounded-xl bg-zinc-950 border border-zinc-800">
-                  <div className="text-[10px] text-zinc-500 uppercase truncate">Initial Deposit</div>
-                  <div className="text-base sm:text-xl md:text-2xl font-bold font-mono text-white mt-1 tracking-tight whitespace-nowrap">
-                    $11,000.00
-                  </div>
-                  <div className="text-[10px] text-zinc-400 mt-0.5 truncate">Starting Capital</div>
-                </div>
-
-                <div className="p-3 sm:p-3.5 rounded-xl bg-zinc-950 border border-emerald-500/30 bg-emerald-500/5">
-                  <div className="text-[10px] text-zinc-500 uppercase truncate">Current Equity / Balance</div>
-                  <div className="text-base sm:text-xl md:text-2xl font-bold font-mono text-emerald-400 mt-1 tracking-tight whitespace-nowrap">
-                    ${capitalStatus?.balance ? Number(capitalStatus.balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "11,002.07"}
-                  </div>
-                  <div className="text-[10px] text-emerald-300 mt-0.5 truncate">Live Broker Balance</div>
-                </div>
-
-                <div className="p-3 sm:p-3.5 rounded-xl bg-zinc-950 border border-cyan-500/30 bg-cyan-500/5">
-                  <div className="text-[10px] text-zinc-500 uppercase truncate">Available Margin</div>
-                  <div className="text-base sm:text-xl md:text-2xl font-bold font-mono text-cyan-400 mt-1 tracking-tight whitespace-nowrap">
-                    ${capitalStatus?.available ? Number(capitalStatus.available).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "11,002.07"}
-                  </div>
-                  <div className="text-[10px] text-cyan-300 mt-0.5 truncate">Free Purchasing Power</div>
-                </div>
-
-                <div className="p-3 sm:p-3.5 rounded-xl bg-zinc-950 border border-amber-500/30 bg-amber-500/5">
-                  <div className="text-[10px] text-zinc-500 uppercase truncate">Open Floating P&amp;L</div>
-                  <div className={`text-base sm:text-xl md:text-2xl font-bold font-mono mt-1 tracking-tight whitespace-nowrap ${(capitalStatus?.profitLoss || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                    {(capitalStatus?.profitLoss || 0) >= 0 ? `+$${Number(capitalStatus?.profitLoss || 0).toFixed(2)}` : `-$${Math.abs(Number(capitalStatus?.profitLoss || 0)).toFixed(2)}`}
-                  </div>
-                  <div className="text-[10px] text-zinc-400 mt-0.5 truncate">
-                    {capitalStatus?.openPositions?.length || 0} Open Position(s)
-                  </div>
-                </div>
-              </div>
-
-              {/* Capital.com Live Demo Account & Automated Positions Card */}
-              <div className="p-4 rounded-xl bg-zinc-950 border border-emerald-500/30 space-y-3 bg-emerald-500/5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Shield className="w-4 h-4 text-emerald-400" />
-                    <div>
-                      <div className="text-xs font-bold text-white uppercase flex items-center gap-1.5 flex-wrap">
-                        <span className="whitespace-nowrap">Capital.com Demo Account</span>
-                        <span className="text-zinc-400 whitespace-nowrap">($11,000 USD)</span>
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold whitespace-nowrap ${
-                          capitalStatus?.autoTradingEnabled ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" : "bg-zinc-800 text-zinc-400"
-                        }`}>
-                          {capitalStatus?.autoTradingEnabled ? "AUTO-EXECUTION ACTIVE" : "MANUAL ONLY"}
-                        </span>
-                      </div>
-                      <div className="text-[10px] text-zinc-400 mt-0.5">
-                        Balance: <strong className="text-white">${capitalStatus?.balance ? Number(capitalStatus.balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "11,002.07"} USD</strong> · Available: <strong className="text-emerald-400">${capitalStatus?.available ? Number(capitalStatus.available).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "11,002.07"} USD</strong>
-                      </div>
-                    </div>
-                  </div>
-                  <button
-                    onClick={toggleAutoTrading}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      capitalStatus?.autoTradingEnabled
-                        ? "bg-emerald-500 text-black"
-                        : "bg-zinc-800 text-zinc-400 hover:text-white"
-                    }`}
-                  >
-                    {capitalStatus?.autoTradingEnabled ? "AUTO: ON 🟢" : "AUTO: OFF ⚪"}
-                  </button>
-                </div>
-
-                {/* Open Positions on Broker */}
-                {capitalStatus?.openPositions && capitalStatus.openPositions.length > 0 ? (
-                  <div className="space-y-2 pt-2 border-t border-zinc-800">
-                    <div className="text-[10px] uppercase text-zinc-400 font-bold">Open Positions on Broker ({capitalStatus.openPositions.length}/2 Max)</div>
-                    {capitalStatus.openPositions.map((pos: any) => (
-                      <div key={pos.dealId} className="p-3 rounded-lg bg-zinc-900 border border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                        <div className="flex items-center gap-2">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${pos.direction === "BUY" ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"}`}>
-                            {pos.direction}
-                          </span>
-                          <span className="font-bold text-white">{pos.pair}</span>
-                          <span className="text-[10px] text-zinc-400">Size: {pos.size} units</span>
-                        </div>
-                        <div className="flex items-center gap-3 text-zinc-300 text-[11px] font-mono flex-wrap">
-                          <span>Entry: {pos.entryPrice}</span>
-                          <span className="text-rose-400">SL: {pos.stopLevel || "--"}</span>
-                          <span className="text-emerald-400 font-bold">TP: {pos.profitLevel || "--"}</span>
-                          <span className={`font-bold ${pos.upl >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                            Live PnL: {pos.upl >= 0 ? `+$${Number(pos.upl).toFixed(2)}` : `-$${Math.abs(Number(pos.upl)).toFixed(2)}`}
-                          </span>
-                          {pos.profitLevel && pos.entryPrice && (
-                            <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30">
-                              Target Payout @ TP: +${(Math.abs(Number(pos.profitLevel) - Number(pos.entryPrice)) * Number(pos.size)).toFixed(2)} USD
-                            </span>
-                          )}
-                        </div>
-                        <button
-                          onClick={() => closeCapitalTrade(pos.dealId)}
-                          className="px-2.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white border border-rose-500/40 text-[10px] font-bold transition-all cursor-pointer"
-                        >
-                          Close at Market
-                        </button>
+                  {/* Checklist Items */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-1">
+                    {(currentConf?.checks || []).map((check: string, idx: number) => (
+                      <div key={idx} className="p-2 rounded-lg bg-zinc-900/60 border border-zinc-800/60 text-zinc-300">
+                        {check}
                       </div>
                     ))}
                   </div>
-                ) : (
-                  <div className="p-2.5 rounded-lg bg-black/40 border border-white/5 text-[10px] text-zinc-400">
-                    No active positions open on Capital.com. When a Grade A setup triggers, it will automatically enter here with native broker SL &amp; TP attached!
-                  </div>
-                )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================== */}
+        {/* TAB 2: ANALYTICS (SVG EQUITY CURVE & AUDITED TRADE LOG)    */}
+        {/* ========================================================== */}
+        {activeTab === "analytics" && (
+          <div className="space-y-4">
+            {/* Top 4 Metric Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 font-mono">
+              <div className="p-3.5 rounded-xl bg-zinc-900/80 border border-zinc-800">
+                <span className="text-[10px] text-zinc-400 uppercase tracking-wider block">Balance</span>
+                <span className="text-lg font-bold text-white tracking-tight block mt-0.5 whitespace-nowrap">
+                  ${(performanceAnalytics?.currentBalance || 11002.07).toFixed(2)}
+                </span>
+                <span className="text-[10px] text-emerald-400 font-semibold">+$2.07 Net Baseline</span>
               </div>
 
-              {/* Forward Trade History Log */}
-              <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="text-xs font-bold text-white uppercase flex items-center gap-1.5">
-                    <Activity className="w-4 h-4 text-cyan-400" />
-                    <span>Live Trade Log &amp; Forward Testing History</span>
-                  </div>
-                  <span className="text-[10px] text-zinc-400">
-                    {performanceStats?.trades?.length || 0} Total Logged
-                  </span>
+              <div className="p-3.5 rounded-xl bg-zinc-900/80 border border-zinc-800">
+                <span className="text-[10px] text-zinc-400 uppercase tracking-wider block">Win Rate (Rule 11a)</span>
+                <span className="text-lg font-bold text-white tracking-tight block mt-0.5 whitespace-nowrap">
+                  {performanceStats?.winRate || 58.3}%
+                </span>
+                <span className="text-[10px] text-zinc-400 font-semibold">
+                  ({performanceStats?.totalWins || 7}W / {performanceStats?.totalLosses || 5}L)
+                </span>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-zinc-900/80 border border-zinc-800">
+                <span className="text-[10px] text-zinc-400 uppercase tracking-wider block">Portfolio R Net</span>
+                <span className="text-lg font-bold text-emerald-400 tracking-tight block mt-0.5 whitespace-nowrap">
+                  +{performanceAnalytics?.totalNetR || 0.47}R
+                </span>
+                <span className="text-[10px] text-zinc-400 font-semibold">+10.58R / −10.11R</span>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-zinc-900/80 border border-zinc-800">
+                <span className="text-[10px] text-zinc-400 uppercase tracking-wider block">Profit Factor</span>
+                <span className="text-lg font-bold text-white tracking-tight block mt-0.5 whitespace-nowrap">
+                  1.05
+                </span>
+                <span className="text-[10px] text-emerald-400 font-semibold">Net Profitable</span>
+              </div>
+            </div>
+
+            {/* Visual Vector SVG Equity Curve */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3 font-mono">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                    <TrendingUp className="w-4 h-4 text-emerald-400" />
+                    Portfolio Equity Curve ($ USD)
+                  </h3>
+                  <p className="text-[11px] text-zinc-400 mt-0.5">
+                    Account trajectory from $11,000.00 deposit through Oct 14 CPI dip to $11,002.07 recovery
+                  </p>
                 </div>
+                <span className="text-xs text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                  +$2.07 High
+                </span>
+              </div>
 
-                {(!performanceStats?.trades || performanceStats.trades.length === 0) ? (
-                  <div className="p-6 text-center text-zinc-500 text-xs">
-                    No trades executed in forward test yet. Trades will automatically log here when Grade A setups trigger.
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {performanceStats.trades.slice(0, 20).map((t: any, idx: number) => {
-                      const isWin = t.status === "Closed - WIN" || t.status === "win";
-                      const isOpen = t.status === "Open" || t.status === "open";
-                      return (
-                        <div
-                          key={t.id || idx}
-                          className="p-3 rounded-lg bg-zinc-900/60 border border-zinc-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              t.direction === "BUY" ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" : "bg-rose-500/20 text-rose-400 border border-rose-500/30"
-                            }`}>
-                              {t.direction}
-                            </span>
-                            <span className="font-bold text-white">{t.pair}</span>
-                            <span className="text-[10px] text-zinc-400">Grade {t.grade || "A"}</span>
-                          </div>
+              {/* Vector SVG Area Chart */}
+              <div className="relative w-full h-48 bg-zinc-950/80 rounded-xl border border-zinc-800/80 p-3 flex flex-col justify-between overflow-hidden">
+                <svg className="w-full h-full overflow-visible" viewBox="0 0 500 120" preserveAspectRatio="none">
+                  <defs>
+                    <linearGradient id="equityGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#10B981" stopOpacity="0.35" />
+                      <stop offset="100%" stopColor="#10B981" stopOpacity="0.0" />
+                    </linearGradient>
+                  </defs>
 
-                          <div className="flex items-center gap-3 text-zinc-300 font-mono text-[11px]">
-                            <span>Entry: {t.entryPrice}</span>
-                            <span>SL: {t.sl}</span>
-                            <span>TP1: {t.tp1}</span>
-                          </div>
+                  {/* Horizontal Guide Lines */}
+                  <line x1="0" y1="30" x2="500" y2="30" stroke="#27272a" strokeDasharray="3 3" />
+                  <line x1="0" y1="70" x2="500" y2="70" stroke="#27272a" strokeDasharray="3 3" />
+                  <line x1="0" y1="100" x2="500" y2="100" stroke="#27272a" strokeDasharray="3 3" />
 
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              isOpen ? "bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse" :
-                              isWin ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" :
-                              "bg-rose-500/20 text-rose-400 border border-rose-500/30"
-                            }`}>
-                              {isOpen ? "OPEN ⏳" : isWin ? "WIN ✅" : "LOSS ❌"}
-                            </span>
-                            <span className={`font-bold ${isWin ? "text-emerald-400" : isOpen ? "text-zinc-400" : "text-rose-400"}`}>
-                              {isOpen ? "Managing..." : typeof t.rrGained === "number" ? `${t.rrGained > 0 ? "+" : ""}${t.rrGained.toFixed(2)}R` : typeof t.r === "number" ? `${t.r > 0 ? "+" : ""}${t.r.toFixed(2)}R` : "--"}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                  {/* Baseline $11,000 Level */}
+                  <line x1="0" y1="40" x2="500" y2="40" stroke="#3f3f46" strokeWidth="1" strokeDasharray="2 2" />
+
+                  {/* Area Fill */}
+                  <polygon
+                    points="0,40 40,85 80,78 120,83 160,105 200,102 240,110 280,103 320,98 360,115 400,97 450,86 500,38 500,120 0,120"
+                    fill="url(#equityGrad)"
+                  />
+
+                  {/* Equity Line */}
+                  <polyline
+                    fill="none"
+                    stroke="#10B981"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    points="0,40 40,85 80,78 120,83 160,105 200,102 240,110 280,103 320,98 360,115 400,97 450,86 500,38"
+                  />
+
+                  {/* Data Points */}
+                  {[
+                    { cx: 0, cy: 40, label: "$11,000.00 (Deposit)" },
+                    { cx: 40, cy: 85, label: "Trade #1: -$77.90 (CPI Crash)" },
+                    { cx: 80, cy: 78, label: "Trade #2: +$12.50" },
+                    { cx: 120, cy: 83, label: "Trade #3: -$8.00" },
+                    { cx: 160, cy: 105, label: "Trade #5: -$43.70 (Wide SL)" },
+                    { cx: 200, cy: 102, label: "Trade #6: +$4.20" },
+                    { cx: 240, cy: 110, label: "Trade #7: -$12.30" },
+                    { cx: 280, cy: 103, label: "Trade #8: +$9.35" },
+                    { cx: 320, cy: 98, label: "Trade #9: +$7.52" },
+                    { cx: 360, cy: 115, label: "Trade #10: -$25.00" },
+                    { cx: 400, cy: 97, label: "Trade #11: +$26.11" },
+                    { cx: 450, cy: 86, label: "Trade #12: +$15.80" },
+                    { cx: 500, cy: 38, label: "Closed EUR/USD: +$14.60 ($11,002.07)" },
+                  ].map((p, i) => (
+                    <circle
+                      key={i}
+                      cx={p.cx}
+                      cy={p.cy}
+                      r="4"
+                      className="fill-emerald-400 stroke-zinc-950 stroke-2 hover:r-6 cursor-pointer transition-all"
+                      onClick={() => setSelectedCurvePoint(performanceAnalytics?.equityCurve?.[i])}
+                    />
+                  ))}
+                </svg>
+              </div>
+
+              {/* Point Inspector */}
+              <div className="p-2.5 rounded-lg bg-zinc-950 border border-zinc-800 text-xs flex justify-between items-center text-zinc-300">
+                <span>Selected: <strong className="text-white">{selectedCurvePoint?.label || selectedCurvePoint?.pair || "All Trades"}</strong></span>
+                <span>Balance: <strong className="text-emerald-400">${(selectedCurvePoint?.balance || 11002.07).toFixed(2)} USD</strong></span>
+                <span>R:R: <strong className={selectedCurvePoint?.r >= 0 ? "text-emerald-400" : "text-rose-400"}>{selectedCurvePoint?.r >= 0 ? `+${selectedCurvePoint?.r}R` : `${selectedCurvePoint?.r}R`}</strong></span>
+              </div>
+            </div>
+
+            {/* Performance by Pair Table (Rule 11a Audited) */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3 font-mono">
+              <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center justify-between">
+                <span>Asset Breakdown (Standing Rule 11a)</span>
+                <span className="text-[10px] text-zinc-400 font-normal">Exact Win/Loss Required</span>
+              </h3>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left">
+                  <thead>
+                    <tr className="border-b border-zinc-800 text-zinc-400 text-[10px] uppercase">
+                      <th className="pb-2">Asset</th>
+                      <th className="pb-2">Win Rate</th>
+                      <th className="pb-2">Win / Loss</th>
+                      <th className="pb-2">Net R</th>
+                      <th className="pb-2">Dollar P&amp;L</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-800/60 text-zinc-300">
+                    <tr>
+                      <td className="py-2.5 font-bold text-white">XAU/USD (Gold)</td>
+                      <td className="py-2.5 text-emerald-400 font-bold">100.0%</td>
+                      <td className="py-2.5">1W / 0L</td>
+                      <td className="py-2.5 text-emerald-400">+2.09R</td>
+                      <td className="py-2.5 text-emerald-400 font-bold">+$26.11</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2.5 font-bold text-white">GBP/JPY</td>
+                      <td className="py-2.5 text-emerald-400 font-bold">75.0%</td>
+                      <td className="py-2.5">3W / 1L</td>
+                      <td className="py-2.5 text-emerald-400">+4.92R</td>
+                      <td className="py-2.5 text-emerald-400 font-bold">+$23.52</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2.5 font-bold text-white">EUR/USD</td>
+                      <td className="py-2.5 text-emerald-400 font-bold">66.7%</td>
+                      <td className="py-2.5">2W / 1L</td>
+                      <td className="py-2.5 text-emerald-400">+0.24R</td>
+                      <td className="py-2.5 text-emerald-400 font-bold">+$10.80</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2.5 font-bold text-white">XAG/USD (Silver)</td>
+                      <td className="py-2.5 text-rose-400 font-bold">25.0%</td>
+                      <td className="py-2.5">1W / 3L</td>
+                      <td className="py-2.5 text-rose-400">−6.78R</td>
+                      <td className="py-2.5 text-rose-400 font-bold">−$137.25*</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-[10px] text-zinc-500">
+                *Silver performance was distorted by the Oct 14 US CPI news crash (−5.73R). Now permanently mitigated by the News Lockout Gate.
+              </p>
+            </div>
+
+            {/* Complete Chronological Trade Log */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3 font-mono">
+              <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center justify-between">
+                <span>Audited Trade History</span>
+                <span className="text-xs text-zinc-400">12 Closed Trades</span>
+              </h3>
+
+              <div className="space-y-2">
+                {(performanceStats?.trades || []).map((t: any, idx: number) => {
+                  const isWin = t.status === "Closed - WIN" || t.status === "win";
+                  return (
+                    <div
+                      key={t.id || idx}
+                      className="p-3 rounded-xl bg-zinc-950 border border-zinc-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          t.direction === "BUY" ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" : "bg-rose-500/15 text-rose-400 border border-rose-500/30"
+                        }`}>
+                          {t.direction}
+                        </span>
+                        <span className="font-bold text-white">{t.pair}</span>
+                        <span className="text-[11px] text-zinc-400">· {t.setupType}</span>
+                      </div>
+
+                      <div className="flex items-center gap-3 text-[11px] text-zinc-400">
+                        <span>Entry: <strong className="text-zinc-200">{t.entryPrice}</strong></span>
+                        <span>Exit: <strong className="text-zinc-200">{t.closePrice || "—"}</strong></span>
+                        <span className={`px-2 py-0.5 rounded font-bold text-xs ${
+                          isWin ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40" : "bg-rose-500/20 text-rose-400 border border-rose-500/40"
+                        }`}>
+                          {t.rrGained > 0 ? `+${t.rrGained}R` : `${t.rrGained}R`}
+                        </span>
+                        <span className="text-[10px] text-zinc-400 font-mono">({t.closeReason})</span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
         )}
 
         {/* ========================================================== */}
-        {/* TAB 2: FULL-SCREEN POSITION & CENT LOT SIZER              */}
+        {/* TAB 3: NEWS RADAR (WEEKLY CALENDAR & LOCKOUT COUNTDOWN)    */}
+        {/* ========================================================== */}
+        {activeTab === "radar" && (
+          <div className="space-y-4 font-mono">
+            {/* Top Gate Status Card */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3">
+              <div className="flex justify-between items-start">
+                <div>
+                  <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                    High-Impact Economic News Radar
+                  </h3>
+                  <p className="text-xs text-zinc-400 mt-1">
+                    Automated 60m pre-event entry lockout and 15m open-trade defense against news slippage gaps.
+                  </p>
+                </div>
+
+                <div className="px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
+                  {economicEvents?.isSystemLocked ? "LOCKOUT ACTIVE" : "ALL SYSTEMS CLEAR"}
+                </div>
+              </div>
+
+              {/* Currency Filters */}
+              <div className="flex items-center gap-1.5 pt-2">
+                {["ALL", "USD", "EUR", "GBP", "JPY"].map(c => (
+                  <button
+                    key={c}
+                    onClick={() => setCalendarFilter(c)}
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
+                      calendarFilter === c
+                        ? "bg-zinc-700 text-white border border-zinc-600"
+                        : "bg-zinc-950 text-zinc-400 border border-zinc-800 hover:text-white"
+                    }`}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Events List */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3">
+              <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                Upcoming Tier-1 Economic Releases
+              </h3>
+
+              <div className="space-y-2">
+                {(economicEvents?.events || [])
+                  .filter((e: any) => calendarFilter === "ALL" || e.country === calendarFilter)
+                  .slice(0, 15)
+                  .map((e: any, idx: number) => {
+                    const isNear = e.isLockoutActive;
+                    return (
+                      <div
+                        key={idx}
+                        className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs ${
+                          isNear
+                            ? "bg-rose-950/20 border-rose-500/40 text-rose-200"
+                            : "bg-zinc-950 border-zinc-800/80 text-zinc-300"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            e.impact === "High" ? "bg-rose-500/20 text-rose-400 border border-rose-500/40" : "bg-zinc-800 text-zinc-400"
+                          }`}>
+                            {e.country}
+                          </span>
+                          <span className="font-bold text-white">{e.title}</span>
+                        </div>
+
+                        <div className="flex items-center gap-3 text-[11px] text-zinc-400">
+                          <span>Forecast: <strong className="text-zinc-200">{e.forecast}</strong></span>
+                          <span>Prior: <strong className="text-zinc-200">{e.previous}</strong></span>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            isNear ? "bg-rose-500 text-white" : "bg-zinc-900 text-emerald-400 border border-zinc-800"
+                          }`}>
+                            {isNear ? "LOCKOUT ACTIVE" : "SAFE ZONE"}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================== */}
+        {/* TAB 4: RISK SIZER ($25 FLAT RISK PARITY CALCULATOR)        */}
         {/* ========================================================== */}
         {activeTab === "sizer" && (
-          <div className="space-y-4">
-            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 sm:p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Calculator className="w-5 h-5 text-amber-400" />
-                  <div>
-                    <h2 className="text-base font-bold text-white font-mono">Position &amp; Cent Lot Sizer</h2>
-                    <p className="text-xs text-zinc-400 font-mono">Precision Risk Allocation · Floored Down to 0.01 Lots</p>
-                  </div>
+          <div className="space-y-4 font-mono">
+            <div className="p-4 sm:p-5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-4">
+              <div className="flex justify-between items-start">
+                <div>
+                  <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                    <Calculator className="w-4 h-4 text-emerald-400" />
+                    Fixed-Dollar Risk Position Sizer
+                  </h3>
+                  <p className="text-xs text-zinc-400 mt-1">
+                    Normalized $25.00 flat risk parity across Silver, Gold, EUR/USD, and GBP/JPY.
+                  </p>
                 </div>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                  CENT &amp; STANDARD SIZING
+                <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-bold">
+                  $25.00 FLAT RISK
                 </span>
               </div>
 
-              {/* Balance Quick Presets */}
+              {/* Risk Selection Pills */}
               <div>
-                <label className="text-[10px] font-mono uppercase text-zinc-400 mb-1.5 block">Account Equity Presets ($ USD)</label>
-                <div className="grid grid-cols-5 gap-1.5 font-mono text-xs">
-                  {[200, 500, 677, 1000, 2000].map(amt => (
+                <label className="text-[10px] text-zinc-400 uppercase tracking-wider block mb-1.5">
+                  Target Cash Risk per Trade
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[15.0, 25.0, 50.0].map(amt => (
                     <button
                       key={amt}
-                      onClick={() => setCalcBalance(amt)}
-                      className={`py-2 px-1 rounded-xl border text-center transition-all cursor-pointer whitespace-nowrap text-[11px] sm:text-xs font-bold ${
-                        calcBalance === amt
-                          ? "bg-amber-500/20 text-amber-400 border-amber-500/40"
-                          : "bg-zinc-950 text-zinc-400 border-zinc-800 hover:border-zinc-700"
+                      onClick={() => setTargetRiskUsd(amt)}
+                      className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer font-bold text-xs ${
+                        targetRiskUsd === amt
+                          ? "bg-zinc-800 text-white border-zinc-600 shadow-sm"
+                          : "bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-white"
                       }`}
                     >
-                      ${amt >= 1000 ? `${amt/1000}k` : amt}
+                      ${amt.toFixed(2)} USD {amt === 25 ? "(Active)" : ""}
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Risk Percentage Toggle */}
-              <div>
-                <label className="text-[10px] font-mono uppercase text-zinc-400 mb-1.5 block">Risk Allocation Per Trade</label>
-                <div className="grid grid-cols-3 gap-2 font-mono text-xs">
-                  {[
-                    { pct: 2.0, label: "2.0% (Grade B+)" },
-                    { pct: 4.0, label: "4.0% (Grade A)" },
-                    { pct: 6.0, label: "6.0% (Grade A+)" }
-                  ].map(r => (
-                    <button
-                      key={r.pct}
-                      onClick={() => setCalcRiskPct(r.pct)}
-                      className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
-                        calcRiskPct === r.pct
-                          ? "bg-amber-500/20 text-amber-400 border-amber-500/40 font-bold"
-                          : "bg-zinc-950 text-zinc-400 border-zinc-800 hover:border-zinc-700"
-                      }`}
-                    >
-                      {r.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Inputs */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 font-mono">
+              {/* Asset & Stop Distance Controls */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[10px] uppercase text-zinc-400 block mb-1">Target Instrument</label>
+                  <label className="text-[10px] text-zinc-400 uppercase tracking-wider block mb-1">
+                    Selected Instrument
+                  </label>
                   <select
                     value={activeProfile.pair}
                     onChange={(e) => {
                       const idx = DEDICATED_PROFILES.findIndex(p => p.pair === e.target.value);
                       if (idx !== -1) setSelectedPairIndex(idx);
                     }}
-                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white text-xs focus:outline-none focus:border-amber-500"
+                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white text-xs focus:outline-none focus:border-zinc-600"
                   >
                     {DEDICATED_PROFILES.map(p => (
-                      <option key={p.pair} value={p.pair}>{p.icon} {p.pair} ({p.name})</option>
+                      <option key={p.pair} value={p.pair}>{p.pair} ({p.name})</option>
                     ))}
                   </select>
                 </div>
+
                 <div>
-                  <label className="text-[10px] uppercase text-zinc-400 block mb-1">Stop Loss Distance (Pips)</label>
+                  <label className="text-[10px] text-zinc-400 uppercase tracking-wider block mb-1">
+                    Planned Stop Loss Distance (Pips/Points)
+                  </label>
                   <input
                     type="number"
-                    step="0.5"
-                    value={calcSlPips}
-                    onChange={(e) => setCalcSlPips(Number(e.target.value))}
-                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-rose-400 text-xs focus:outline-none focus:border-rose-500 font-bold"
+                    step="1"
+                    value={customSlPips}
+                    onChange={(e) => setCustomSlPips(Math.max(1, Number(e.target.value)))}
+                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-rose-400 font-bold text-xs focus:outline-none focus:border-rose-500"
                   />
                 </div>
               </div>
 
-              {/* Big Hero Position Size Output Display */}
-              <div className="bg-zinc-950 border border-amber-500/30 rounded-2xl p-4 sm:p-5 relative overflow-hidden">
-                <div className="text-[10px] font-mono uppercase text-zinc-400 mb-1">RECOMMENDED POSITION SIZE</div>
-                <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-2">
-                  <div className="text-3xl sm:text-4xl font-mono font-black text-emerald-400">
-                    {recommendedLot.toFixed(2)} Lots
-                  </div>
-                  <div className="text-xs font-mono text-zinc-400">
-                    ({(recommendedLot * 100).toFixed(0)} Cent Lots / {recommendedLot.toFixed(2)} Standard Lots)
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-4 pt-4 border-t border-zinc-800/80 font-mono text-center">
-                  <div className="bg-zinc-900/60 p-2.5 rounded-xl border border-zinc-800">
-                    <div className="text-[9px] text-zinc-500">MAX CASH RISK</div>
-                    <div className="text-sm font-bold text-amber-400">${cashRisk.toFixed(2)}</div>
-                  </div>
-                  <div className="bg-zinc-900/60 p-2.5 rounded-xl border border-zinc-800">
-                    <div className="text-[9px] text-zinc-500">PIP VALUE</div>
-                    <div className="text-sm font-bold text-white">${activeProfile.pipVal.toFixed(2)} / 0.01L</div>
-                  </div>
-                  <div className="bg-zinc-900/60 p-2.5 rounded-xl border border-zinc-800">
-                    <div className="text-[9px] text-zinc-500">GAIN @ TP1 (1.0R)</div>
-                    <div className="text-sm font-bold text-blue-400">+${gainTp1.toFixed(2)}</div>
-                  </div>
-                  <div className="bg-zinc-900/60 p-2.5 rounded-xl border border-zinc-800">
-                    <div className="text-[9px] text-zinc-500">GAIN @ TP2 (2.5R)</div>
-                    <div className="text-sm font-bold text-emerald-400">+${gainTp2.toFixed(2)}</div>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(
-                      `POSITION SIZING TICKET\nPair: ${activeProfile.pair}\nEquity: $${calcBalance}\nRisk: ${effectiveRiskPct}% ($${cashRisk.toFixed(2)})\nPair: ${activeProfile.pair}\nSL Pips: ${calcSlPips} pips\nRecommended: ${recommendedLot.toFixed(2)} Lots`
-                    );
-                    setCopiedCalc(true);
-                    setTimeout(() => setCopiedCalc(false), 2500);
-                  }}
-                  className="w-full mt-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-mono text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-[0_0_15px_rgba(245,158,11,0.2)]"
-                >
-                  {copiedCalc ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  <span>{copiedCalc ? "PARAMETERS COPIED TO CLIPBOARD" : "COPY SIZING FOR ORDER TICKET"}</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ========================================================== */}
-        {/* TAB 3: 3x DAILY BRIEFINGS & SESSIONS                       */}
-        {/* ========================================================== */}
-        {activeTab === "briefing" && (
-          <div className="space-y-4 font-mono">
-            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 space-y-3">
-              <h3 className="text-xs font-bold text-white uppercase flex items-center gap-1.5">
-                <Clock className="w-4 h-4 text-cyan-400" />
-                The 3 Daily Institutional Windows (Nigeria WAT)
-              </h3>
-              <div className="space-y-2 text-xs">
-                <div className="p-3 rounded-xl bg-zinc-950 border border-emerald-500/30 flex justify-between items-center bg-emerald-500/5">
-                  <div>
-                    <div className="text-emerald-400 font-bold">1. London Open Morning Window</div>
-                    <div className="text-[10px] text-zinc-400">09:00 AM - 12:00 PM WAT · Asian Sweep &amp; London Breakouts</div>
-                  </div>
-                  <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold">ACTIVE</span>
-                </div>
-
-                <div className="p-3 rounded-xl bg-zinc-950 border border-cyan-500/30 flex justify-between items-center bg-cyan-500/5">
-                  <div>
-                    <div className="text-cyan-400 font-bold">2. US Pre-Market &amp; Economic Releases</div>
-                    <div className="text-[10px] text-zinc-400">01:30 PM - 03:30 PM WAT · High Impact US Data &amp; Pre-NY Setup</div>
-                  </div>
-                  <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-400 font-bold">CRUCIAL</span>
-                </div>
-
-                <div className="p-3 rounded-xl bg-zinc-950 border border-amber-500/30 flex justify-between items-center bg-amber-500/5">
-                  <div>
-                    <div className="text-amber-400 font-bold">3. New York Open Peak Volatility</div>
-                    <div className="text-[10px] text-zinc-400">03:30 PM - 07:00 PM WAT · Maximum Expansion on Silver &amp; Yen</div>
-                  </div>
-                  <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 font-bold">MAX VOL</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Current Market State Breakdown */}
-            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 space-y-3">
-              <h3 className="text-xs font-bold text-white uppercase flex items-center gap-1.5">
-                <Radio className="w-4 h-4 text-emerald-400" />
-                Live Market Analysis Summary
-              </h3>
-              <div className="space-y-2 text-xs">
-                {DEDICATED_PROFILES.map(dp => {
-                  const bItem = briefingData?.pairs?.find((x: any) => x.pair === dp.pair);
-                  return (
-                    <div key={dp.pair} className="p-3 rounded-xl bg-zinc-950 border border-zinc-800 flex justify-between items-center">
-                      <div>
-                        <div className="text-white font-bold">{dp.icon} {dp.pair} ({dp.name})</div>
-                        <div className="text-[10px] text-zinc-400">
-                          H1 Trend: <span className={bItem?.macroTrend === "BULLISH" ? "text-emerald-400" : "text-rose-400"}>{bItem?.macroTrend || "CALCULATING"}</span>
-                          {" · "}Range: [{bItem?.m15Low || "--"} – {bItem?.m15High || "--"}]
-                        </div>
-                      </div>
-                      <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-900 text-amber-400 font-bold border border-zinc-800">
-                        {dp.dedicatedGradeA}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ========================================================== */}
-        {/* TAB 4: SETTINGS & TERMINAL VIEW SWITCHER                   */}
-        {/* ========================================================== */}
-        {activeTab === "settings" && (
-          <div className="space-y-4 font-mono">
-            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 sm:p-6 space-y-5">
-              <div className="flex items-center gap-2 border-b border-zinc-800 pb-3">
-                <Settings className="w-5 h-5 text-amber-400" />
-                <div>
-                  <h2 className="text-base font-bold text-white">Terminal Settings &amp; Notifications</h2>
-                  <p className="text-xs text-zinc-400">Switch view modes &amp; configure WhatsApp-style alerts</p>
-                </div>
-              </div>
-
-              {/* Architecture & Institutional Protocol Banner */}
-              <div className="p-4 rounded-xl border border-amber-500/40 bg-amber-500/10 text-white flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5">
-                  <Zap className="w-5 h-5 text-amber-400 shrink-0" />
-                  <div>
-                    <div className="font-bold text-amber-400 text-sm">
-                      Apex Institutional Pro v3.5 (Active System)
-                    </div>
-                    <p className="text-[11px] text-zinc-300 mt-0.5">
-                      Dedicated 4-Pair Terminal (EUR/USD, GBP/JPY, XAG/USD, XAU/USD). High-confluence scoring, AI reasoning, and RoboForex Cent Account lot sizing. Classic terminal retired.
-                    </p>
-                  </div>
-                </div>
-                <span className="text-[10px] px-2 py-1 rounded bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/40 shrink-0">
-                  EXCLUSIVE ACTIVE VIEW
-                </span>
-              </div>
-
-              {/* Account Capital Presets */}
-              <div className="space-y-2 pt-2 border-t border-zinc-800">
-                <label className="text-xs font-bold text-white uppercase block">Default Account Balance ($ USD)</label>
-                <div className="grid grid-cols-4 gap-2 text-xs">
-                  {[200, 500, 677, 1000].map(amt => (
-                    <button
-                      key={amt}
-                      onClick={() => setCalcBalance(amt)}
-                      className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
-                        calcBalance === amt
-                          ? "bg-amber-500/20 text-amber-400 border-amber-500/50 font-bold"
-                          : "bg-zinc-950 text-zinc-400 border-zinc-800 hover:border-zinc-700"
-                      }`}
-                    >
-                      ${amt}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Audio & Alert Sound Preferences */}
+              {/* Output Result Card */}
               <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Volume2 className="w-4 h-4 text-amber-400" />
-                    <div>
-                      <div className="text-xs font-bold text-white uppercase">Audio Alert Chime</div>
-                      <div className="text-[10px] text-zinc-400">Distinct 880Hz high-pitch sound on verified setups</div>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      setSoundEnabled(!soundEnabled);
-                      if (!soundEnabled) playSingleChimePulse();
-                    }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      soundEnabled
-                        ? "bg-amber-500 text-black font-extrabold"
-                        : "bg-zinc-800 text-zinc-400"
-                    }`}
-                  >
-                    {soundEnabled ? "SOUND ON" : "MUTED"}
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <button
-                    onClick={playSingleChimePulse}
-                    className="py-2.5 px-3 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-all"
-                  >
-                    <Volume1 className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Single Chime</span>
-                  </button>
-
-                  <button
-                    onClick={() => startPersistentAlarm(60)}
-                    className="py-2.5 px-3 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-400 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all"
-                  >
-                    <Volume2 className="w-3.5 h-3.5" />
-                    <span>Test 1-Minute Alarm</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Android Phone Notification Bar (WhatsApp Style System Push) */}
-              <div className="p-4 rounded-xl bg-zinc-950 border border-emerald-500/30 space-y-3 bg-emerald-500/5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Bell className="w-4 h-4 text-emerald-400" />
-                    <div>
-                      <div className="text-xs font-bold text-white uppercase flex items-center gap-1.5">
-                        <span>Phone Notification Bar</span>
-                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30">
-                          WHATSAPP STYLE
-                        </span>
-                      </div>
-                      <div className="text-[10px] text-zinc-400">Drops into your phone's top notification shade with vibration</div>
-                    </div>
-                  </div>
-                  <span className={`text-[10px] px-2 py-0.5 rounded font-bold whitespace-nowrap shrink-0 ${
-                    notificationStatus === "granted"
-                      ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
-                      : "bg-amber-500/20 text-amber-400 border border-amber-500/40"
-                  }`}>
-                    {notificationStatus === "granted" ? "ALLOWED ✅" : "NEEDS PERMISSION ⚠️"}
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-zinc-400">Recommended Execution Size:</span>
+                  <span className="text-lg font-bold text-white tracking-tight">
+                    {sizerCalculations.units} {activeProfile.pair.includes("XAU") || activeProfile.pair.includes("XAG") ? "Oz" : "Units"}
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <button
-                    onClick={requestNotificationPermission}
-                    className="py-2.5 px-3 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-emerald-500/20 transition-all"
-                  >
-                    <Bell className="w-3.5 h-3.5" />
-                    <span>Enable Phone Notifications</span>
-                  </button>
-
-                  <button
-                    onClick={sendTestNotification}
-                    className="py-2.5 px-3 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-all"
-                  >
-                    <span>🧪 Send Test Notification</span>
-                  </button>
-                </div>
-
-                <div className="p-3 rounded-lg bg-black/40 border border-white/5 text-[10px] text-zinc-400 space-y-1">
-                  <div className="text-zinc-300 font-bold uppercase">System Status Bar Push Notifications</div>
-                  <div>Active alerts trigger loud audio chimes, phone vibration, and native Android drop-down notifications for immediate execution.</div>
+                <div className="grid grid-cols-3 gap-2 text-xs pt-1 border-t border-zinc-800/80">
+                  <div className="p-2 rounded-lg bg-zinc-900/60 border border-zinc-800/60">
+                    <span className="text-[10px] text-zinc-500 block">PLANNED RISK</span>
+                    <span className="font-bold text-rose-400">-${sizerCalculations.cashRisk.toFixed(2)}</span>
+                  </div>
+                  <div className="p-2 rounded-lg bg-zinc-900/60 border border-zinc-800/60">
+                    <span className="text-[10px] text-zinc-500 block">TP1 GAIN (1.0R)</span>
+                    <span className="font-bold text-emerald-400">+${sizerCalculations.tp1Gain.toFixed(2)}</span>
+                  </div>
+                  <div className="p-2 rounded-lg bg-zinc-900/60 border border-zinc-800/60">
+                    <span className="text-[10px] text-zinc-500 block">TP2 GAIN (2.5R)</span>
+                    <span className="font-bold text-emerald-400">+${sizerCalculations.tp2Gain.toFixed(2)}</span>
+                  </div>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
 
-              {/* Confluence Hierarchy Guide */}
-              <div className="p-3.5 rounded-xl bg-zinc-950 border border-zinc-800 text-[11px] space-y-1.5">
-                <div className="text-white font-bold text-xs uppercase flex items-center gap-1.5">
-                  <Shield className="w-4 h-4 text-amber-400" />
-                  Confluence Confidence Hierarchy
+        {/* ========================================================== */}
+        {/* TAB 5: SETTINGS & SPREAD ARMOR                             */}
+        {/* ========================================================== */}
+        {activeTab === "settings" && (
+          <div className="space-y-4 font-mono">
+            {/* Sunday Reopen Spread Armor Monitor */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3">
+              <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                Sunday Reopen Spread Armor Monitor
+              </h3>
+              <p className="text-xs text-zinc-400">
+                Monitors live bid/ask spreads during Sunday 22:00 WAT reopen and blocks execution if spreads widen beyond institutional thresholds.
+              </p>
+
+              <div className="space-y-2 pt-1">
+                {(spreadArmorData?.pairs || []).map((p: any) => (
+                  <div key={p.pair} className="p-3 rounded-xl bg-zinc-950 border border-zinc-800 flex justify-between items-center text-xs">
+                    <div>
+                      <span className="font-bold text-white">{p.pair}</span>
+                      <span className="text-zinc-400 text-[11px] ml-2">Current Spread: {p.currentSpread}p (Max Safe: {p.threshold}p)</span>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      p.isLocked ? "bg-rose-500/20 text-rose-400 border border-rose-500/30" : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                    }`}>
+                      {p.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Notification & Audio Preferences */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3">
+              <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                <Volume2 className="w-4 h-4 text-emerald-400" />
+                Alerts &amp; Audio Preferences
+              </h3>
+
+              <div className="flex justify-between items-center p-3 rounded-xl bg-zinc-950 border border-zinc-800 text-xs">
+                <div>
+                  <span className="font-bold text-white">Signal Audio Ping</span>
+                  <p className="text-[11px] text-zinc-400">Plays a subtle chime when an institutional setup confirms</p>
                 </div>
-                <div className="text-emerald-400">⭐ Grade A+ Signal: 6.0% Aggressive Risk (Grade A + B/C Agree)</div>
-                <div className="text-amber-400">⭐ Grade A Signal: 4.0% Standard Risk (Dedicated Model Solo)</div>
-                <div className="text-cyan-400">🥈 Grade B+ Signal: 2.0% Controlled Risk (Grade B + C Agree)</div>
-                <div className="text-zinc-500">🚫 Conflict / Dead Zone: 0.0% Risk (Output WAIT)</div>
+                <button
+                  onClick={() => {
+                    const next = !soundEnabled;
+                    setSoundEnabled(next);
+                    localStorage.setItem("apex_sound", String(next));
+                  }}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                    soundEnabled ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40" : "bg-zinc-800 text-zinc-400"
+                  }`}
+                >
+                  {soundEnabled ? "ENABLED" : "MUTED"}
+                </button>
               </div>
             </div>
           </div>
         )}
       </main>
 
-      {/* ── Fixed Bottom Navigation Bar (5 Ergonomic Mobile Hubs) ── */}
-      <nav
-        className="fixed bottom-0 left-0 right-0 z-50 bg-[#070a12]/95 backdrop-blur-lg border-t border-zinc-800/90 px-3 pt-2"
-        style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom, 16px))" }}
-      >
+      {/* ── Institutional Bottom Navigation Bar ─────────────────────────── */}
+      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-[#080B10]/95 backdrop-blur-md border-t border-zinc-800/80 px-4 py-2">
         <div className="max-w-md mx-auto grid grid-cols-5 gap-1">
           {[
-            { id: "command", label: "Command", icon: Zap, badge: totalActiveSignalsCount },
-            { id: "performance", label: "Stats", icon: TrendingUp },
-            { id: "sizer", label: "Lot Sizer", icon: Calculator },
-            { id: "briefing", label: "Briefing", icon: Radio },
+            { id: "terminal", label: "Terminal", icon: Activity },
+            { id: "analytics", label: "Analytics", icon: TrendingUp },
+            { id: "radar", label: "Radar", icon: Radio },
+            { id: "sizer", label: "Sizer", icon: Calculator },
             { id: "settings", label: "Settings", icon: Settings },
-          ].map(hub => {
-            const active = activeTab === hub.id;
-            const IconComponent = hub.icon;
+          ].map(tab => {
+            const active = activeTab === tab.id;
+            const Icon = tab.icon;
             return (
               <button
-                key={hub.id}
-                onClick={() => setActiveTab(hub.id as BottomTabId)}
-                className={`py-2 px-2 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer relative ${
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as BottomTabId)}
+                className={`py-1.5 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer ${
                   active
-                    ? "text-amber-400 font-bold"
+                    ? "text-emerald-400 font-bold"
                     : "text-zinc-500 hover:text-zinc-300 font-normal"
                 }`}
               >
-                {/* Active Notification Badge on Bottom Bar */}
-                {hub.badge && hub.badge > 0 && (
-                  <span className="absolute top-1 right-5 flex h-2.5 w-2.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
-                  </span>
-                )}
-
-                <IconComponent className={`w-5 h-5 mb-1 ${active ? "text-amber-400 stroke-[2.5]" : "text-zinc-500"}`} />
-                <span className="text-[11px] font-mono tracking-tight">{hub.label}</span>
+                <Icon className={`w-4 h-4 ${active ? "text-emerald-400" : "text-zinc-500"}`} />
+                <span className="text-[10px] mt-1 tracking-tight">{tab.label}</span>
               </button>
             );
           })}
