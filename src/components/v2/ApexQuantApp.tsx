@@ -581,14 +581,14 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
       </header>
 
       {/* ── 3-Daily Live Intelligence Ribbon (Nigeria WAT) ─────────── */}
-      <div className="bg-zinc-950/90 border-b border-zinc-800/60 px-4 py-2.5 flex items-center justify-between text-xs font-mono">
-        <div className="flex items-center gap-2 truncate">
+      <div className="bg-zinc-950/90 border-b border-zinc-800/60 px-4 py-2.5 flex items-center justify-between text-xs font-mono gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
           <Radio className={`w-3.5 h-3.5 shrink-0 ${briefingData?.isKillZone ? "text-emerald-400 animate-pulse" : "text-amber-400"}`} />
-          <span className={briefingData?.isKillZone ? "text-emerald-400 font-bold truncate" : "text-zinc-300 truncate"}>
+          <span className={`truncate ${briefingData?.isKillZone ? "text-emerald-400 font-bold" : "text-zinc-300"}`}>
             {briefingData?.briefingPhase || "Active Session Monitor (Nigeria WAT)"}
           </span>
         </div>
-        <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-900 text-cyan-400 border border-zinc-800 shrink-0 font-bold">
+        <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-900 text-cyan-400 border border-zinc-800 shrink-0 font-bold whitespace-nowrap">
           4-Pair Institutional
         </span>
       </div>
@@ -946,36 +946,36 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
 
               {/* Real Account Equity Metric Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                <div className="p-3.5 rounded-xl bg-zinc-950 border border-zinc-800">
-                  <div className="text-[10px] text-zinc-500 uppercase">Initial Deposit</div>
-                  <div className="text-xl sm:text-2xl font-bold text-white mt-1">
+                <div className="p-3 sm:p-3.5 rounded-xl bg-zinc-950 border border-zinc-800">
+                  <div className="text-[10px] text-zinc-500 uppercase truncate">Initial Deposit</div>
+                  <div className="text-base sm:text-xl md:text-2xl font-bold font-mono text-white mt-1 tracking-tight whitespace-nowrap">
                     $11,000.00
                   </div>
-                  <div className="text-[10px] text-zinc-400 mt-0.5">Starting Capital</div>
+                  <div className="text-[10px] text-zinc-400 mt-0.5 truncate">Starting Capital</div>
                 </div>
 
-                <div className="p-3.5 rounded-xl bg-zinc-950 border border-emerald-500/30 bg-emerald-500/5">
-                  <div className="text-[10px] text-zinc-500 uppercase">Current Equity / Balance</div>
-                  <div className="text-xl sm:text-2xl font-bold text-emerald-400 mt-1">
-                    ${capitalStatus?.balance ? Number(capitalStatus.balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "10,999.63"}
+                <div className="p-3 sm:p-3.5 rounded-xl bg-zinc-950 border border-emerald-500/30 bg-emerald-500/5">
+                  <div className="text-[10px] text-zinc-500 uppercase truncate">Current Equity / Balance</div>
+                  <div className="text-base sm:text-xl md:text-2xl font-bold font-mono text-emerald-400 mt-1 tracking-tight whitespace-nowrap">
+                    ${capitalStatus?.balance ? Number(capitalStatus.balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "11,002.07"}
                   </div>
-                  <div className="text-[10px] text-emerald-300 mt-0.5">Live Broker Balance</div>
+                  <div className="text-[10px] text-emerald-300 mt-0.5 truncate">Live Broker Balance</div>
                 </div>
 
-                <div className="p-3.5 rounded-xl bg-zinc-950 border border-cyan-500/30 bg-cyan-500/5">
-                  <div className="text-[10px] text-zinc-500 uppercase">Available Margin</div>
-                  <div className="text-xl sm:text-2xl font-bold text-cyan-400 mt-1">
-                    ${capitalStatus?.available ? Number(capitalStatus.available).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "10,944.00"}
+                <div className="p-3 sm:p-3.5 rounded-xl bg-zinc-950 border border-cyan-500/30 bg-cyan-500/5">
+                  <div className="text-[10px] text-zinc-500 uppercase truncate">Available Margin</div>
+                  <div className="text-base sm:text-xl md:text-2xl font-bold font-mono text-cyan-400 mt-1 tracking-tight whitespace-nowrap">
+                    ${capitalStatus?.available ? Number(capitalStatus.available).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "11,002.07"}
                   </div>
-                  <div className="text-[10px] text-cyan-300 mt-0.5">Free Purchasing Power</div>
+                  <div className="text-[10px] text-cyan-300 mt-0.5 truncate">Free Purchasing Power</div>
                 </div>
 
-                <div className="p-3.5 rounded-xl bg-zinc-950 border border-amber-500/30 bg-amber-500/5">
-                  <div className="text-[10px] text-zinc-500 uppercase">Open Floating P&amp;L</div>
-                  <div className={`text-xl sm:text-2xl font-bold mt-1 ${(capitalStatus?.profitLoss || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                <div className="p-3 sm:p-3.5 rounded-xl bg-zinc-950 border border-amber-500/30 bg-amber-500/5">
+                  <div className="text-[10px] text-zinc-500 uppercase truncate">Open Floating P&amp;L</div>
+                  <div className={`text-base sm:text-xl md:text-2xl font-bold font-mono mt-1 tracking-tight whitespace-nowrap ${(capitalStatus?.profitLoss || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
                     {(capitalStatus?.profitLoss || 0) >= 0 ? `+$${Number(capitalStatus?.profitLoss || 0).toFixed(2)}` : `-$${Math.abs(Number(capitalStatus?.profitLoss || 0)).toFixed(2)}`}
                   </div>
-                  <div className="text-[10px] text-zinc-400 mt-0.5">
+                  <div className="text-[10px] text-zinc-400 mt-0.5 truncate">
                     {capitalStatus?.openPositions?.length || 0} Open Position(s)
                   </div>
                 </div>
@@ -987,16 +987,17 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
                   <div className="flex items-center gap-2">
                     <Shield className="w-4 h-4 text-emerald-400" />
                     <div>
-                      <div className="text-xs font-bold text-white uppercase flex items-center gap-1.5">
-                        <span>Capital.com Demo Account ($11,000 USD)</span>
-                        <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold ${
+                      <div className="text-xs font-bold text-white uppercase flex items-center gap-1.5 flex-wrap">
+                        <span className="whitespace-nowrap">Capital.com Demo Account</span>
+                        <span className="text-zinc-400 whitespace-nowrap">($11,000 USD)</span>
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold whitespace-nowrap ${
                           capitalStatus?.autoTradingEnabled ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" : "bg-zinc-800 text-zinc-400"
                         }`}>
                           {capitalStatus?.autoTradingEnabled ? "AUTO-EXECUTION ACTIVE" : "MANUAL ONLY"}
                         </span>
                       </div>
-                      <div className="text-[10px] text-zinc-400">
-                        Balance: <strong className="text-white">${capitalStatus?.balance ? capitalStatus.balance.toLocaleString() : "11,000.00"} USD</strong> · Available: <strong className="text-emerald-400">${capitalStatus?.available ? capitalStatus.available.toLocaleString() : "11,000.00"} USD</strong>
+                      <div className="text-[10px] text-zinc-400 mt-0.5">
+                        Balance: <strong className="text-white">${capitalStatus?.balance ? Number(capitalStatus.balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "11,002.07"} USD</strong> · Available: <strong className="text-emerald-400">${capitalStatus?.available ? Number(capitalStatus.available).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "11,002.07"} USD</strong>
                       </div>
                     </div>
                   </div>

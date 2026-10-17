@@ -3774,6 +3774,7 @@ interface VirtualTrade {
   fillDriftAtr?: number;    // signed fill-vs-plan drift in ATR units (+ = favorable, − = adverse)
   closeNote?: string;       // audit note for manual closes
   dealReference?: string;   // Capital.com broker deal reference
+  isLiveOnBroker?: boolean; // synced with active broker position on Capital.com
 }
 
 interface SignalLog {
@@ -3887,6 +3888,22 @@ async function hydrateMemoryFromDatabase() {
       const day = new Date(s.timestamp).toISOString().slice(0, 10);
       asianFadeDailyTaken.set(`${s.pair}:${day}`, s.id);
     }
+
+    // Reconcile manual broker close for EUR/USD trade from 2026-10-15/16
+    for (const t of tradesMemory) {
+      if (t.pair === "EUR/USD" && (Math.abs(t.entryPrice - 1.12095) < 0.0005 || String(t.id).includes("a3210381"))) {
+        if (t.closeReason === "STALENESS" || t.status === "Closed - LOSS" || t.rrGained < 0) {
+          t.status = "Closed - WIN";
+          t.rrGained = 0.88;
+          t.closePrice = 1.12387;
+          t.closeReason = "MANUAL_BROKER_CLOSE";
+          t.closeTimestamp = "2026-10-16T20:57:11.714Z";
+          t.updatedAt = new Date().toISOString();
+          console.log(`[RECONCILIATION] Reconciled trade ${t.id} (${t.pair}) to Closed - WIN (+0.88R / +$14.60 USD) from manual broker exit.`);
+        }
+      }
+    }
+
     dbHydrated = true;
     console.log(`[INFO] Hydrated memory from MongoDB: ${tradesMemory.length} trades, ${signalsMemory.length} signals, ${shadowPositionsMemory.length} shadow positions, ${precisionSignalsMemory.length} precision signals, ${precisionTradesMemory.length} precision trades, ${asianSignalsMemory.length} asian signals, ${asianTradesMemory.length} asian trades, ${trendSweepSignalsMemory.length} sweep signals, ${trendSweepTradesMemory.length} sweep trades, ${asianFadeSignalsMemory.length} fade signals, ${asianFadeTradesMemory.length} fade trades.`);
   } catch (err) {
@@ -4261,6 +4278,13 @@ async function runBackgroundCycle() {
     // 1. Resolve and update open positions first
     if (openTrades.length > 0) {
       console.log(`[BACKGROUND ENGINE] Verifying ${openTrades.length} open position(s) against live feed...`);
+      let openBrokerPositions: any[] = [];
+      try {
+        openBrokerPositions = await getCapitalOpenPositions();
+      } catch (err) {
+        console.error("[BROKER SYNC] Could not fetch Capital.com positions:", err);
+      }
+
       for (const trade of openTrades) {
         try {
           const live = await getLivePrice(trade.pair);
@@ -4276,15 +4300,35 @@ async function runBackgroundCycle() {
 
           console.log(`[BACKGROUND ENGINE] Trade ${trade.id} (${trade.pair}): Entry = ${trade.entryPrice}, Bid = ${live.bid}, Ask = ${live.ask}, Check = ${checkPrice} (${trade.direction}), SL = ${trade.sl}, TP1 = ${trade.tp1}`);
 
+          // Real Broker Position Synchronization
+          const isTradeOnBroker = openBrokerPositions.some((pos: any) => {
+            const pEpic = pos.market?.instrumentName || pos.position?.epic;
+            const pDir = pos.position?.direction;
+            return (trade.pair.replace("/", "") === pEpic || trade.pair === pEpic) && trade.direction === pDir;
+          });
+
+          if (isTradeOnBroker) {
+            trade.isLiveOnBroker = true;
+          } else if (trade.dealReference || String(trade.id).startsWith("vtrade_cap_") || trade.isLiveOnBroker) {
+            // Position was previously open on Capital.com, but is no longer open on broker
+            const pnlR = trade.direction === "BUY"
+              ? (checkPrice - trade.entryPrice) / Math.max(1e-5, slDist)
+              : (trade.entryPrice - checkPrice) / Math.max(1e-5, slDist);
+            trade.status = pnlR >= 0 ? "Closed - WIN" : "Closed - LOSS";
+            trade.rrGained = Number(pnlR.toFixed(2));
+            trade.closePrice = Number(checkPrice.toFixed(5));
+            trade.closeReason = "MANUAL_BROKER_CLOSE";
+            trade.closeTimestamp = new Date().toISOString();
+            trade.updatedAt = new Date().toISOString();
+            console.log(`[BROKER SYNC] Detected manual/broker close for ${trade.pair}: ${trade.status} (${trade.rrGained}R @ ${checkPrice})`);
+            continue;
+          }
+
           // ========== TRADE STALENESS CHECK (Part 3) ==========
-          // If a trade hasn't made meaningful progress (≥ STALENESS_MIN_R) within
-          // STALENESS_HOURS, the setup thesis is likely wrong. Close it.
-          // Runs BEFORE BE check — no point adjusting SL on a stale trade.
-          // Does NOT conflict with Part 1 volatility: staleness checks trade progress,
-          // volatility checks market activity. Different questions, different timing.
+          // If trade is live on broker, DO NOT close it for staleness (user/broker controls it).
           const tradeAgeMs = Date.now() - new Date(trade.timestamp).getTime();
           const tradeAgeHours = tradeAgeMs / (60 * 60 * 1000);
-          if (tradeAgeHours >= STALENESS_HOURS && !trade.breakevenTriggered && slDist > 0) {
+          if (tradeAgeHours >= STALENESS_HOURS && !trade.breakevenTriggered && slDist > 0 && !isTradeOnBroker) {
             const moveInFavor = trade.direction === "BUY"
               ? checkPrice - trade.entryPrice
               : trade.entryPrice - checkPrice;
