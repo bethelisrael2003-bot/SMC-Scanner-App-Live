@@ -263,9 +263,11 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 font-mono text-xs">
             <span className="text-zinc-400 text-[10px] uppercase tracking-wider">Equity</span>
             <span className="font-bold text-white whitespace-nowrap">
-              ${(capitalStatus?.balance || 11002.07).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ${(capitalStatus?.balance || 11046.98).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
-            <span className="text-[10px] text-emerald-400 font-semibold">(+$2.07)</span>
+            <span className="text-[10px] text-emerald-400 font-semibold">
+              (+${Math.max(0, (capitalStatus?.balance || 11046.98) - 11000.00).toFixed(2)})
+            </span>
           </div>
 
           {/* Quick Refresh */}
@@ -461,33 +463,35 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
               <div className="p-3.5 rounded-xl bg-zinc-900/80 border border-zinc-800">
                 <span className="text-[10px] text-zinc-400 uppercase tracking-wider block">Balance</span>
                 <span className="text-lg font-bold text-white tracking-tight block mt-0.5 whitespace-nowrap">
-                  ${(performanceAnalytics?.currentBalance || 11002.07).toFixed(2)}
+                  ${(capitalStatus?.balance || performanceAnalytics?.currentBalance || 11046.98).toFixed(2)}
                 </span>
-                <span className="text-[10px] text-emerald-400 font-semibold">+$2.07 Net Baseline</span>
+                <span className="text-[10px] text-emerald-400 font-semibold">
+                  +${Math.max(0, (capitalStatus?.balance || performanceAnalytics?.currentBalance || 11046.98) - 11000.00).toFixed(2)} Net Gain
+                </span>
               </div>
 
               <div className="p-3.5 rounded-xl bg-zinc-900/80 border border-zinc-800">
                 <span className="text-[10px] text-zinc-400 uppercase tracking-wider block">Win Rate (Rule 11a)</span>
                 <span className="text-lg font-bold text-white tracking-tight block mt-0.5 whitespace-nowrap">
-                  {performanceStats?.winRate || 58.3}%
+                  {performanceStats?.winRate || 61.5}%
                 </span>
                 <span className="text-[10px] text-zinc-400 font-semibold">
-                  ({performanceStats?.totalWins || 7}W / {performanceStats?.totalLosses || 5}L)
+                  ({performanceStats?.totalWins || 8}W / {performanceStats?.totalLosses || 5}L)
                 </span>
               </div>
 
               <div className="p-3.5 rounded-xl bg-zinc-900/80 border border-zinc-800">
                 <span className="text-[10px] text-zinc-400 uppercase tracking-wider block">Portfolio R Net</span>
                 <span className="text-lg font-bold text-emerald-400 tracking-tight block mt-0.5 whitespace-nowrap">
-                  +{performanceAnalytics?.totalNetR || 0.47}R
+                  +{performanceAnalytics?.totalNetR || 2.21}R
                 </span>
-                <span className="text-[10px] text-zinc-400 font-semibold">+10.58R / −10.11R</span>
+                <span className="text-[10px] text-zinc-400 font-semibold">+12.32R / −10.11R</span>
               </div>
 
               <div className="p-3.5 rounded-xl bg-zinc-900/80 border border-zinc-800">
                 <span className="text-[10px] text-zinc-400 uppercase tracking-wider block">Profit Factor</span>
                 <span className="text-lg font-bold text-white tracking-tight block mt-0.5 whitespace-nowrap">
-                  1.05
+                  1.22
                 </span>
                 <span className="text-[10px] text-emerald-400 font-semibold">Net Profitable</span>
               </div>
@@ -502,11 +506,11 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
                     Portfolio Equity Curve ($ USD)
                   </h3>
                   <p className="text-[11px] text-zinc-400 mt-0.5">
-                    Account trajectory from $11,000.00 deposit through Oct 14 CPI dip to $11,002.07 recovery
+                    Account trajectory from $11,000.00 deposit through Oct 14 CPI dip to $11,046.98 new high
                   </p>
                 </div>
                 <span className="text-xs text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                  +$2.07 High
+                  +${Math.max(0, (capitalStatus?.balance || 11046.98) - 11000.00).toFixed(2)} High
                 </span>
               </div>
 
@@ -530,7 +534,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
 
                   {/* Area Fill */}
                   <polygon
-                    points="0,40 40,85 80,78 120,83 160,105 200,102 240,110 280,103 320,98 360,115 400,97 450,86 500,38 500,120 0,120"
+                    points="0,40 38,85 76,78 114,83 152,105 190,102 228,110 266,103 304,98 342,115 380,97 418,86 456,38 500,20 500,120 0,120"
                     fill="url(#equityGrad)"
                   />
 
@@ -541,24 +545,25 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
                     strokeWidth="2.5"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    points="0,40 40,85 80,78 120,83 160,105 200,102 240,110 280,103 320,98 360,115 400,97 450,86 500,38"
+                    points="0,40 38,85 76,78 114,83 152,105 190,102 228,110 266,103 304,98 342,115 380,97 418,86 456,38 500,20"
                   />
 
                   {/* Data Points */}
                   {[
                     { cx: 0, cy: 40, label: "$11,000.00 (Deposit)" },
-                    { cx: 40, cy: 85, label: "Trade #1: -$77.90 (CPI Crash)" },
-                    { cx: 80, cy: 78, label: "Trade #2: +$12.50" },
-                    { cx: 120, cy: 83, label: "Trade #3: -$8.00" },
-                    { cx: 160, cy: 105, label: "Trade #5: -$43.70 (Wide SL)" },
-                    { cx: 200, cy: 102, label: "Trade #6: +$4.20" },
-                    { cx: 240, cy: 110, label: "Trade #7: -$12.30" },
-                    { cx: 280, cy: 103, label: "Trade #8: +$9.35" },
-                    { cx: 320, cy: 98, label: "Trade #9: +$7.52" },
-                    { cx: 360, cy: 115, label: "Trade #10: -$25.00" },
-                    { cx: 400, cy: 97, label: "Trade #11: +$26.11" },
-                    { cx: 450, cy: 86, label: "Trade #12: +$15.80" },
-                    { cx: 500, cy: 38, label: "Closed EUR/USD: +$14.60 ($11,002.07)" },
+                    { cx: 38, cy: 85, label: "Trade #1: -$77.90 (CPI Crash)" },
+                    { cx: 76, cy: 78, label: "Trade #2: +$12.50" },
+                    { cx: 114, cy: 83, label: "Trade #3: -$8.00" },
+                    { cx: 152, cy: 105, label: "Trade #5: -$43.70 (Wide SL)" },
+                    { cx: 190, cy: 102, label: "Trade #6: +$4.20" },
+                    { cx: 228, cy: 110, label: "Trade #7: -$12.30" },
+                    { cx: 266, cy: 103, label: "Trade #8: +$9.35" },
+                    { cx: 304, cy: 98, label: "Trade #9: +$7.52" },
+                    { cx: 342, cy: 115, label: "Trade #10: -$25.00" },
+                    { cx: 380, cy: 97, label: "Trade #11: +$26.11" },
+                    { cx: 418, cy: 86, label: "Trade #12: +$15.80" },
+                    { cx: 456, cy: 38, label: "Closed EUR/USD: +$14.60 ($11,002.07)" },
+                    { cx: 500, cy: 20, label: "Closed GBP/JPY BUY: +$44.91 ($11,046.98)" },
                   ].map((p, i) => (
                     <circle
                       key={i}
