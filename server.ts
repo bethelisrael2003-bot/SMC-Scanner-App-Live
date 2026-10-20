@@ -175,8 +175,8 @@ const TREND_SWEEP_VERSION = "2026-10-03.2";
 const ASIAN_FADE_VERSION = "2026-09-23.1";
 // 2026-10-13 Aggressive Growth SMC & RoboForex Cent Account engine
 const AGGRESSIVE_VERSION = "2026-10-13.1";
-// 2026-10-17.4 Mount Live TradingView Candlestick Chart, Live Candle Streaming & SMC Overlays
-const CONFLUENCE_VERSION = "2026-10-17.4-live-chart";
+// 2026-10-17.5 Deploy Synthetic TP Force-Close Sniper, Spread-Compensated Limit Targets & Auto-BE Watcher
+const CONFLUENCE_VERSION = "2026-10-17.5-tp-sniper";
 // Clean MPR sample boundary — only trades OPENED after this instant count
 // toward the post-fix sample. Moved to the inversion-fix deploy (user
 // decision, 2026-09-16): every prior trade was analyzed on time-inverted
@@ -703,7 +703,17 @@ async function executeCapitalDemoTrade(trade: CapitalTradeRequest): Promise<{ su
     // Round Stop Loss and Take Profit to exact precision
     const decDigits = trade.pair.includes("JPY") ? 3 : (trade.pair.includes("XAG") || trade.pair.includes("XAU") ? 2 : 5);
     const stopLevel = Number(trade.sl.toFixed(decDigits));
-    const profitLevel = Number(trade.tp1.toFixed(decDigits));
+
+    // Spread-compensated broker TP level:
+    // For SELL orders, broker limit order closes on the ASK price.
+    // By offsetting the broker limit by the live spread, the trade fills naturally when the candlestick touches TP!
+    let profitLevel = Number(trade.tp1.toFixed(decDigits));
+    if (trade.direction === "SELL") {
+      const spreadPips = liveSpreadCheck?.spread_pips || (trade.pair.includes("XAG") ? 5.0 : 2.0);
+      const pipMultiplier = trade.pair.includes("JPY") ? 0.01 : (trade.pair.includes("XAG") || trade.pair.includes("XAU") ? 0.01 : 0.0001);
+      const spreadOffset = spreadPips * pipMultiplier;
+      profitLevel = Number((trade.tp1 + spreadOffset).toFixed(decDigits));
+    }
 
     // ── Calculate Deal Size ($25.00 Flat Risk Normalization) ──────────
     const targetRiskUsd = 25.0; // Flat $25.00 USD risk per trade
@@ -4549,6 +4559,52 @@ async function runBackgroundCycle() {
   try {
     // 0. Auto-sync any closed broker trades from Capital.com
     await syncClosedBrokerTrades();
+
+    // 0B. ACTIVE BROKER POSITION WATCHER & FORCE-CLOSE SNIPER
+    // Directly watches any active position running on Capital.com demo account.
+    // 1. If candle market price touches/pierces TP (even if broker spread delayed the limit order), FORCE CLOSE at market immediately!
+    // 2. If position reaches 1:1 R, automatically moves stop loss to Breakeven on Capital.com to eliminate downside risk.
+    try {
+      const liveBrokerPositions = await getCapitalOpenPositions();
+      for (const pos of liveBrokerPositions) {
+        const deal = pos.position;
+        const market = pos.market;
+        if (!deal || !market) continue;
+
+        const epic = market.epic;
+        const pair = market.instrumentName || (epic === "GOLD" ? "XAU/USD" : epic === "SILVER" ? "XAG/USD" : `${epic.slice(0,3)}/${epic.slice(3)}`);
+        const live = await getLivePrice(pair);
+        if (!live) continue;
+
+        const isSell = deal.direction === "SELL";
+        const entryPrice = deal.level;
+        const profitTarget = deal.profitLevel;
+        const stopLoss = deal.stopLevel;
+        const slDist = stopLoss ? Math.abs(entryPrice - stopLoss) : 0.01;
+
+        // CHECK 1: FORCE-CLOSE TAKE PROFIT
+        // If candlestick touched or went beyond TP target level on the chart:
+        const hitTp = isSell ? (live.bid <= profitTarget && profitTarget > 0) : (live.bid >= profitTarget && profitTarget > 0);
+        if (hitTp) {
+          console.log(`[FORCE CLOSE TP SNIPER] 🔥 Market price (${live.bid}) touched Take Profit target (${profitTarget}) on ${pair} ${deal.direction}! Force closing deal ${deal.dealId} at market immediately!`);
+          await closeCapitalPosition(deal.dealId);
+          continue;
+        }
+
+        // CHECK 2: AUTO-BREAKEVEN AT 1:1 R
+        // If profit reached 1:1 R distance and stop hasn't been moved to entry yet:
+        if (slDist > 0 && stopLoss) {
+          const hitBeDistance = isSell ? (live.bid <= entryPrice - slDist) : (live.bid >= entryPrice + slDist);
+          const needsBe = isSell ? (stopLoss > entryPrice) : (stopLoss < entryPrice);
+          if (hitBeDistance && needsBe) {
+            console.log(`[AUTO-BE BROKER] Trade on ${pair} reached 1:1 R profit. Moving stop from ${stopLoss} to entry ${entryPrice} on Capital.com...`);
+            await updateCapitalPositionStop(deal.dealId, entryPrice);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[BROKER WATCHER] Error running active position watcher:", err);
+    }
 
     const trades = loadTrades();
     const openTrades = trades.filter((t) => t.status === "Open");
