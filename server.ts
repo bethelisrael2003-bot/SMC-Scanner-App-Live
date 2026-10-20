@@ -175,8 +175,8 @@ const TREND_SWEEP_VERSION = "2026-10-03.2";
 const ASIAN_FADE_VERSION = "2026-09-23.1";
 // 2026-10-13 Aggressive Growth SMC & RoboForex Cent Account engine
 const AGGRESSIVE_VERSION = "2026-10-13.1";
-// 2026-10-17.5 Deploy Synthetic TP Force-Close Sniper, Spread-Compensated Limit Targets & Auto-BE Watcher
-const CONFLUENCE_VERSION = "2026-10-17.5-tp-sniper";
+// 2026-10-17.6 Anti-Sleep Keep-Alive Engine: Internal 8m self-ping + /api/ping 1ms endpoint
+const CONFLUENCE_VERSION = "2026-10-17.6-keepalive";
 // Clean MPR sample boundary — only trades OPENED after this instant count
 // toward the post-fix sample. Moved to the inversion-fix deploy (user
 // decision, 2026-09-16): every prior trade was analyzed on time-inverted
@@ -5700,6 +5700,38 @@ setTimeout(() => {
   console.log("[BACKGROUND ENGINE] Booting background paper trading task loop...");
   runBackgroundCycle().catch((err) => console.error("[CRITICAL] Background startup call failed:", err));
 }, 5000);
+
+// ═══════════════════════════════════════════════════════════════════════
+// CLOUD KEEP-ALIVE SYSTEM (Anti-Sleep Engine & Ping Endpoint)
+// ═══════════════════════════════════════════════════════════════════════
+const RENDER_EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL || "https://smc-scanner-backend.onrender.com";
+
+app.get("/api/ping", (req, res) => {
+  res.status(200).json({
+    status: "awake",
+    timestamp: new Date().toISOString(),
+    uptimeSeconds: Math.floor(process.uptime()),
+    message: "Apex 24/7 Anti-Sleep Engine Active"
+  });
+});
+
+// Self-ping every 8 minutes to guarantee Render never hits the 15-minute inactivity window
+setInterval(async () => {
+  try {
+    const pingUrl = `${RENDER_EXTERNAL_URL}/api/ping`;
+    const res = await fetch(pingUrl, {
+      headers: { "User-Agent": "ApexKeepAlive/2.0" },
+      signal: AbortSignal.timeout(10000)
+    });
+    if (res.ok) {
+      console.log(`[KEEP-ALIVE] Auto self-ping succeeded (${res.status}) at ${new Date().toISOString()}`);
+    } else {
+      console.warn(`[KEEP-ALIVE] Auto self-ping returned ${res.status}`);
+    }
+  } catch (err: any) {
+    console.warn(`[KEEP-ALIVE] Auto self-ping note: ${err.message}`);
+  }
+}, 8 * 60 * 1000);
 
 // REST Api Endpoints
 
