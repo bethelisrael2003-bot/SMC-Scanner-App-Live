@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { PushNotifications } from "@capacitor/push-notifications";
 import { LocalNotifications } from "@capacitor/local-notifications";
+import { LiveCandleChart } from "./LiveCandleChart";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "https://smc-scanner-backend.onrender.com";
 
@@ -120,6 +121,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
   const [targetRiskUsd, setTargetRiskUsd] = useState<number>(25.0);
   const [customSlPips, setCustomSlPips] = useState<number>(30.0);
   const [copiedPlan, setCopiedPlan] = useState(false);
+  const [chartTimeframe, setChartTimeframe] = useState<"M15" | "H1" | "H4">("M15");
 
   const activeProfile = DEDICATED_PROFILES[selectedPairIndex];
 
@@ -360,6 +362,17 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
                 })}
               </div>
             </div>
+
+            {/* Live Interactive TradingView Candlestick Chart */}
+            <LiveCandleChart
+              pair={activeProfile.pair}
+              timeframe={chartTimeframe}
+              onTimeframeChange={setChartTimeframe}
+              entryPrice={currentConf?.entryPrice}
+              slPrice={currentConf?.sl}
+              tpPrice={currentConf?.tp1}
+              sweepPrice={currentConf?.sweptLevel || null}
+            />
 
             {/* Selected Asset Analysis Card */}
             <div className="bg-zinc-900/70 border border-zinc-800 rounded-2xl p-4 sm:p-5 space-y-4">

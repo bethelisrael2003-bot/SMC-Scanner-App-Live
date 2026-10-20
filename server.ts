@@ -175,8 +175,8 @@ const TREND_SWEEP_VERSION = "2026-10-03.2";
 const ASIAN_FADE_VERSION = "2026-09-23.1";
 // 2026-10-13 Aggressive Growth SMC & RoboForex Cent Account engine
 const AGGRESSIVE_VERSION = "2026-10-13.1";
-// 2026-10-17.3 Reconcile Oct 19 GBP/JPY TP (+1.74R / +$44.91 USD, Balance $11,046.98), Auto-Sync Broker Activity
-const CONFLUENCE_VERSION = "2026-10-17.3-gbp-reconcile";
+// 2026-10-17.4 Mount Live TradingView Candlestick Chart, Live Candle Streaming & SMC Overlays
+const CONFLUENCE_VERSION = "2026-10-17.4-live-chart";
 // Clean MPR sample boundary — only trades OPENED after this instant count
 // toward the post-fix sample. Moved to the inversion-fix deploy (user
 // decision, 2026-09-16): every prior trade was analyzed on time-inverted
