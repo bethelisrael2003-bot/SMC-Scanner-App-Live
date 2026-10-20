@@ -236,7 +236,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
   };
 
   return (
-    <div className="min-h-screen bg-[#080B10] text-zinc-100 flex flex-col font-sans select-none pb-24">
+    <div className="min-h-screen bg-[#080B10] text-zinc-100 flex flex-col font-sans select-none pb-36">
       {/* ── Top Executive Header Bar ──────────────────────────────── */}
       <header className="sticky top-0 z-40 bg-[#080B10]/95 backdrop-blur-md border-b border-zinc-800/80 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
