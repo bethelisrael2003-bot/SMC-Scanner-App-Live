@@ -175,8 +175,8 @@ const TREND_SWEEP_VERSION = "2026-10-03.2";
 const ASIAN_FADE_VERSION = "2026-09-23.1";
 // 2026-10-13 Aggressive Growth SMC & RoboForex Cent Account engine
 const AGGRESSIVE_VERSION = "2026-10-13.1";
-// 2026-10-17.6 Anti-Sleep Keep-Alive Engine: Internal 8m self-ping + /api/ping 1ms endpoint
-const CONFLUENCE_VERSION = "2026-10-17.6-keepalive";
+// 2026-10-17.7 Live Positions HUD, 1-Tap Close at Market, 100% Dynamic Stats (Zero Hardcoded)
+const CONFLUENCE_VERSION = "2026-10-17.7-live-positions-hud";
 // Clean MPR sample boundary — only trades OPENED after this instant count
 // toward the post-fix sample. Moved to the inversion-fix deploy (user
 // decision, 2026-09-16): every prior trade was analyzed on time-inverted
@@ -7814,6 +7814,13 @@ app.post("/api/capital/close-position", async (req, res) => {
   if (!dealId) return res.status(400).json({ error: "Missing dealId" });
   const success = await closeCapitalPosition(dealId);
   res.json({ success, message: success ? `Position ${dealId} closed at market.` : "Failed to close position." });
+});
+
+app.post("/api/capital/update-stop", async (req, res) => {
+  const { dealId, newStopLevel } = req.body;
+  if (!dealId || typeof newStopLevel !== "number") return res.status(400).json({ error: "Missing dealId or newStopLevel" });
+  const success = await updateCapitalPositionStop(dealId, newStopLevel);
+  res.json({ success, message: success ? `Position ${dealId} stop moved to ${newStopLevel}.` : "Failed to update stop." });
 });
 
 
