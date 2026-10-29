@@ -175,8 +175,8 @@ const TREND_SWEEP_VERSION = "2026-10-03.2";
 const ASIAN_FADE_VERSION = "2026-09-23.1";
 // 2026-10-13 Aggressive Growth SMC & RoboForex Cent Account engine
 const AGGRESSIVE_VERSION = "2026-10-13.1";
-// 2026-10-17.7 Live Positions HUD, 1-Tap Close at Market, 100% Dynamic Stats (Zero Hardcoded)
-const CONFLUENCE_VERSION = "2026-10-17.7-live-positions-hud";
+// 2026-10-17.8 Autonomous Confluence Fix: 24/7 background loop execution (never triggers on app views)
+const CONFLUENCE_VERSION = "2026-10-17.8-autonomous-confluence-fix";
 // Clean MPR sample boundary — only trades OPENED after this instant count
 // toward the post-fix sample. Moved to the inversion-fix deploy (user
 // decision, 2026-09-16): every prior trade was analyzed on time-inverted
@@ -5583,6 +5583,24 @@ async function runBackgroundCycle() {
     flushGateStats().catch((e) => console.error("[GATES] Flush failed:", e));
 
     // ════════════════════════════════════════════════════════════════
+    // 2.5 AUTONOMOUS 24/7 CONFLUENCE SCANNER FOR INSTITUTIONAL 4-PAIR UNIVERSE
+    // Evaluates EUR/USD, GBP/JPY, XAG/USD, XAU/USD continuously in background.
+    // Fires automated Grade A+ and Grade A demo execution regardless of whether
+    // the user is logged into the web app or phone.
+    // ════════════════════════════════════════════════════════════════
+    if (session.canTrade) {
+      console.log("[BACKGROUND ENGINE] Scanning 4-Pair Institutional Confluence Engine (24/7 Background Auto-Trading)...");
+      for (const pair of INSTITUTIONAL_CORE_PAIRS) {
+        try {
+          await analyzePairConfluence(pair, 677, true);
+        } catch (err) {
+          console.error(`[BACKGROUND CONFLUENCE] Error auto-scanning ${pair}:`, err);
+        }
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    }
+
+    // ════════════════════════════════════════════════════════════════
     // PRECISION INTRADAY SYSTEM (separate — own signals/trades/win rate)
     // Runs every 5th cycle (~5 minutes): scan + manage trades
     // ════════════════════════════════════════════════════════════════
@@ -7311,7 +7329,7 @@ app.get("/api/daily-briefing", async (req, res) => {
 // PAIR-SPECIFIC GRADE A CONFLUENCE ENGINE (EUR/USD, GBP/JPY, XAG/USD)
 // ═══════════════════════════════════════════════════════════════════════
 
-async function analyzePairConfluence(pair: string, balance = 677): Promise<any> {
+async function analyzePairConfluence(pair: string, balance = 677, triggerExecution = false): Promise<any> {
   const pSize = getPipSize(pair);
   const pipVal = getPipValuePer001Lot(pair);
   const toCandle = (c: any) => ({ open: c.o, high: c.h, low: c.l, close: c.c, time: c.t });
@@ -7650,8 +7668,10 @@ async function analyzePairConfluence(pair: string, balance = 677): Promise<any> 
     // ════════════════════════════════════════════════════════════════
     // AUTOMATED CAPITAL.COM DEMO ORDER TRIGGER
     // Protected by 5 Anti-Duplicate Execution Locks
+    // STRICT RULE: ONLY executed during autonomous 1-minute background scan
+    // NEVER triggered on frontend /api/confluence/scan page views!
     // ════════════════════════════════════════════════════════════════
-    if (autoTradingEnabled && (confluenceGrade === "A+" || confluenceGrade === "A")) {
+    if (triggerExecution && autoTradingEnabled && (confluenceGrade === "A+" || confluenceGrade === "A")) {
       executeCapitalDemoTrade({
         pair,
         direction: activeSetup.direction,
@@ -7736,7 +7756,8 @@ app.get("/api/confluence/scan", async (req, res) => {
   try {
     const balance = Number(req.query.balance) || 677;
     const pairs = ["EUR/USD", "GBP/JPY", "XAG/USD", "XAU/USD"];
-    const results = await Promise.all(pairs.map(p => analyzePairConfluence(p, balance)));
+    // Read-only frontend view: triggerExecution = false (viewing app never triggers broker trades)
+    const results = await Promise.all(pairs.map(p => analyzePairConfluence(p, balance, false)));
     res.json({
       version: CONFLUENCE_VERSION,
       scannedAt: new Date().toISOString(),
@@ -7752,7 +7773,8 @@ app.get("/api/confluence/:pair", async (req, res) => {
   try {
     const pair = decodeURIComponent(req.params.pair);
     const balance = Number(req.query.balance) || 677;
-    const result = await analyzePairConfluence(pair, balance);
+    // Read-only frontend view: triggerExecution = false
+    const result = await analyzePairConfluence(pair, balance, false);
     if (!result) return res.status(404).json({ error: "Pair not eligible" });
     res.json(result);
   } catch (err) {
