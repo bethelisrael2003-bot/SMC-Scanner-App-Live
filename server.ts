@@ -175,8 +175,8 @@ const TREND_SWEEP_VERSION = "2026-10-03.2";
 const ASIAN_FADE_VERSION = "2026-09-23.1";
 // 2026-10-13 Aggressive Growth SMC & RoboForex Cent Account engine
 const AGGRESSIVE_VERSION = "2026-10-13.1";
-// 2026-10-17.9 Broker TP Preservation Fix: Keep profitLevel on BE update, auto-restore missing TP on live deals
-const CONFLUENCE_VERSION = "2026-10-17.9-tp-preservation-fix";
+// 2026-10-18.0 Full System Audit & Hardening: 2h Post-Loss Lockout, Daily Drawdown Circuit Breaker, 1 Trade/Day Cap, Tight Drift Guard
+const CONFLUENCE_VERSION = "2026-10-18.0-system-audit-hardened";
 // Clean MPR sample boundary — only trades OPENED after this instant count
 // toward the post-fix sample. Moved to the inversion-fix deploy (user
 // decision, 2026-09-16): every prior trade was analyzed on time-inverted
@@ -670,6 +670,18 @@ async function executeCapitalDemoTrade(trade: CapitalTradeRequest): Promise<{ su
       }
     }
 
+    // ── GUARD 0D: Daily Portfolio Drawdown Circuit Breaker (Max 2 Losses/Day) ──
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayClosedTrades = loadTrades().filter((t: any) => {
+      const closeDate = (t.closeTimestamp || t.timestamp || "").slice(0, 10);
+      return closeDate === todayStr && t.status && t.status.startsWith("Closed");
+    });
+    const todayLosses = todayClosedTrades.filter((t: any) => t.status === "Closed - LOSS" || (t.rrGained && t.rrGained < 0)).length;
+    if (todayLosses >= 2) {
+      console.log(`[CAPITAL DEMO] Blocked by Circuit Breaker: Daily loss ceiling reached (${todayLosses} losses today). Trading halted for today to protect capital.`);
+      return { success: false, reason: "Daily Circuit Breaker: Max 2 losses reached today" };
+    }
+
     // ── GUARD 1: Active Position on Same Pair ─────────────────────────
     const openPositions = await getCapitalOpenPositions();
     const isAlreadyOpenOnBroker = openPositions.some(
@@ -680,13 +692,43 @@ async function executeCapitalDemoTrade(trade: CapitalTradeRequest): Promise<{ su
       return { success: false, reason: "Active position already open on broker" };
     }
 
-    // ── GUARD 2: 30-Minute Cooldown Timer ─────────────────────────────
+    // ── GUARD 1B: Pair Daily Trade Frequency Cap (Max 1 Trade/Day) ─────
+    const todayTradesOnPair = loadTrades().filter((t: any) => {
+      const tradeDate = (t.closeTimestamp || t.timestamp || "").slice(0, 10);
+      return t.pair === trade.pair && tradeDate === todayStr;
+    });
+    if (todayTradesOnPair.length >= 1) {
+      console.log(`[CAPITAL DEMO] Blocked: Daily frequency cap reached on ${trade.pair} (${todayTradesOnPair.length}/1 trade today).`);
+      return { success: false, reason: "Daily frequency cap: Max 1 trade per pair per day" };
+    }
+
+    // ── GUARD 2: Post-Loss 2-Hour Lockout & Cooldown Guard ─────────────
     const lastExec = lastExecutionTimes.get(trade.pair) || 0;
-    const cooldownMs = 30 * 60 * 1000;
-    if (Date.now() - lastExec < cooldownMs) {
-      const minsLeft = Math.ceil((cooldownMs - (Date.now() - lastExec)) / (60 * 1000));
-      console.log(`[CAPITAL DEMO] Blocked: ${trade.pair} in cooldown (${minsLeft}m remaining).`);
-      return { success: false, reason: `Cooldown active (${minsLeft}m remaining)` };
+    const entryCooldownMs = 30 * 60 * 1000;
+    if (Date.now() - lastExec < entryCooldownMs) {
+      const minsLeft = Math.ceil((entryCooldownMs - (Date.now() - lastExec)) / (60 * 1000));
+      console.log(`[CAPITAL DEMO] Blocked: ${trade.pair} in entry cooldown (${minsLeft}m remaining).`);
+      return { success: false, reason: `Entry cooldown active (${minsLeft}m remaining)` };
+    }
+
+    const allPairTrades = loadTrades().filter((t: any) => t.pair === trade.pair && t.status && t.status.startsWith("Closed"));
+    const lastClosedTrade = allPairTrades.sort((a: any, b: any) => {
+      const tA = new Date(a.closeTimestamp || a.timestamp).getTime();
+      const tB = new Date(b.closeTimestamp || b.timestamp).getTime();
+      return tB - tA;
+    })[0];
+
+    if (lastClosedTrade) {
+      const closeTime = new Date(lastClosedTrade.closeTimestamp || lastClosedTrade.timestamp).getTime();
+      const timeSinceClose = Date.now() - closeTime;
+      const isLastLoss = lastClosedTrade.status === "Closed - LOSS" || (lastClosedTrade.rrGained && lastClosedTrade.rrGained < 0);
+      const requiredCooldownMs = isLastLoss ? 120 * 60 * 1000 : 30 * 60 * 1000; // 2h after loss, 30m after win
+
+      if (timeSinceClose < requiredCooldownMs) {
+        const minsLeft = Math.ceil((requiredCooldownMs - timeSinceClose) / (60 * 1000));
+        console.log(`[CAPITAL DEMO] Blocked: ${trade.pair} in post-close cooldown (${minsLeft}m remaining, last was ${isLastLoss ? "LOSS (2h lock)" : "WIN"}).`);
+        return { success: false, reason: `Post-${isLastLoss ? "loss 2h" : "close 30m"} cooldown active (${minsLeft}m remaining)` };
+      }
     }
 
     // ── GUARD 3: Maximum 2 Concurrent Trades Portfolio-Wide ───────────
@@ -696,7 +738,7 @@ async function executeCapitalDemoTrade(trade: CapitalTradeRequest): Promise<{ su
     }
 
     // ── GUARD 4: Setup Hash Deduplication ─────────────────────────────
-    const dayKey = new Date().toISOString().slice(0, 10);
+    const dayKey = todayStr;
     const setupHash = `${trade.pair}:${trade.direction}:${trade.entryPrice.toFixed(3)}:${dayKey}`;
     if (executedTradeHashes.has(setupHash)) {
       console.log(`[CAPITAL DEMO] Blocked: Duplicate setup hash already executed today (${setupHash}).`);
@@ -705,7 +747,16 @@ async function executeCapitalDemoTrade(trade: CapitalTradeRequest): Promise<{ su
 
     // Round Stop Loss and Take Profit to exact precision
     const decDigits = trade.pair.includes("JPY") ? 3 : (trade.pair.includes("XAG") || trade.pair.includes("XAU") ? 2 : 5);
-    const stopLevel = Number(trade.sl.toFixed(decDigits));
+
+    // ── GUARD 5: Minimum Broker Stop Distance Floor ───────────────────
+    const rawStopDist = Math.abs(trade.entryPrice - trade.sl);
+    const minBrokerStopDist = trade.pair.includes("JPY") ? 0.15 : (trade.pair.includes("XAG") ? 0.25 : (trade.pair.includes("XAU") ? 3.0 : 0.0008));
+    let safeSl = trade.sl;
+    if (rawStopDist < minBrokerStopDist) {
+      safeSl = trade.direction === "BUY" ? trade.entryPrice - minBrokerStopDist : trade.entryPrice + minBrokerStopDist;
+      console.log(`[CAPITAL DEMO] Adjusted tight stop from ${trade.sl} to broker-safe ${safeSl} (min ${minBrokerStopDist}).`);
+    }
+    const stopLevel = Number(safeSl.toFixed(decDigits));
 
     // Spread-compensated broker TP level:
     // For SELL orders, broker limit order closes on the ASK price.
@@ -4507,10 +4558,27 @@ async function syncClosedBrokerTrades() {
       );
 
       if (!alreadyIn && details.openPrice && details.level) {
-        const isWin = pos.source === "TP" || (details.direction === "BUY" ? details.level > details.openPrice : details.level < details.openPrice);
         const slDist = details.stopLevel ? Math.abs(details.openPrice - details.stopLevel) : 0.01;
-        const exitDist = Math.abs(details.level - details.openPrice);
-        const rVal = slDist > 0 ? Number((exitDist / slDist).toFixed(2)) * (isWin ? 1 : -1) : (isWin ? 1.5 : -1.0);
+        const priceDelta = details.direction === "BUY" ? details.level - details.openPrice : details.openPrice - details.level;
+        const rawR = slDist > 0 ? Number((priceDelta / slDist).toFixed(2)) : 0;
+
+        let status: "Closed - WIN" | "Closed - LOSS" = "Closed - LOSS";
+        let rVal = rawR;
+        let closeReason = pos.source === "TP" ? "TP1" : (pos.source === "SL" ? "SL" : "MANUAL_BROKER_CLOSE");
+
+        if (pos.source === "TP" || rawR >= 0.5) {
+          status = "Closed - WIN";
+          rVal = Math.max(0.5, rawR);
+          closeReason = "TP1";
+        } else if (Math.abs(rawR) < 0.25) {
+          status = "Closed - WIN";
+          rVal = 0.0;
+          closeReason = "BE";
+        } else {
+          status = "Closed - LOSS";
+          rVal = Math.min(-0.25, rawR);
+          closeReason = "SL";
+        }
 
         const newTrade: VirtualTrade = {
           id: `vtrade_cap_${dealId}`,
@@ -4525,18 +4593,18 @@ async function syncClosedBrokerTrades() {
           tp2: details.profitLevel || details.level,
           tp3: details.profitLevel || details.level,
           initialSl: details.stopLevel || details.openPrice,
-          status: isWin ? "Closed - WIN" : "Closed - LOSS",
+          status,
           updatedAt: new Date().toISOString(),
-          breakevenTriggered: isWin,
+          breakevenTriggered: status === "Closed - WIN",
           rrGained: rVal,
           closePrice: details.level,
           closeTimestamp: pos.dateUTC ? `${pos.dateUTC}Z` : new Date().toISOString(),
-          closeReason: pos.source === "TP" ? "TP1" : pos.source === "SL" ? "SL" : "MANUAL_BROKER_CLOSE",
+          closeReason,
           dealReference: dealId
         };
         tradesMemory.push(newTrade);
         addedAny = true;
-        console.log(`[BROKER AUTO-SYNC] Ingested closed trade from Capital.com: ${pair} ${details.direction} -> ${newTrade.status} (${rVal}R)`);
+        console.log(`[BROKER AUTO-SYNC] Ingested closed trade from Capital.com: ${pair} ${details.direction} -> ${newTrade.status} (${rVal}R, ${closeReason})`);
       }
     }
 
@@ -7663,7 +7731,7 @@ async function analyzePairConfluence(pair: string, balance = 677, triggerExecuti
     // the entry window has closed. Mark as IN PROGRESS so user does not chase.
     const curP = activeSetup.direction === "BUY" ? curAsk : curBid;
     const driftPips = Math.round((Math.abs(curP - entryPrice) / pSize) * 10) / 10;
-    const maxDriftPips = pair.includes("XAU") ? 35 : (pair.includes("XAG") ? 15 : (pair.includes("JPY") ? 12 : 7));
+    const maxDriftPips = pair.includes("XAU") ? 15 : (pair.includes("XAG") ? 8 : (pair.includes("JPY") ? 6 : 3.5));
     const movedInFavor = activeSetup.direction === "BUY" ? curP > entryPrice : curP < entryPrice;
 
     if (movedInFavor && driftPips > maxDriftPips) {
