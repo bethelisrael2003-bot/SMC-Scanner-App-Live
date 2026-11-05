@@ -175,8 +175,8 @@ const TREND_SWEEP_VERSION = "2026-10-03.2";
 const ASIAN_FADE_VERSION = "2026-09-23.1";
 // 2026-10-13 Aggressive Growth SMC & RoboForex Cent Account engine
 const AGGRESSIVE_VERSION = "2026-10-13.1";
-// 2026-10-17.8 Autonomous Confluence Fix: 24/7 background loop execution (never triggers on app views)
-const CONFLUENCE_VERSION = "2026-10-17.8-autonomous-confluence-fix";
+// 2026-10-17.9 Broker TP Preservation Fix: Keep profitLevel on BE update, auto-restore missing TP on live deals
+const CONFLUENCE_VERSION = "2026-10-17.9-tp-preservation-fix";
 // Clean MPR sample boundary — only trades OPENED after this instant count
 // toward the post-fix sample. Moved to the inversion-fix deploy (user
 // decision, 2026-09-16): every prior trade was analyzed on time-inverted
@@ -454,13 +454,16 @@ async function closeCapitalPosition(dealId: string): Promise<boolean> {
   }
 }
 
-async function updateCapitalPositionStop(dealId: string, newStopLevel: number): Promise<boolean> {
+async function updateCapitalPositionStop(dealId: string, newStopLevel: number, existingProfitLevel?: number): Promise<boolean> {
   try {
     const headers = await getCapitalHeaders();
-    const payload = {
+    const payload: any = {
       stopLevel: newStopLevel,
       guaranteedStop: false
     };
+    if (existingProfitLevel && existingProfitLevel > 0) {
+      payload.profitLevel = existingProfitLevel;
+    }
     const res = await fetchWithRetry(`${CAPITAL_REST_URL}/positions/${dealId}`, {
       headers: { ...headers, "Content-Type": "application/json" },
       method: "PUT",
@@ -4578,9 +4581,19 @@ async function runBackgroundCycle() {
 
         const isSell = deal.direction === "SELL";
         const entryPrice = deal.level;
-        const profitTarget = deal.profitLevel;
+        let profitTarget = deal.profitLevel;
         const stopLoss = deal.stopLevel;
         const slDist = stopLoss ? Math.abs(entryPrice - stopLoss) : 0.01;
+
+        // RESTORE MISSING TP GUARD (Permanent Fix):
+        // If Capital.com deal has NO Take Profit attached, restore it on the broker immediately!
+        if (!profitTarget || profitTarget <= 0) {
+          const decDigits = pair.includes("JPY") ? 3 : (pair.includes("XAG") || pair.includes("XAU") ? 2 : 5);
+          const defaultTargetDist = slDist > 0 ? slDist * 1.5 : (pair.includes("XAG") ? 0.8 : pair.includes("XAU") ? 15.0 : 0.0020);
+          profitTarget = Number((isSell ? entryPrice - defaultTargetDist : entryPrice + defaultTargetDist).toFixed(decDigits));
+          console.log(`[BROKER TP RESTORER] 🛡️ Found open trade on ${pair} with NO TAKE PROFIT! Restoring TP to ${profitTarget} on Capital.com...`);
+          await updateCapitalPositionStop(deal.dealId, stopLoss || entryPrice, profitTarget);
+        }
 
         // CHECK 1: FORCE-CLOSE TAKE PROFIT
         // If candlestick touched or went beyond TP target level on the chart:
@@ -4597,8 +4610,8 @@ async function runBackgroundCycle() {
           const hitBeDistance = isSell ? (live.bid <= entryPrice - slDist) : (live.bid >= entryPrice + slDist);
           const needsBe = isSell ? (stopLoss > entryPrice) : (stopLoss < entryPrice);
           if (hitBeDistance && needsBe) {
-            console.log(`[AUTO-BE BROKER] Trade on ${pair} reached 1:1 R profit. Moving stop from ${stopLoss} to entry ${entryPrice} on Capital.com...`);
-            await updateCapitalPositionStop(deal.dealId, entryPrice);
+            console.log(`[AUTO-BE BROKER] Trade on ${pair} reached 1:1 R profit. Moving stop from ${stopLoss} to entry ${entryPrice} on Capital.com (preserving TP ${profitTarget})...`);
+            await updateCapitalPositionStop(deal.dealId, entryPrice, profitTarget);
           }
         }
       }
@@ -7839,9 +7852,9 @@ app.post("/api/capital/close-position", async (req, res) => {
 });
 
 app.post("/api/capital/update-stop", async (req, res) => {
-  const { dealId, newStopLevel } = req.body;
+  const { dealId, newStopLevel, profitLevel } = req.body;
   if (!dealId || typeof newStopLevel !== "number") return res.status(400).json({ error: "Missing dealId or newStopLevel" });
-  const success = await updateCapitalPositionStop(dealId, newStopLevel);
+  const success = await updateCapitalPositionStop(dealId, newStopLevel, profitLevel);
   res.json({ success, message: success ? `Position ${dealId} stop moved to ${newStopLevel}.` : "Failed to update stop." });
 });
 
