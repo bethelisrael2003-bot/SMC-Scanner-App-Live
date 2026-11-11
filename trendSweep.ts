@@ -272,7 +272,12 @@ export function evaluateTrendSweep(
       const risk = roundToPairTick(pair, entry - sl);
 
       if (risk > 0) {
-        const tp1 = roundToPairTick(pair, entry + 2.0 * risk);
+        // Structural TP1 anchoring: front-run prior 20-bar high by 2 pips
+        const pSize = pair.includes("JPY") ? 0.01 : (pair.includes("XAG") || pair.includes("XAU") ? 0.01 : 0.0001);
+        const structuralTarget = (priorHigh > entry && (priorHigh - 2 * pSize - entry) >= 1.2 * risk)
+          ? priorHigh - 2 * pSize
+          : entry + 1.5 * risk;
+        const tp1 = roundToPairTick(pair, Math.min(entry + 2.0 * risk, structuralTarget));
         let tp2 = roundToPairTick(pair, entry + 3.0 * risk);
         let tp2Note = "3.00R Runner";
 
@@ -332,7 +337,12 @@ export function evaluateTrendSweep(
       const risk = roundToPairTick(pair, sl - entry);
 
       if (risk > 0) {
-        const tp1 = roundToPairTick(pair, entry - 2.0 * risk);
+        // Structural TP1 anchoring: front-run prior 20-bar low by 2 pips
+        const pSize = pair.includes("JPY") ? 0.01 : (pair.includes("XAG") || pair.includes("XAU") ? 0.01 : 0.0001);
+        const structuralTarget = (priorLow < entry && (entry - (priorLow + 2 * pSize)) >= 1.2 * risk)
+          ? priorLow + 2 * pSize
+          : entry - 1.5 * risk;
+        const tp1 = roundToPairTick(pair, Math.max(entry - 2.0 * risk, structuralTarget));
         let tp2 = roundToPairTick(pair, entry - 3.0 * risk);
         let tp2Note = "3.00R Runner";
 

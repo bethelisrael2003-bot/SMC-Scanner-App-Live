@@ -175,8 +175,8 @@ const TREND_SWEEP_VERSION = "2026-10-03.2";
 const ASIAN_FADE_VERSION = "2026-09-23.1";
 // 2026-10-13 Aggressive Growth SMC & RoboForex Cent Account engine
 const AGGRESSIVE_VERSION = "2026-10-13.1";
-// 2026-10-18.0 Full System Audit & Hardening: 2h Post-Loss Lockout, Daily Drawdown Circuit Breaker, 1 Trade/Day Cap, Tight Drift Guard
-const CONFLUENCE_VERSION = "2026-10-18.0-system-audit-hardened";
+// 2026-10-18.1 Structural TP Anchoring & Tiered Profit Trailing (0.75R Lock BE, 1.25R Trail +0.5R)
+const CONFLUENCE_VERSION = "2026-10-18.1-structural-tp-trailing";
 // Clean MPR sample boundary — only trades OPENED after this instant count
 // toward the post-fix sample. Moved to the inversion-fix deploy (user
 // decision, 2026-09-16): every prior trade was analyzed on time-inverted
@@ -4672,14 +4672,31 @@ async function runBackgroundCycle() {
           continue;
         }
 
-        // CHECK 2: AUTO-BREAKEVEN AT 1:1 R
-        // If profit reached 1:1 R distance and stop hasn't been moved to entry yet:
+        // CHECK 2: TIERED PROFIT DEFENSE (Never turn an 80% move into a full loss)
+        // Tier 1: If profit reaches 0.75R (75% to target), lock stop loss immediately to Breakeven!
+        // Tier 2: If profit reaches 1.25R+, trail stop to +0.50R in locked guaranteed profit!
         if (slDist > 0 && stopLoss) {
-          const hitBeDistance = isSell ? (live.bid <= entryPrice - slDist) : (live.bid >= entryPrice + slDist);
-          const needsBe = isSell ? (stopLoss > entryPrice) : (stopLoss < entryPrice);
-          if (hitBeDistance && needsBe) {
-            console.log(`[AUTO-BE BROKER] Trade on ${pair} reached 1:1 R profit. Moving stop from ${stopLoss} to entry ${entryPrice} on Capital.com (preserving TP ${profitTarget})...`);
-            await updateCapitalPositionStop(deal.dealId, entryPrice, profitTarget);
+          const currentGainDist = isSell ? entryPrice - live.ask : live.bid - entryPrice;
+          const currentR = currentGainDist / slDist;
+
+          // Tier 1: At 0.75R profit -> Lock stop to Breakeven (entryPrice)
+          if (currentR >= 0.75 && currentR < 1.25) {
+            const needsBe = isSell ? stopLoss > entryPrice : stopLoss < entryPrice;
+            if (needsBe) {
+              console.log(`[PROFIT DEFENSE] 🛡️ Trade on ${pair} reached +${currentR.toFixed(2)}R profit (75%+ to target). Locking stop to Breakeven (${entryPrice}) on Capital.com...`);
+              await updateCapitalPositionStop(deal.dealId, entryPrice, profitTarget);
+            }
+          }
+          // Tier 2: At 1.25R+ profit -> Trail stop to +0.50R guaranteed profit
+          else if (currentR >= 1.25) {
+            const lockedProfitLevel = isSell ? entryPrice - 0.5 * slDist : entryPrice + 0.5 * slDist;
+            const decDigits = pair.includes("JPY") ? 3 : (pair.includes("XAG") || pair.includes("XAU") ? 2 : 5);
+            const safeLockedLevel = Number(lockedProfitLevel.toFixed(decDigits));
+            const needsTrail = isSell ? stopLoss > safeLockedLevel : stopLoss < safeLockedLevel;
+            if (needsTrail) {
+              console.log(`[PROFIT DEFENSE] 🚀 Trade on ${pair} reached +${currentR.toFixed(2)}R runner. Trailing stop to +0.50R profit (${safeLockedLevel}) on Capital.com...`);
+              await updateCapitalPositionStop(deal.dealId, safeLockedLevel, profitTarget);
+            }
           }
         }
       }
@@ -7673,8 +7690,23 @@ async function analyzePairConfluence(pair: string, balance = 677, triggerExecuti
     const extreme = sweepExtreme > 0 ? sweepExtreme : (candidateDir === "BUY" ? priorLow20 : priorHigh20);
     const slP = candidateDir === "BUY" ? extreme - slBuffer : extreme + slBuffer;
     const rDist = Math.max(pSize * 10, Math.abs(entryP - slP));
-    const tp1P = candidateDir === "BUY" ? entryP + 2.0 * rDist : entryP - 2.0 * rDist;
-    const tp2P = candidateDir === "BUY" ? entryP + 3.0 * rDist : entryP - 3.0 * rDist;
+    const decDigits = pair.includes("JPY") ? 3 : (pair.includes("XAG") || pair.includes("XAU") ? 2 : 5);
+
+    // Structural TP anchoring: 2 pips inside opposing 20-bar liquidity extreme
+    // Prevents orders from stalling 2-3 pips before an arbitrary 2.0R target
+    let tp1P = 0;
+    if (candidateDir === "BUY") {
+      const structuralHigh = (priorHigh20 > entryP && (priorHigh20 - 2 * pSize - entryP) >= 1.2 * rDist)
+        ? priorHigh20 - 2 * pSize
+        : entryP + 1.5 * rDist;
+      tp1P = Number(Math.min(entryP + 2.0 * rDist, structuralHigh).toFixed(decDigits));
+    } else {
+      const structuralLow = (priorLow20 < entryP && (entryP - (priorLow20 + 2 * pSize)) >= 1.2 * rDist)
+        ? priorLow20 + 2 * pSize
+        : entryP - 1.5 * rDist;
+      tp1P = Number(Math.max(entryP - 2.0 * rDist, structuralLow).toFixed(decDigits));
+    }
+    const tp2P = candidateDir === "BUY" ? Number((entryP + 2.5 * rDist).toFixed(decDigits)) : Number((entryP - 2.5 * rDist).toFixed(decDigits));
 
     activeSetup = {
       direction: candidateDir,
