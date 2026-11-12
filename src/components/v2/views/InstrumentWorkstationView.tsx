@@ -85,7 +85,8 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
 
   const isBull = confluenceRecord?.checks?.[0]?.includes("BULLISH") ?? false;
   const isBear = confluenceRecord?.checks?.[0]?.includes("BEARISH") ?? false;
-  const engineName = confluenceRecord?.gradeAEngine || "Trend Sweep (🌊)";
+  const rawEngineName = confluenceRecord?.gradeAEngine || "Trend Sweep";
+  const cleanEngineName = rawEngineName.replace(/[^\x20-\x7E]/g, "").trim() || "Trend Sweep";
 
   // 20-bar Structural extremes (Liquidity pools)
   const m15High = confluenceRecord?.m15High ?? null;
@@ -136,25 +137,26 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
   return (
     <div className="space-y-4 font-mono select-none animate-in fade-in slide-in-from-right-3 duration-200">
       {/* ── Top Workstation Navigation & Instrument Breadcrumbs ──── */}
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-2.5">
         <button
           onClick={onBack}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#0E131A] hover:bg-[#141B24] border border-[#1E2633] text-zinc-300 hover:text-white transition-all cursor-pointer text-xs group"
+          className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-[#0E131A] hover:bg-[#141B24] border border-[#1E2633] text-zinc-300 hover:text-white transition-all cursor-pointer text-xs group shrink-0 whitespace-nowrap"
           title="Return to Terminal Cockpit"
         >
-          <ChevronLeft className="w-4 h-4 text-emerald-400 group-hover:-translate-x-0.5 transition-transform" />
-          <span className="font-semibold">Terminal</span>
+          <ChevronLeft className="w-3.5 h-3.5 text-emerald-400 group-hover:-translate-x-0.5 transition-transform shrink-0" />
+          <span className="font-semibold whitespace-nowrap">Terminal</span>
           <span className="text-zinc-600">/</span>
-          <span className="text-emerald-400 font-bold">{pair}</span>
+          <span className="text-emerald-400 font-bold whitespace-nowrap">{pair}</span>
         </button>
 
-        <div className="flex items-center gap-2">
-          <Badge variant="neutral" size="xs">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <Badge variant="neutral" size="xs" className="whitespace-nowrap shrink-0">
             {category}
           </Badge>
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-zinc-900 border border-zinc-800 text-[10px] text-zinc-400">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span>Capital.com Demo</span>
+          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-zinc-900 border border-zinc-800 text-[10px] text-zinc-400 whitespace-nowrap shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+            <span className="hidden sm:inline">Capital.com Demo</span>
+            <span className="sm:hidden">Demo</span>
           </div>
         </div>
       </div>
@@ -163,11 +165,11 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
       <Card variant="default" padding="md" className="space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#1E2633]">
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-black text-white tracking-tight">{pair}</h1>
-              <span className="text-xs text-zinc-400 font-sans">· {pairName}</span>
-              <Badge variant="neutral" size="xs">
-                {engineName}
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-xl font-black text-white tracking-tight whitespace-nowrap shrink-0">{pair}</h1>
+              <span className="text-xs text-zinc-400 font-sans truncate">· {pairName}</span>
+              <Badge variant="neutral" size="xs" className="shrink-0 whitespace-nowrap">
+                {cleanEngineName}
               </Badge>
             </div>
 
@@ -249,15 +251,15 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
 
       {/* ── 2. Interactive TradingView Candlestick Chart ──────────── */}
       <Card variant="default" padding="sm" className="space-y-2">
-        <div className="flex items-center justify-between px-2 pt-1">
-          <div className="flex items-center gap-2">
-            <Activity className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="text-xs font-bold text-white uppercase tracking-wider">
+        <div className="flex items-center justify-between px-2 pt-1 gap-2">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Activity className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+            <span className="text-xs font-bold text-white uppercase tracking-wider truncate">
               {pair} TradingView Engine
             </span>
           </div>
-          <span className="text-[10px] text-zinc-500">
-            Zoom / Pan Enabled · Crosshairs Active
+          <span className="text-[10px] text-zinc-500 shrink-0 whitespace-nowrap">
+            Zoom / Pan Active
           </span>
         </div>
 
@@ -377,7 +379,7 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
 
             <div className="flex justify-between items-center p-2.5 rounded-xl bg-[#111721] border border-[#1A222F]">
               <span className="text-zinc-400">Primary SMC Model:</span>
-              <span className="text-cyan-400 font-bold">{engineName}</span>
+              <span className="text-cyan-400 font-bold">{cleanEngineName}</span>
             </div>
 
             <div className="flex justify-between items-center p-2.5 rounded-xl bg-[#111721] border border-[#1A222F]">
