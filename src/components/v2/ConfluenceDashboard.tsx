@@ -14,7 +14,7 @@ import {
   CheckCircle2,
   XCircle,
 } from "lucide-react";
-import { Card, Badge, Button, RadialGauge, BottomSheet, formatPairPrice } from "./ui";
+import { Card, Badge, Button, RadialGauge, formatPairPrice } from "./ui";
 
 export interface ConfluenceDashboardProps {
   pair: string;
@@ -24,6 +24,7 @@ export interface ConfluenceDashboardProps {
   maxSafeSpread?: number;
   onCopyOrder?: (text: string) => void;
   copiedOrder?: boolean;
+  onOpenSignalIntelligence?: (pair: string) => void;
 }
 
 export const ConfluenceDashboard: React.FC<ConfluenceDashboardProps> = ({
@@ -34,9 +35,8 @@ export const ConfluenceDashboard: React.FC<ConfluenceDashboardProps> = ({
   maxSafeSpread = 2.0,
   onCopyOrder,
   copiedOrder = false,
+  onOpenSignalIntelligence,
 }) => {
-  const [showEvidenceSheet, setShowEvidenceSheet] = useState(false);
-
   const score = confluenceRecord?.score ?? 50;
   const grade = confluenceRecord?.confluenceGrade || "WAIT";
   const hasActiveSignal = grade !== "WAIT" && confluenceRecord?.entryPrice;
@@ -87,7 +87,11 @@ export const ConfluenceDashboard: React.FC<ConfluenceDashboardProps> = ({
         {/* Central Cockpit: Radial Gauge + Execution or Waiting Status */}
         <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
           {/* Left: Precision SVG Score Gauge */}
-          <div className="md:col-span-4 flex items-center justify-center p-3 rounded-2xl bg-[#111721] border border-[#1A222F]">
+          <div
+            onClick={() => onOpenSignalIntelligence && onOpenSignalIntelligence(pair)}
+            className="md:col-span-4 flex items-center justify-center p-3 rounded-2xl bg-[#111721] border border-[#1A222F] cursor-pointer hover:border-zinc-700 transition-all group"
+            title={`Audit ${pair} Confluence Intelligence`}
+          >
             <RadialGauge
               score={score}
               grade={grade}
@@ -259,81 +263,20 @@ export const ConfluenceDashboard: React.FC<ConfluenceDashboardProps> = ({
           </div>
         </div>
 
-        {/* Drawer Trigger Button */}
+        {/* Full-Screen Workstation Trigger Button */}
         <div className="pt-1">
           <Button
             type="button"
             variant="outline"
             size="sm"
             fullWidth
-            onClick={() => setShowEvidenceSheet(true)}
-            icon={<Info className="w-3.5 h-3.5 text-cyan-400" />}
+            onClick={() => onOpenSignalIntelligence && onOpenSignalIntelligence(pair)}
+            icon={<Zap className="w-3.5 h-3.5 text-cyan-400" />}
           >
-            Inspect Smart Money Narrative &amp; Engine Evidence
+            Audit Confluence Gates &amp; Smart Money Narrative →
           </Button>
         </div>
       </Card>
-
-      {/* Slide-Up Bottom Sheet for Deep SMC Technical Evidence */}
-      <BottomSheet
-        isOpen={showEvidenceSheet}
-        onClose={() => setShowEvidenceSheet(false)}
-        title={`${pair} — Institutional SMC Analysis`}
-        subtitle="Full algorithmic audit, narrative breakdown, and rule verification"
-      >
-        <div className="space-y-4 font-mono">
-          {/* Narrative Block */}
-          {confluenceRecord?.aiReasoning?.narrative && (
-            <div className="p-3.5 rounded-xl bg-[#111721] border border-[#1A222F] space-y-1">
-              <span className="text-[10px] text-cyan-400 uppercase tracking-wider font-bold block">
-                Liquidity Pool Context
-              </span>
-              <p className="text-xs text-zinc-200 leading-relaxed font-sans">
-                {confluenceRecord.aiReasoning.narrative}
-              </p>
-            </div>
-          )}
-
-          {/* Macro Context Block */}
-          {confluenceRecord?.aiReasoning?.context && (
-            <div className="p-3.5 rounded-xl bg-[#111721] border border-[#1A222F] space-y-1">
-              <span className="text-[10px] text-amber-400 uppercase tracking-wider font-bold block">
-                Order Flow Structure
-              </span>
-              <p className="text-xs text-zinc-200 leading-relaxed font-sans">
-                {confluenceRecord.aiReasoning.context}
-              </p>
-            </div>
-          )}
-
-          {/* Raw Verification Checks List (Zero Info Removed!) */}
-          <div className="p-3.5 rounded-xl bg-[#111721] border border-[#1A222F] space-y-2">
-            <span className="text-[10px] text-zinc-400 uppercase tracking-wider font-bold block">
-              Algorithmic Gate Checklist ({confluenceRecord?.checks?.length || 0} Gates Verified)
-            </span>
-            <div className="space-y-1.5 text-xs">
-              {(confluenceRecord?.checks || []).map((check: string, idx: number) => {
-                const isPass = check.startsWith("[OK]");
-                return (
-                  <div
-                    key={idx}
-                    className="p-2 rounded-lg bg-zinc-950/80 border border-zinc-800 flex items-start gap-2"
-                  >
-                    {isPass ? (
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                    ) : (
-                      <XCircle className="w-3.5 h-3.5 text-zinc-500 shrink-0 mt-0.5" />
-                    )}
-                    <span className={isPass ? "text-zinc-200" : "text-zinc-400"}>
-                      {check.replace(/^\[OK\] |^\[INFO\] |^\[X\] /i, "")}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </BottomSheet>
     </>
   );
 };

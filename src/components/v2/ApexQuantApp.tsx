@@ -41,6 +41,7 @@ import { InstrumentWorkstationView } from "./views/InstrumentWorkstationView";
 import { AssetAnalyticsView } from "./views/AssetAnalyticsView";
 import { ForensicTradeDetailView } from "./views/ForensicTradeDetailView";
 import { MacroEventIntelligenceView } from "./views/MacroEventIntelligenceView";
+import { SignalIntelligenceView } from "./views/SignalIntelligenceView";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "https://smc-scanner-backend.onrender.com";
 
@@ -99,7 +100,8 @@ export type DrillDownView =
   | { type: "instrument_workstation"; pair: string }
   | { type: "asset_analytics"; pair: string }
   | { type: "trade_detail"; tradeId: string }
-  | { type: "macro_event"; eventId: string };
+  | { type: "macro_event"; eventId: string }
+  | { type: "signal_intelligence"; pair: string };
 
 const isNativePlatform = () => {
   return typeof window !== "undefined" &&
@@ -590,6 +592,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
             maxSafeSpread={activeProfile.spreadThreshold}
             onCopyOrder={(text) => copyToClipboard(text, "plan")}
             copiedOrder={copiedTradeId === "plan"}
+            onOpenSignalIntelligence={(pair) => pushView({ type: "signal_intelligence", pair })}
           />
         </div>
 
@@ -685,6 +688,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
                     economicEvents={economicEvents}
                     scannedAt={confluenceData?.scannedAt}
                     onBack={() => window.history.back()}
+                    onAuditConfluence={(pair) => pushView({ type: "signal_intelligence", pair })}
                   />
                 );
               }
@@ -737,6 +741,27 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
                     feedStatus={economicEvents?.feedStatus}
                     feedSource={economicEvents?.feedSource}
                     lastSuccessTimestamp={economicEvents?.lastSuccessTimestamp}
+                    onBack={() => window.history.back()}
+                    onOpenInstrumentWorkstation={(pair) => pushView({ type: "instrument_workstation", pair })}
+                  />
+                );
+              }
+
+              if (currentView.type === "signal_intelligence") {
+                const wsProfile =
+                  DEDICATED_PROFILES.find((p) => p.pair === currentView.pair) || activeProfile;
+                const wsConf =
+                  confluenceData?.pairs?.find((p: any) => p.pair === currentView.pair) || null;
+
+                return (
+                  <SignalIntelligenceView
+                    pair={currentView.pair}
+                    pairName={wsProfile.name}
+                    category={wsProfile.category}
+                    confluenceRecord={wsConf}
+                    capitalStatus={capitalStatus}
+                    spreadArmorData={spreadArmorData}
+                    scannedAt={confluenceData?.scannedAt}
                     onBack={() => window.history.back()}
                     onOpenInstrumentWorkstation={(pair) => pushView({ type: "instrument_workstation", pair })}
                   />

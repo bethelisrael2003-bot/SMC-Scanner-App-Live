@@ -23,6 +23,7 @@ import {
 import {
   Card,
   Badge,
+  Button,
   RadialGauge,
   formatPairPrice,
   formatUSD,
@@ -41,6 +42,7 @@ export interface InstrumentWorkstationProps {
   economicEvents: any;
   scannedAt?: string;
   onBack: () => void;
+  onAuditConfluence?: (pair: string) => void;
 }
 
 export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = ({
@@ -55,6 +57,7 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
   economicEvents,
   scannedAt,
   onBack,
+  onAuditConfluence,
 }) => {
   const [chartTimeframe, setChartTimeframe] = useState<"M15" | "H1" | "H4">("M15");
 
@@ -686,6 +689,22 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Full-Screen Confluence Intelligence Audit Link */}
+        {onAuditConfluence && (
+          <div className="pt-2 border-t border-[#1E2633]">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              fullWidth
+              onClick={() => onAuditConfluence(pair)}
+              icon={<Zap className="w-3.5 h-3.5 text-cyan-400" />}
+            >
+              AUDIT FULL CONFLUENCE GATES →
+            </Button>
           </div>
         )}
       </Card>
