@@ -37,6 +37,7 @@ import { EconomicRadar } from "./EconomicRadar";
 import { PositionSizer } from "./PositionSizer";
 import { SettingsDashboard } from "./SettingsDashboard";
 import { backCoordinator } from "./navigation/BackCoordinator";
+import { InstrumentWorkstationView } from "./views/InstrumentWorkstationView";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "https://smc-scanner-backend.onrender.com";
 
@@ -547,6 +548,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
             profiles={DEDICATED_PROFILES}
             selectedIndex={selectedPairIndex}
             onSelect={setSelectedPairIndex}
+            onOpenWorkstation={(pair) => pushView({ type: "instrument_workstation", pair })}
             confluenceData={confluenceData}
             spreadArmorData={spreadArmorData}
           />
@@ -634,30 +636,34 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
         </div>
 
         {/* ========================================================== */}
-        {/* PHASE B NAVIGATION CONTAINER (FRAMEWORK READY FOR PHASE C) */}
+        {/* FULL-SCREEN DRILL-DOWN CONTAINER (PHASE C WORKSTATION)     */}
         {/* ========================================================== */}
         {viewStack.length > 0 && (
-          <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-150">
+          <div className="space-y-4">
             {(() => {
               const currentView = viewStack[viewStack.length - 1];
-              return (
-                <div className="p-4 rounded-2xl bg-[#0E131A] border border-[#1E2633] space-y-3 font-mono">
-                  <div className="flex items-center justify-between pb-2 border-b border-[#1E2633]">
-                    <span className="text-xs font-bold text-white uppercase tracking-wider">
-                      {currentView.type.replace(/_/g, " ")}
-                    </span>
-                    <button
-                      onClick={() => window.history.back()}
-                      className="text-xs text-zinc-400 hover:text-white flex items-center gap-1 cursor-pointer"
-                    >
-                      <ChevronLeft className="w-3.5 h-3.5" /> Back
-                    </button>
-                  </div>
-                  <p className="text-xs text-zinc-400 font-sans leading-relaxed">
-                    Phase B Navigation Stack active. Parent screen state preserved in memory. Full detail workstation view ready for Phase C.
-                  </p>
-                </div>
-              );
+              if (currentView.type === "instrument_workstation") {
+                const wsProfile =
+                  DEDICATED_PROFILES.find((p) => p.pair === currentView.pair) || activeProfile;
+                const wsConf =
+                  confluenceData?.pairs?.find((p: any) => p.pair === currentView.pair) || null;
+
+                return (
+                  <InstrumentWorkstationView
+                    pair={currentView.pair}
+                    pairName={wsProfile.name}
+                    category={wsProfile.category}
+                    pipSize={wsProfile.pipSize}
+                    spreadThreshold={wsProfile.spreadThreshold}
+                    confluenceRecord={wsConf}
+                    spreadArmorData={spreadArmorData}
+                    capitalStatus={capitalStatus}
+                    economicEvents={economicEvents}
+                    onBack={() => window.history.back()}
+                  />
+                );
+              }
+              return null;
             })()}
           </div>
         )}

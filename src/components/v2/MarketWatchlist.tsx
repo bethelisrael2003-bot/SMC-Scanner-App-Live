@@ -14,6 +14,7 @@ export interface MarketWatchlistProps {
   profiles: PairProfile[];
   selectedIndex: number;
   onSelect: (index: number) => void;
+  onOpenWorkstation?: (pair: string) => void;
   confluenceData: any;
   spreadArmorData: any;
 }
@@ -22,6 +23,7 @@ export const MarketWatchlist: React.FC<MarketWatchlistProps> = ({
   profiles,
   selectedIndex,
   onSelect,
+  onOpenWorkstation,
   confluenceData,
   spreadArmorData,
 }) => {
@@ -53,7 +55,12 @@ export const MarketWatchlist: React.FC<MarketWatchlistProps> = ({
               variant={isSelected ? "elevated" : "default"}
               padding="sm"
               interactive
-              onClick={() => onSelect(idx)}
+              onClick={() => {
+                onSelect(idx);
+                if (onOpenWorkstation) {
+                  onOpenWorkstation(profile.pair);
+                }
+              }}
               className={`relative overflow-hidden transition-all duration-150 ${
                 isSelected
                   ? "border-[#38BDF8] bg-[#141B24] ring-1 ring-[#38BDF8]/40 shadow-lg shadow-black/50"
