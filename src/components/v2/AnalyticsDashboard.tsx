@@ -295,16 +295,18 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
       {/* ── Asset Performance Matrix (Rule 11a Exact Counts) ── */}
       <Card variant="default" padding="md" className="space-y-3">
-        <div className="flex items-center justify-between pb-2 border-b border-[#1E2633]">
-          <div>
+        <div className="flex items-start justify-between gap-3 pb-2.5 border-b border-[#1E2633]">
+          <div className="min-w-0 pr-1">
             <h3 className="text-xs font-bold text-white uppercase tracking-wider">
               Asset Performance Matrix
             </h3>
-            <p className="text-[11px] text-zinc-400 mt-0.5">
+            <p className="text-[11px] text-zinc-400 mt-0.5 leading-relaxed font-sans">
               Audited win/loss distribution and net R contribution per instrument
             </p>
           </div>
-          <Badge variant="neutral" size="xs">Standing Rule 11a</Badge>
+          <div className="shrink-0 pt-0.5">
+            <Badge variant="neutral" size="xs" className="whitespace-nowrap">Standing Rule 11a</Badge>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -315,10 +317,10 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                 key={item.pair}
                 className="p-3 rounded-xl bg-[#111721] border border-[#1A222F] space-y-2"
               >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-white">{item.pair}</span>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-white shrink-0">{item.pair}</span>
                   <span
-                    className={`text-xs font-bold px-2 py-0.5 rounded border ${
+                    className={`text-xs font-bold px-2 py-0.5 rounded border whitespace-nowrap shrink-0 tabular-nums ${
                       isProfitable
                         ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
                         : "bg-rose-500/15 text-rose-400 border-rose-500/30"

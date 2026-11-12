@@ -332,22 +332,24 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
   return (
     <div className="min-h-screen bg-[#080B10] text-zinc-100 flex flex-col font-sans select-none pb-36">
       {/* ── Top Executive Header Bar ──────────────────────────────── */}
-      <header className="sticky top-0 z-40 bg-[#080B10]/95 backdrop-blur-md border-b border-zinc-800/80 px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className="font-mono font-black text-white text-base tracking-tight">APEX</span>
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 font-semibold border border-zinc-700/60">
+      <header className="sticky top-0 z-40 bg-[#080B10]/95 backdrop-blur-md border-b border-zinc-800/80 px-3 sm:px-4 py-2.5 sm:py-3 flex items-center justify-between gap-2 select-none">
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0 min-w-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <span className="font-mono font-black text-white text-base tracking-tight whitespace-nowrap inline-block shrink-0">
+              APEX
+            </span>
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 font-semibold border border-zinc-700/60 whitespace-nowrap shrink-0">
               PRO v4.5
             </span>
           </div>
 
-          <div className="hidden sm:flex items-center gap-1.5 text-xs font-mono text-zinc-400 pl-2 border-l border-zinc-800">
+          <div className="hidden sm:flex items-center gap-1.5 text-xs font-mono text-zinc-400 pl-2 border-l border-zinc-800 shrink-0">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
             <span>Capital.com Demo</span>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           {/* Dual Clock */}
           <div className="hidden md:flex items-center gap-2 text-xs font-mono text-zinc-400 bg-zinc-900/60 px-2.5 py-1 rounded-lg border border-zinc-800">
             <span>{utcTime || "UTC"}</span>
@@ -356,12 +358,14 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
           </div>
 
           {/* Account Balance Chip (100% Dynamic) */}
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 font-mono text-xs">
-            <span className="text-zinc-400 text-[10px] uppercase tracking-wider">Equity</span>
-            <span className="font-bold text-white whitespace-nowrap">
+          <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 font-mono text-xs whitespace-nowrap shrink-0">
+            <span className="text-zinc-400 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap shrink-0">
+              EQUITY
+            </span>
+            <span className="font-bold text-white whitespace-nowrap tabular-nums shrink-0">
               ${liveBalance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
-            <span className={`text-[10px] font-semibold ${balanceDelta >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+            <span className={`text-[10px] font-semibold whitespace-nowrap tabular-nums shrink-0 ${balanceDelta >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
               ({balanceDelta >= 0 ? `+$${balanceDelta.toFixed(2)}` : `-$${Math.abs(balanceDelta).toFixed(2)}`})
             </span>
           </div>
@@ -370,7 +374,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
           <button
             onClick={fetchAllData}
             disabled={loading}
-            className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white transition-all cursor-pointer"
+            className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white transition-all cursor-pointer shrink-0"
             title="Scan market"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-emerald-400" : ""}`} />

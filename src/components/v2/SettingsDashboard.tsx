@@ -66,21 +66,23 @@ export const SettingsDashboard: React.FC<SettingsDashboardProps> = ({
     <div className="space-y-4 font-mono">
       {/* ── Section 1: Execution Engine & Broker Link ── */}
       <Card variant="default" padding="md" className="space-y-3">
-        <div className="flex items-center justify-between pb-3 border-b border-[#1E2633]">
-          <div>
+        <div className="flex items-start justify-between gap-3 pb-3 border-b border-[#1E2633]">
+          <div className="min-w-0 pr-1">
             <div className="flex items-center gap-2">
-              <Server className="w-4 h-4 text-cyan-400" />
+              <Server className="w-4 h-4 text-cyan-400 shrink-0" />
               <h2 className="text-sm font-bold text-white uppercase tracking-wider">
                 Broker Connection &amp; Cloud Engine
               </h2>
             </div>
-            <p className="text-xs text-zinc-400 mt-0.5 font-sans">
+            <p className="text-xs text-zinc-400 mt-1 font-sans leading-relaxed">
               24/7 automated background execution connecting to Capital.com REST API.
             </p>
           </div>
-          <Badge variant="success" size="sm" dot pulseDot>
-            Connected
-          </Badge>
+          <div className="shrink-0 pt-0.5">
+            <Badge variant="success" size="xs" dot pulseDot className="whitespace-nowrap">
+              Connected
+            </Badge>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
@@ -123,37 +125,41 @@ export const SettingsDashboard: React.FC<SettingsDashboardProps> = ({
 
       {/* ── Section 2: Risk Armor & Spread Monitor ── */}
       <Card variant="default" padding="md" className="space-y-3">
-        <div className="flex items-center justify-between pb-3 border-b border-[#1E2633]">
-          <div>
+        <div className="flex items-start justify-between gap-3 pb-3 border-b border-[#1E2633]">
+          <div className="min-w-0 pr-1">
             <div className="flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
               <h2 className="text-sm font-bold text-white uppercase tracking-wider">
                 Risk Armor &amp; Spread Gates
               </h2>
             </div>
-            <p className="text-xs text-zinc-400 mt-0.5 font-sans">
+            <p className="text-xs text-zinc-400 mt-1 font-sans leading-relaxed">
               Monitors live broker liquidity. Enforces 2-hour post-loss lockouts &amp; max 2 losses/day circuit breaker.
             </p>
           </div>
-          <Badge variant="neutral" size="xs">Armed</Badge>
+          <div className="shrink-0 pt-0.5">
+            <Badge variant="neutral" size="xs" className="whitespace-nowrap">Armed</Badge>
+          </div>
         </div>
 
         <div className="space-y-2">
           {spreadArmorPairs.map((p) => (
             <div
               key={p.pair}
-              className="p-3 rounded-xl bg-[#111721] border border-[#1A222F] flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+              className="p-3 rounded-xl bg-[#111721] border border-[#1A222F] flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs"
             >
-              <div>
+              <div className="min-w-0 pr-1">
                 <span className="font-bold text-white text-xs">{p.pair}</span>
                 <span className="text-[11px] text-zinc-400 ml-2">
                   Current Spread: <strong className={p.isLocked ? "text-rose-400" : "text-emerald-400"}>{p.currentSpread}p</strong> (Max Safe: {p.threshold}p)
                 </span>
               </div>
 
-              <Badge variant={p.isLocked ? "danger" : "success"} size="xs" dot>
-                {p.status}
-              </Badge>
+              <div className="shrink-0">
+                <Badge variant={p.isLocked ? "danger" : "success"} size="xs" dot className="whitespace-nowrap">
+                  {p.status}
+                </Badge>
+              </div>
             </div>
           ))}
         </div>
@@ -218,60 +224,70 @@ export const SettingsDashboard: React.FC<SettingsDashboardProps> = ({
 
       {/* ── Section 4: Institutional Trading Windows (Visual Timetable) ── */}
       <Card variant="default" padding="md" className="space-y-3">
-        <div className="flex items-center justify-between pb-3 border-b border-[#1E2633]">
-          <div>
+        <div className="flex items-start justify-between gap-3 pb-3 border-b border-[#1E2633]">
+          <div className="min-w-0 pr-1">
             <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 text-purple-400" />
+              <Clock className="w-4 h-4 text-purple-400 shrink-0" />
               <h2 className="text-sm font-bold text-white uppercase tracking-wider">
                 Institutional Market Schedule (Nigeria WAT / UTC)
               </h2>
             </div>
-            <p className="text-xs text-zinc-400 mt-0.5 font-sans">
+            <p className="text-xs text-zinc-400 mt-1 font-sans leading-relaxed">
               Algorithmic execution strictly aligns with peak institutional order flow windows.
             </p>
           </div>
-          <Badge variant="neutral" size="xs">GMT+1</Badge>
+          <div className="shrink-0 pt-0.5">
+            <Badge variant="neutral" size="xs" className="whitespace-nowrap">GMT+1</Badge>
+          </div>
         </div>
 
         <div className="space-y-2 text-xs">
-          <div className="p-3 rounded-xl bg-[#111721] border border-emerald-500/30 flex justify-between items-center">
-            <div>
-              <span className="font-bold text-emerald-400">1. London Open Morning Window</span>
+          <div className="p-3 rounded-xl bg-[#111721] border border-emerald-500/30 flex justify-between items-center gap-2">
+            <div className="min-w-0 pr-1">
+              <span className="font-bold text-emerald-400 block truncate">1. London Open Morning Window</span>
               <div className="text-[11px] text-zinc-400 mt-0.5">
                 08:30 – 12:30 WAT · 07:30 – 11:30 UTC · Peak European Liquidity Runs
               </div>
             </div>
-            <Badge variant="success" size="xs">Grade A+</Badge>
+            <div className="shrink-0">
+              <Badge variant="success" size="xs" className="whitespace-nowrap">Grade A+</Badge>
+            </div>
           </div>
 
-          <div className="p-3 rounded-xl bg-[#111721] border border-cyan-500/30 flex justify-between items-center">
-            <div>
-              <span className="font-bold text-cyan-400">2. US Pre-Market &amp; Economic Data</span>
+          <div className="p-3 rounded-xl bg-[#111721] border border-cyan-500/30 flex justify-between items-center gap-2">
+            <div className="min-w-0 pr-1">
+              <span className="font-bold text-cyan-400 block truncate">2. US Pre-Market &amp; Economic Data</span>
               <div className="text-[11px] text-zinc-400 mt-0.5">
                 13:30 – 15:30 WAT · 12:30 – 14:30 UTC · US Tier-1 Volatility Releases
               </div>
             </div>
-            <Badge variant="info" size="xs">High Alert</Badge>
+            <div className="shrink-0">
+              <Badge variant="info" size="xs" className="whitespace-nowrap">High Alert</Badge>
+            </div>
           </div>
 
-          <div className="p-3 rounded-xl bg-[#111721] border border-purple-500/30 flex justify-between items-center">
-            <div>
-              <span className="font-bold text-purple-400">3. New York Open Peak Volatility</span>
+          <div className="p-3 rounded-xl bg-[#111721] border border-purple-500/30 flex justify-between items-center gap-2">
+            <div className="min-w-0 pr-1">
+              <span className="font-bold text-purple-400 block truncate">3. New York Open Peak Volatility</span>
               <div className="text-[11px] text-zinc-400 mt-0.5">
                 15:30 – 19:00 WAT · 14:30 – 18:00 UTC · Major Trend Expansions &amp; NY Sweeps
               </div>
             </div>
-            <Badge variant="gradeB" size="xs">Grade A</Badge>
+            <div className="shrink-0">
+              <Badge variant="gradeB" size="xs" className="whitespace-nowrap">Grade A</Badge>
+            </div>
           </div>
 
-          <div className="p-3 rounded-xl bg-zinc-950 border border-zinc-800 flex justify-between items-center opacity-75">
-            <div>
-              <span className="font-bold text-zinc-400">4. Asian &amp; Night Lull (Dead Zones)</span>
+          <div className="p-3 rounded-xl bg-zinc-950 border border-zinc-800 flex justify-between items-center gap-2 opacity-75">
+            <div className="min-w-0 pr-1">
+              <span className="font-bold text-zinc-400 block truncate">4. Asian &amp; Night Lull (Dead Zones)</span>
               <div className="text-[11px] text-zinc-500 mt-0.5">
                 Midnight – 08:00 AM WAT · Low Volatility Compression · Zero Risk Allocated
               </div>
             </div>
-            <Badge variant="wait" size="xs">No Trades</Badge>
+            <div className="shrink-0">
+              <Badge variant="wait" size="xs" className="whitespace-nowrap">No Trades</Badge>
+            </div>
           </div>
         </div>
       </Card>
