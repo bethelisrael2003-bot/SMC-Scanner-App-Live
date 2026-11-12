@@ -39,6 +39,9 @@ export const Modal: React.FC<ModalProps> = ({
   const [isAcknowledged, setIsAcknowledged] = useState(false);
   const [actionInProgress, setActionInProgress] = useState(false);
   const isMountedRef = useRef(true);
+  const onCloseRef = useRef(onClose);
+  const isLoadingRef = useRef(isLoading);
+  const actionInProgressRef = useRef(actionInProgress);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -46,6 +49,12 @@ export const Modal: React.FC<ModalProps> = ({
       isMountedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+    isLoadingRef.current = isLoading;
+    actionInProgressRef.current = actionInProgress;
+  });
 
   // Reset acknowledgment when modal re-opens
   useEffect(() => {
@@ -70,16 +79,16 @@ export const Modal: React.FC<ModalProps> = ({
   // Keyboard Escape dismissal
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isOpen && !isLoading && !actionInProgress) {
-        onClose();
+      if (e.key === "Escape" && isOpen && !isLoadingRef.current && !actionInProgressRef.current) {
+        onCloseRef.current();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose, isLoading, actionInProgress]);
+  }, [isOpen]);
 
   // Android Hardware Back / Browser Popstate Coordination
-  // Pushes a synthetic history frame when opened; pops and cancels when back is pressed.
+  // Pushes a synthetic history frame ONLY ONCE when opened; pops and cancels when back is pressed.
   useEffect(() => {
     if (!isOpen) return;
 
@@ -88,10 +97,10 @@ export const Modal: React.FC<ModalProps> = ({
 
     let isDismissedByPop = false;
 
-    const handlePopState = (e: PopStateEvent) => {
+    const handlePopState = () => {
       isDismissedByPop = true;
-      if (!isLoading && !actionInProgress) {
-        onClose();
+      if (!isLoadingRef.current && !actionInProgressRef.current) {
+        onCloseRef.current();
       }
     };
 
@@ -99,12 +108,12 @@ export const Modal: React.FC<ModalProps> = ({
 
     return () => {
       window.removeEventListener("popstate", handlePopState);
-      // Clean up the history frame if modal was closed internally (Cancel/X/Confirm)
+      // Clean up the history frame only if closed internally without a popstate event
       if (!isDismissedByPop && window.history.state?.modalId === historyKey) {
         window.history.back();
       }
     };
-  }, [isOpen, isLoading, actionInProgress, onClose]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
