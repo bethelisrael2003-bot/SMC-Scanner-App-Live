@@ -727,13 +727,16 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
 
               if (currentView.type === "macro_event") {
                 const targetEvent = (economicEvents?.events || []).find(
-                  (e: any) => getEventId(e) === currentView.eventId
+                  (e: any) => (e.id === currentView.eventId || getEventId(e) === currentView.eventId)
                 ) || null;
 
                 return (
                   <MacroEventIntelligenceView
                     event={targetEvent}
                     allEvents={economicEvents?.events || []}
+                    feedStatus={economicEvents?.feedStatus}
+                    feedSource={economicEvents?.feedSource}
+                    lastSuccessTimestamp={economicEvents?.lastSuccessTimestamp}
                     onBack={() => window.history.back()}
                     onOpenInstrumentWorkstation={(pair) => pushView({ type: "instrument_workstation", pair })}
                   />

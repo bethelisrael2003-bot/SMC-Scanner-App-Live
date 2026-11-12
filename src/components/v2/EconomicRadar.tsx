@@ -14,6 +14,7 @@ import {
 import { Card, Badge, Button, SegmentedControl } from "./ui";
 
 export interface CalendarEvent {
+  id?: string;
   title: string;
   country: string;
   impact: string; // "High", "Medium", "Low", "Holiday"
@@ -31,11 +32,16 @@ export interface EconomicRadarProps {
     highImpactCount?: number;
     nextHighImpact?: CalendarEvent | null;
     events?: CalendarEvent[];
+    lastSuccessTimestamp?: string | null;
+    feedSource?: "JSON_PRIMARY" | "XML_FALLBACK" | "UNAVAILABLE";
+    feedStatus?: "LIVE" | "DELAYED" | "STALE" | "UNAVAILABLE";
+    freshnessWindowMinutes?: number;
   } | null;
   onSelectEvent?: (eventId: string) => void;
 }
 
 export const getEventId = (e: CalendarEvent): string => {
+  if (e.id) return e.id;
   const cleanCountry = (e.country || "GLOBAL").trim();
   const cleanDate = (e.date || "").replace(/[^0-9]/g, "");
   const cleanTitle = (e.title || "event").toLowerCase().replace(/[^a-z0-9]/g, "_");
@@ -45,6 +51,29 @@ export const getEventId = (e: CalendarEvent): string => {
 export const EconomicRadar: React.FC<EconomicRadarProps> = ({ eventsData, onSelectEvent }) => {
   const [selectedCurrency, setSelectedCurrency] = useState<string>("ALL");
   const [selectedImpact, setSelectedImpact] = useState<string>("ALL");
+
+  const feedStatus = eventsData?.feedStatus || (eventsData?.events && eventsData.events.length > 0 ? "LIVE" : "UNAVAILABLE");
+  const feedSource = eventsData?.feedSource || "XML_FALLBACK";
+
+  const lastSyncTimeWAT = useMemo(() => {
+    if (!eventsData?.lastSuccessTimestamp) return "Live Polling";
+    try {
+      const d = new Date(eventsData.lastSuccessTimestamp);
+      return d.toLocaleTimeString("en-GB", { timeZone: "Africa/Lagos", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }) + " WAT";
+    } catch (e) {
+      return "Live Polling";
+    }
+  }, [eventsData?.lastSuccessTimestamp]);
+
+  const lastSyncTimeUTC = useMemo(() => {
+    if (!eventsData?.lastSuccessTimestamp) return "UTC";
+    try {
+      const d = new Date(eventsData.lastSuccessTimestamp);
+      return d.toLocaleTimeString("en-GB", { timeZone: "UTC", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }) + " UTC";
+    } catch (e) {
+      return "UTC";
+    }
+  }, [eventsData?.lastSuccessTimestamp]);
 
   const currencyOptions = [
     { value: "ALL", label: "All Currencies" },
@@ -169,6 +198,48 @@ export const EconomicRadar: React.FC<EconomicRadarProps> = ({ eventsData, onSele
             </div>
           </div>
         )}
+
+        {/* ── Feed Freshness & Source Status Banner ── */}
+        <div className="flex items-center justify-between gap-2 pt-2 border-t border-[#1E2633] text-[11px] text-zinc-400 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span
+              className={`w-2 h-2 rounded-full shrink-0 ${
+                feedStatus === "LIVE"
+                  ? "bg-emerald-400 animate-pulse"
+                  : feedStatus === "DELAYED"
+                  ? "bg-amber-400"
+                  : feedStatus === "STALE"
+                  ? "bg-rose-400"
+                  : "bg-zinc-600"
+              }`}
+            />
+            <span
+              className={`font-bold ${
+                feedStatus === "LIVE"
+                  ? "text-emerald-400"
+                  : feedStatus === "DELAYED"
+                  ? "text-amber-400"
+                  : feedStatus === "STALE"
+                  ? "text-rose-400"
+                  : "text-zinc-500"
+              }`}
+            >
+              FEED STATUS: {feedStatus === "LIVE" ? "LIVE / FRESH" : feedStatus === "DELAYED" ? "DELAYED" : feedStatus === "STALE" ? "STALE (>60m)" : "UNAVAILABLE"}
+            </span>
+            <span className="text-zinc-600">·</span>
+            <span className="text-zinc-300 font-mono text-[10px]">
+              {feedSource === "XML_FALLBACK"
+                ? "Forex Factory XML Fallback Active"
+                : feedSource === "JSON_PRIMARY"
+                ? "Forex Factory Primary JSON Feed"
+                : "Calendar Data Unavailable"}
+            </span>
+          </div>
+
+          <div className="text-zinc-400 font-mono text-[10px] shrink-0">
+            Last successful sync: <strong className="text-zinc-200">{lastSyncTimeWAT}</strong> ({lastSyncTimeUTC})
+          </div>
+        </div>
 
         {/* Currency & Impact Segmented Filter Controls */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-1">

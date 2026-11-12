@@ -31,6 +31,9 @@ import { CalendarEvent } from "../EconomicRadar";
 export interface MacroEventIntelligenceProps {
   event: CalendarEvent | null;
   allEvents: CalendarEvent[];
+  feedStatus?: "LIVE" | "DELAYED" | "STALE" | "UNAVAILABLE";
+  feedSource?: "JSON_PRIMARY" | "XML_FALLBACK" | "UNAVAILABLE";
+  lastSuccessTimestamp?: string | null;
   onBack: () => void;
   onOpenInstrumentWorkstation?: (pair: string) => void;
 }
@@ -168,7 +171,7 @@ interface InstrumentExposure {
   pair: string;
   name: string;
   role: string;
-  sensitivity: "HIGH" | "EXTREME";
+  sensitivity: "HIGH" | "ELEVATED";
   mechanism: string;
 }
 
@@ -182,20 +185,20 @@ function getInstrumentExposure(country: string): InstrumentExposure[] {
         name: "Euro / US Dollar",
         role: "Direct Quote Currency",
         sensitivity: "HIGH",
-        mechanism: "US Dollar yield repricing directly alters the EUR/USD exchange parity. Dollar appreciation drives EUR/USD downward; dollar softness permits EUR recovery, subject to ECB policy differentials.",
+        mechanism: "US Dollar yield adjustments typically elevate two-way volatility across EUR/USD. Historically, institutional rate differential adjustments can exert downward re-pricing pressure on EUR/USD, while dollar softening permits EUR recovery, though actual price action depends on European Central Bank expectations and technical liquidity sweeps.",
       },
       {
         pair: "XAU/USD",
         name: "Spot Gold / US Dollar",
         role: "Inverted Real-Yield Commodity",
-        sensitivity: "EXTREME",
-        mechanism: "Gold holds strong negative correlation to US real interest rates. Surging USD yields increase opportunity cost of non-yielding bullion, sparking swift institutional liquidation. Dollar weakness drives bullion safe-haven allocation.",
+        sensitivity: "ELEVATED",
+        mechanism: "Gold exhibits strong historical negative correlation to US real yields. Rising real yields often increase the opportunity cost of holding non-yielding bullion, generating heavy two-way volume, whereas dollar weakness can spur safe-haven allocation.",
       },
       {
         pair: "XAG/USD",
         name: "Spot Silver / US Dollar",
         role: "High-Beta Monetary & Industrial Metal",
-        sensitivity: "EXTREME",
+        sensitivity: "ELEVATED",
         mechanism: "Silver carries dual industrial and monetary demand. Thinner market liquidity creates amplified percentage volatility compared to Gold, generating severe spread widening during USD Tier-1 releases.",
       },
     ];
@@ -208,7 +211,7 @@ function getInstrumentExposure(country: string): InstrumentExposure[] {
         name: "Euro / US Dollar",
         role: "Direct Base Currency",
         sensitivity: "HIGH",
-        mechanism: "European macro data directly re-prices ECB monetary policy expectations and European sovereign bond yields (German Bunds) against US Treasury yields, driving immediate directional repricing in EUR/USD.",
+        mechanism: "European macro data directly re-prices ECB monetary policy expectations and European sovereign bond yields (German Bunds) against US Treasury yields, driving two-way repricing in EUR/USD without guaranteed directional outcomes.",
       },
     ];
   }
@@ -219,8 +222,8 @@ function getInstrumentExposure(country: string): InstrumentExposure[] {
         pair: "GBP/JPY",
         name: "British Pound / Japanese Yen",
         role: "Direct Base Currency",
-        sensitivity: "EXTREME",
-        mechanism: "Bank of England rate expectations and UK economic indicators heavily move the British Pound. As a high-beta cross pair, GBP/JPY frequently demonstrates 100+ pip reactions during UK Tier-1 releases.",
+        sensitivity: "ELEVATED",
+        mechanism: "Bank of England rate expectations and UK economic indicators heavily influence British Pound volatility. As a high-beta cross pair, GBP/JPY frequently demonstrates wide intraday ranges during UK Tier-1 releases.",
       },
     ];
   }
@@ -232,7 +235,7 @@ function getInstrumentExposure(country: string): InstrumentExposure[] {
         name: "British Pound / Japanese Yen",
         role: "Direct Quote Currency & Carry Benchmark",
         sensitivity: "HIGH",
-        mechanism: "Bank of Japan policy adjustments, Tokyo CPI, and wage negotiations dictate yen strength. Shifting yield expectations frequently trigger rapid unwinds across Japanese yen carry trades, prompting sharp spikes.",
+        mechanism: "Bank of Japan policy adjustments, Tokyo CPI, and wage negotiations influence yen valuation. Shifting yield expectations frequently trigger rapid unwinds across Japanese yen carry trades, prompting sharp two-way liquidity spikes.",
       },
     ];
   }
@@ -258,6 +261,9 @@ function getInstrumentExposure(country: string): InstrumentExposure[] {
 export const MacroEventIntelligenceView: React.FC<MacroEventIntelligenceProps> = ({
   event,
   allEvents,
+  feedStatus = "LIVE",
+  feedSource = "XML_FALLBACK",
+  lastSuccessTimestamp,
   onBack,
   onOpenInstrumentWorkstation,
 }) => {
@@ -311,6 +317,26 @@ export const MacroEventIntelligenceView: React.FC<MacroEventIntelligenceProps> =
   const timeWAT = formatEventTimeWAT(event.date);
   const timeUTC = formatEventTimeUTC(event.date);
   const dateWAT = formatEventDateWAT(event.date);
+
+  const lastSyncWAT = useMemo(() => {
+    if (!lastSuccessTimestamp) return "Live Polling";
+    try {
+      const d = new Date(lastSuccessTimestamp);
+      return d.toLocaleTimeString("en-GB", { timeZone: "Africa/Lagos", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }) + " WAT";
+    } catch (e) {
+      return "Live Polling";
+    }
+  }, [lastSuccessTimestamp]);
+
+  const lastSyncUTC = useMemo(() => {
+    if (!lastSuccessTimestamp) return "UTC";
+    try {
+      const d = new Date(lastSuccessTimestamp);
+      return d.toLocaleTimeString("en-GB", { timeZone: "UTC", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }) + " UTC";
+    } catch (e) {
+      return "UTC";
+    }
+  }, [lastSuccessTimestamp]);
 
   return (
     <div className="space-y-4 font-mono select-none overflow-x-hidden animate-in fade-in slide-in-from-right-3 duration-200 pb-36">
@@ -475,11 +501,47 @@ export const MacroEventIntelligenceView: React.FC<MacroEventIntelligenceProps> =
 
           <div className="p-3 rounded-xl bg-zinc-950 border border-zinc-800 space-y-1">
             <span className="text-[10px] text-zinc-500 uppercase block">Source &amp; Freshness</span>
-            <div className="font-bold text-emerald-400 text-sm">
-              Institutional Feed
+            <div className="font-bold text-sm flex items-center gap-1.5">
+              <span
+                className={`w-2 h-2 rounded-full shrink-0 ${
+                  feedStatus === "LIVE"
+                    ? "bg-emerald-400"
+                    : feedStatus === "DELAYED"
+                    ? "bg-amber-400"
+                    : feedStatus === "STALE"
+                    ? "bg-rose-400"
+                    : "bg-zinc-600"
+                }`}
+              />
+              <span
+                className={
+                  feedStatus === "LIVE"
+                    ? "text-emerald-400"
+                    : feedStatus === "DELAYED"
+                    ? "text-amber-400"
+                    : feedStatus === "STALE"
+                    ? "text-rose-400"
+                    : "text-zinc-400"
+                }
+              >
+                {feedStatus === "LIVE"
+                  ? "LIVE / FRESH"
+                  : feedStatus === "DELAYED"
+                  ? "DELAYED"
+                  : feedStatus === "STALE"
+                  ? "STALE (>60m)"
+                  : "UNAVAILABLE"}
+              </span>
             </div>
             <div className="text-[10px] text-zinc-400 font-sans">
-              Forex Factory Weekly Feed (<span className="text-zinc-300 font-mono">faireconomy.media</span>)
+              {feedSource === "XML_FALLBACK"
+                ? "Forex Factory XML Fallback Active (nfs.faireconomy.media)"
+                : feedSource === "JSON_PRIMARY"
+                ? "Forex Factory Primary JSON Feed (nfs.faireconomy.media)"
+                : "Calendar Data Unavailable"}
+            </div>
+            <div className="text-[9px] text-zinc-500 font-mono">
+              Last sync: {lastSyncWAT} ({lastSyncUTC})
             </div>
           </div>
         </div>
@@ -503,7 +565,7 @@ export const MacroEventIntelligenceView: React.FC<MacroEventIntelligenceProps> =
             </h3>
           </div>
           <Badge variant="neutral" size="xs">
-            Macro Context
+            Educational Reference Only
           </Badge>
         </div>
 
@@ -516,38 +578,49 @@ export const MacroEventIntelligenceView: React.FC<MacroEventIntelligenceProps> =
           </div>
 
           <div className="p-3 rounded-xl bg-[#111721] border border-[#1A222F] space-y-1">
-            <span className="text-[10px] text-zinc-500 uppercase block font-bold">Why Institutional Traders Monitor It</span>
+            <span className="text-[10px] text-zinc-500 uppercase block font-bold">Why Institutional Desks Monitor It</span>
             <p className="text-zinc-200 font-sans leading-relaxed text-xs">
               {significance.significance}
             </p>
           </div>
 
           {/* Hawkish vs Dovish Scenario Matrix */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25 space-y-1">
-              <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
-                <TrendingUp className="w-3.5 h-3.5" />
-                <span className="text-xs uppercase">Upside / Hawkish Mechanism</span>
+          <div className="space-y-1 pt-1">
+            <span className="text-[10px] text-zinc-500 uppercase block font-bold">
+              Educational Economic Transmission Scenarios
+            </span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25 space-y-1">
+                <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
+                  <TrendingUp className="w-3.5 h-3.5" />
+                  <span className="text-xs uppercase">Upside / Hawkish Mechanism (Theoretical)</span>
+                </div>
+                <p className="text-emerald-200/90 font-sans text-[11px] leading-relaxed">
+                  {significance.hawkish}
+                </p>
               </div>
-              <p className="text-emerald-200/90 font-sans text-[11px] leading-relaxed">
-                {significance.hawkish}
-              </p>
-            </div>
 
-            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/25 space-y-1">
-              <div className="flex items-center gap-1.5 text-rose-400 font-bold">
-                <TrendingDown className="w-3.5 h-3.5" />
-                <span className="text-xs uppercase">Downside / Dovish Mechanism</span>
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/25 space-y-1">
+                <div className="flex items-center gap-1.5 text-rose-400 font-bold">
+                  <TrendingDown className="w-3.5 h-3.5" />
+                  <span className="text-xs uppercase">Downside / Dovish Mechanism (Theoretical)</span>
+                </div>
+                <p className="text-rose-200/90 font-sans text-[11px] leading-relaxed">
+                  {significance.dovish}
+                </p>
               </div>
-              <p className="text-rose-200/90 font-sans text-[11px] leading-relaxed">
-                {significance.dovish}
-              </p>
             </div>
           </div>
 
           {/* Context Notice Disclaimer */}
-          <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-[10px] text-zinc-400 font-sans">
-            <strong className="text-zinc-300">Analytical Distinction:</strong> Macroeconomic interpretation describes general transmission mechanisms over economic cycles. It does NOT constitute a live directional trade signal, entry recommendation, or guaranteed price outcome.
+          <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-[10px] text-zinc-400 font-sans space-y-1">
+            <div className="flex items-center gap-1 text-zinc-300 font-bold uppercase text-[10px]">
+              <Info className="w-3 h-3 text-cyan-400" />
+              <span>Educational &amp; Qualitative Analysis Only · Non-Predictive</span>
+            </div>
+            <p>
+              Economic interpretations describe general theoretical macroeconomic transmission concepts over multi-month economic cycles. They do <strong>NOT</strong> predict price direction, do not guarantee market trajectory, and must never be interpreted as live trading signals.
+            </p>
           </div>
         </div>
       </Card>
@@ -562,7 +635,7 @@ export const MacroEventIntelligenceView: React.FC<MacroEventIntelligenceProps> =
             </h3>
           </div>
           <Badge variant="neutral" size="xs">
-            {exposures.length} Instruments Exposed
+            {exposures.length} Instruments Analyzed
           </Badge>
         </div>
 
@@ -580,11 +653,11 @@ export const MacroEventIntelligenceView: React.FC<MacroEventIntelligenceProps> =
                     {exp.role}
                   </Badge>
                   <Badge
-                    variant={exp.sensitivity === "EXTREME" ? "danger" : "warning"}
+                    variant={exp.sensitivity === "ELEVATED" ? "danger" : "warning"}
                     size="xs"
                     className="whitespace-nowrap"
                   >
-                    {exp.sensitivity} SENSITIVITY
+                    QUALITATIVE SENSITIVITY: {exp.sensitivity} (Assessment)
                   </Badge>
                 </div>
                 <p className="text-[11px] text-zinc-300 font-sans leading-relaxed">
@@ -606,8 +679,13 @@ export const MacroEventIntelligenceView: React.FC<MacroEventIntelligenceProps> =
           ))}
         </div>
 
-        <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-[10px] text-zinc-400 font-sans">
-          <strong className="text-zinc-300">Neutral Volatility Notice:</strong> Instrument exposure indicates volatility and liquidity disruption potential. APEX trading models never assume guaranteed directional movement following a release.
+        <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-[10px] text-zinc-400 font-sans space-y-1">
+          <div className="text-zinc-300 font-bold uppercase text-[10px]">
+            Qualitative Sensitivity &amp; Neutral Volatility Notice
+          </div>
+          <p>
+            Instrument exposure designates potential volatility and liquidity disruption. Sensitivity classifications are qualitative analytical assessments based on historical asset beta and depth of market; they are not measured statistical certainties or directional forecasts. APEX trading models never assume pre-ordained directional movement following an economic release.
+          </p>
         </div>
       </Card>
 

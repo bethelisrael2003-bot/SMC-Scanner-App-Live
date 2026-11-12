@@ -501,6 +501,7 @@ interface NewsProximityResult {
 
 let cachedFfCalendarJson: any[] | null = null;
 let lastFfCalendarFetch = 0;
+let lastFfCalendarSource: "JSON_PRIMARY" | "XML_FALLBACK" | "UNAVAILABLE" = "UNAVAILABLE";
 
 async function getFfCalendarEvents(): Promise<any[]> {
   const now = Date.now();
@@ -519,6 +520,7 @@ async function getFfCalendarEvents(): Promise<any[]> {
       if (Array.isArray(data) && data.length > 0) {
         cachedFfCalendarJson = data;
         lastFfCalendarFetch = now;
+        lastFfCalendarSource = "JSON_PRIMARY";
         return data;
       }
     }
@@ -561,10 +563,17 @@ async function getFfCalendarEvents(): Promise<any[]> {
       });
       cachedFfCalendarJson = mapped;
       lastFfCalendarFetch = now;
+      lastFfCalendarSource = "XML_FALLBACK";
       return mapped;
     }
   } catch (err) {
     console.warn("[NEWS GUARD] Failed to parse XML fallback for calendar:", err);
+  }
+
+  // Note: If both fetches fail, lastFfCalendarFetch is intentionally NOT reset,
+  // preserving the authentic age of previously cached data.
+  if (!cachedFfCalendarJson || cachedFfCalendarJson.length === 0) {
+    lastFfCalendarSource = "UNAVAILABLE";
   }
 
   return cachedFfCalendarJson || [];
@@ -6296,15 +6305,33 @@ app.get("/api/economic-calendar", async (req, res) => {
     const now = Date.now();
     const targetCurrencies = ["USD", "EUR", "GBP", "JPY"];
 
+    const ageMs = now - lastFfCalendarFetch;
+    let feedStatus: "LIVE" | "DELAYED" | "STALE" | "UNAVAILABLE" = "LIVE";
+    if (!cachedFfCalendarJson || cachedFfCalendarJson.length === 0 || lastFfCalendarFetch === 0) {
+      feedStatus = "UNAVAILABLE";
+    } else if (ageMs > 60 * 60 * 1000) {
+      feedStatus = "STALE";
+    } else if (ageMs > 20 * 60 * 1000) {
+      feedStatus = "DELAYED";
+    } else {
+      feedStatus = "LIVE";
+    }
+
     const radarEvents = events
       .filter((e: any) => targetCurrencies.includes(e.country))
-      .map((e: any) => {
-        const timeMs = new Date(e.date).getTime();
+      .map((e: any, idx: number) => {
+        const timeMs = e.date ? new Date(e.date).getTime() : 0;
         const diffMs = timeMs - now;
         const minutesAway = Math.round(diffMs / (60 * 1000));
         const isLockoutActive = e.impact === "High" && minutesAway >= -30 && minutesAway <= 60;
 
+        const cleanCountry = (e.country || "GLOBAL").trim();
+        const cleanDate = (e.date || "").replace(/[^0-9]/g, "");
+        const cleanTitle = (e.title || "event").toLowerCase().replace(/[^a-z0-9]/g, "_");
+        const id = `${cleanCountry}_${cleanDate}_${cleanTitle}_${idx}`;
+
         return {
+          id,
           title: e.title,
           country: e.country,
           impact: e.impact,
@@ -6326,7 +6353,12 @@ app.get("/api/economic-calendar", async (req, res) => {
       isSystemLocked: activeLockouts.length > 0,
       nextHighImpact: nextHigh || null,
       highImpactCount: highImpact.length,
-      events: radarEvents
+      events: radarEvents,
+      /* ── Freshness & Source Metadata (Phase C Part 4 Validation) ── */
+      lastSuccessTimestamp: lastFfCalendarFetch > 0 ? new Date(lastFfCalendarFetch).toISOString() : null,
+      feedSource: lastFfCalendarSource,
+      feedStatus,
+      freshnessWindowMinutes: 20
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Calendar fetch failed" });
