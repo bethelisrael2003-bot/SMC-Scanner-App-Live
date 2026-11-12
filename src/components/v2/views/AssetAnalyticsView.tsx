@@ -158,12 +158,13 @@ export const AssetAnalyticsView: React.FC<AssetAnalyticsProps> = ({
     chronological.forEach((t, i) => {
       const r = typeof t.rrGained === "number" ? t.rrGained : 0;
       running += r;
+      const cleanSetup = (t.setupType || "Setup").replace(/\s*\([^\)]*\)\s*/g, "").trim() || "Setup";
       points.push({
         idx: i + 1,
         date: t.closeTimestamp || t.timestamp,
         rDelta: r,
         runningR: Number(running.toFixed(2)),
-        setupType: t.setupType || "Setup",
+        setupType: cleanSetup,
       });
     });
 
@@ -708,7 +709,7 @@ export const AssetAnalyticsView: React.FC<AssetAnalyticsProps> = ({
 
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <span className="font-bold text-white text-xs">{t.setupType || "Setup"}</span>
+                        <span className="font-bold text-white text-xs">{(t.setupType || "Setup").replace(/\s*\([^\)]*\)\s*/g, "").trim()}</span>
                       </div>
                       <div className="text-[10px] text-zinc-400 truncate">
                         {formatShortDate(t.closeTimestamp || t.timestamp)}
