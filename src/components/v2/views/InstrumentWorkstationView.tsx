@@ -86,7 +86,7 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
   const isBull = confluenceRecord?.checks?.[0]?.includes("BULLISH") ?? false;
   const isBear = confluenceRecord?.checks?.[0]?.includes("BEARISH") ?? false;
   const rawEngineName = confluenceRecord?.gradeAEngine || "Trend Sweep";
-  const cleanEngineName = rawEngineName.replace(/[^\x20-\x7E]/g, "").trim() || "Trend Sweep";
+  const cleanEngineName = rawEngineName.replace(/\s*\([^\)]*\)\s*/g, "").trim() || "Trend Sweep";
 
   // 20-bar Structural extremes (Liquidity pools)
   const m15High = confluenceRecord?.m15High ?? null;
