@@ -11,7 +11,7 @@ import {
   CheckCircle2,
   TrendingUp,
 } from "lucide-react";
-import { Card, Badge, Button, BottomSheet, SegmentedControl } from "./ui";
+import { Card, Badge, Button, SegmentedControl } from "./ui";
 
 export interface CalendarEvent {
   title: string;
@@ -32,12 +32,19 @@ export interface EconomicRadarProps {
     nextHighImpact?: CalendarEvent | null;
     events?: CalendarEvent[];
   } | null;
+  onSelectEvent?: (eventId: string) => void;
 }
 
-export const EconomicRadar: React.FC<EconomicRadarProps> = ({ eventsData }) => {
+export const getEventId = (e: CalendarEvent): string => {
+  const cleanCountry = (e.country || "GLOBAL").trim();
+  const cleanDate = (e.date || "").replace(/[^0-9]/g, "");
+  const cleanTitle = (e.title || "event").toLowerCase().replace(/[^a-z0-9]/g, "_");
+  return `${cleanCountry}_${cleanDate}_${cleanTitle}`;
+};
+
+export const EconomicRadar: React.FC<EconomicRadarProps> = ({ eventsData, onSelectEvent }) => {
   const [selectedCurrency, setSelectedCurrency] = useState<string>("ALL");
   const [selectedImpact, setSelectedImpact] = useState<string>("ALL");
-  const [inspectingEvent, setInspectingEvent] = useState<CalendarEvent | null>(null);
 
   const currencyOptions = [
     { value: "ALL", label: "All Currencies" },
@@ -209,7 +216,11 @@ export const EconomicRadar: React.FC<EconomicRadarProps> = ({ eventsData }) => {
                   return (
                     <div
                       key={idx}
-                      onClick={() => setInspectingEvent(e)}
+                      onClick={() => {
+                        if (onSelectEvent) {
+                          onSelectEvent(getEventId(e));
+                        }
+                      }}
                       className={`group p-3 rounded-xl border transition-all duration-150 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 cursor-pointer select-none active:scale-[0.99] ${
                         isNear
                           ? "bg-rose-950/25 border-rose-500/50 hover:border-rose-400"
@@ -275,65 +286,6 @@ export const EconomicRadar: React.FC<EconomicRadarProps> = ({ eventsData }) => {
           ))
         )}
       </div>
-
-      {/* Event Detail Bottom Sheet */}
-      <BottomSheet
-        isOpen={!!inspectingEvent}
-        onClose={() => setInspectingEvent(null)}
-        title={inspectingEvent ? `${inspectingEvent.country} — ${inspectingEvent.title}` : "Macro Event"}
-        subtitle="Tier-1 calendar audit, release forecasts, and risk protocol"
-      >
-        {inspectingEvent && (
-          <div className="space-y-4 font-mono text-xs">
-            {/* Impact Banner */}
-            <div className="p-3.5 rounded-xl bg-[#111721] border border-[#1A222F] flex items-center justify-between">
-              <div>
-                <span className="text-[10px] text-zinc-500 uppercase block">Impact Level</span>
-                <span className={`text-sm font-bold ${
-                  inspectingEvent.impact === "High" ? "text-rose-400" : "text-amber-400"
-                }`}>
-                  {inspectingEvent.impact.toUpperCase()} IMPACT
-                </span>
-              </div>
-
-              <div className="text-right">
-                <span className="text-[10px] text-zinc-500 uppercase block">Timing</span>
-                <span className="text-xs font-bold text-white">
-                  {formatCountdown(inspectingEvent.minutesAway)}
-                </span>
-              </div>
-            </div>
-
-            {/* Forecast vs Previous Grid */}
-            <div className="grid grid-cols-2 gap-2">
-              <div className="p-3 rounded-lg bg-zinc-950 border border-zinc-800">
-                <span className="text-[10px] text-zinc-500 uppercase block">Consensus Forecast</span>
-                <span className="text-sm font-bold text-white mt-0.5 block">
-                  {inspectingEvent.forecast || "None"}
-                </span>
-              </div>
-
-              <div className="p-3 rounded-lg bg-zinc-950 border border-zinc-800">
-                <span className="text-[10px] text-zinc-500 uppercase block">Previous Value</span>
-                <span className="text-sm font-bold text-white mt-0.5 block">
-                  {inspectingEvent.previous || "None"}
-                </span>
-              </div>
-            </div>
-
-            {/* Protection Protocol Explanatory Card */}
-            <div className="p-3.5 rounded-xl bg-[#111721] border border-[#1A222F] space-y-2">
-              <div className="flex items-center gap-1.5 text-cyan-400 font-bold">
-                <ShieldCheck className="w-4 h-4" />
-                <span>Automated Protection Protocol</span>
-              </div>
-              <p className="text-zinc-300 leading-relaxed font-sans text-xs">
-                During {inspectingEvent.country} Tier-1 releases, institutional liquidity vanishes and spreads widen significantly. APEX automatically halts new entries 60 minutes before the release. Open positions approaching the news within 15 minutes have their stops locked to Breakeven or are closed at market to prevent slippage gaps.
-              </p>
-            </div>
-          </div>
-        )}
-      </BottomSheet>
     </div>
   );
 };

@@ -33,13 +33,14 @@ import { MarketWatchlist } from "./MarketWatchlist";
 import { ConfluenceDashboard } from "./ConfluenceDashboard";
 import { AnalyticsDashboard } from "./AnalyticsDashboard";
 import { TradeHistory } from "./TradeHistory";
-import { EconomicRadar } from "./EconomicRadar";
+import { EconomicRadar, getEventId } from "./EconomicRadar";
 import { PositionSizer } from "./PositionSizer";
 import { SettingsDashboard } from "./SettingsDashboard";
 import { backCoordinator } from "./navigation/BackCoordinator";
 import { InstrumentWorkstationView } from "./views/InstrumentWorkstationView";
 import { AssetAnalyticsView } from "./views/AssetAnalyticsView";
 import { ForensicTradeDetailView } from "./views/ForensicTradeDetailView";
+import { MacroEventIntelligenceView } from "./views/MacroEventIntelligenceView";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "https://smc-scanner-backend.onrender.com";
 
@@ -619,7 +620,10 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
         {/* TAB 3: ECONOMIC NEWS RADAR                                 */}
         {/* ========================================================== */}
         <div className={activeTab === "radar" && viewStack.length === 0 ? "space-y-4" : "hidden"}>
-          <EconomicRadar eventsData={economicEvents} />
+          <EconomicRadar
+            eventsData={economicEvents}
+            onSelectEvent={(eventId) => pushView({ type: "macro_event", eventId })}
+          />
         </div>
 
         {/* ========================================================== */}
@@ -717,6 +721,21 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
                     trade={targetTrade}
                     equityPoint={equityPoint}
                     onBack={() => window.history.back()}
+                  />
+                );
+              }
+
+              if (currentView.type === "macro_event") {
+                const targetEvent = (economicEvents?.events || []).find(
+                  (e: any) => getEventId(e) === currentView.eventId
+                ) || null;
+
+                return (
+                  <MacroEventIntelligenceView
+                    event={targetEvent}
+                    allEvents={economicEvents?.events || []}
+                    onBack={() => window.history.back()}
+                    onOpenInstrumentWorkstation={(pair) => pushView({ type: "instrument_workstation", pair })}
                   />
                 );
               }

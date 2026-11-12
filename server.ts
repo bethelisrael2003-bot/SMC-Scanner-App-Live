@@ -525,6 +525,48 @@ async function getFfCalendarEvents(): Promise<any[]> {
   } catch (err) {
     console.warn("[NEWS GUARD] Failed to fetch Forex Factory JSON feed:", err);
   }
+
+  // Graceful fallback to Forex Factory XML feed if JSON endpoint returns 429
+  try {
+    const news = await getEconomicNews();
+    if (Array.isArray(news) && news.length > 0) {
+      const mapped = news.map((item: any) => {
+        let isoDate = "";
+        try {
+          const parts = (item.time || "").split(" ");
+          if (parts.length >= 2) {
+            const [m, d, y] = parts[0].split("-");
+            const tPart = parts[1];
+            const isPm = tPart.toLowerCase().includes("pm");
+            const cleanT = tPart.toLowerCase().replace(/am|pm/g, "").trim();
+            const [h, mn] = cleanT.split(":");
+            let hNum = parseInt(h, 10);
+            if (isPm && hNum < 12) hNum += 12;
+            if (!isPm && hNum === 12) hNum = 0;
+            isoDate = `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}T${String(hNum).padStart(2, "0")}:${String(mn || "00").padStart(2, "0")}:00-05:00`;
+          }
+        } catch (e) {}
+
+        const rawImp = (item.impact || "").toLowerCase();
+        const impact = rawImp === "high" ? "High" : rawImp === "medium" ? "Medium" : "Low";
+
+        return {
+          title: item.event,
+          country: item.currency,
+          date: isoDate,
+          impact,
+          forecast: item.forecast === "-" ? "" : item.forecast,
+          previous: item.previous === "-" ? "" : item.previous,
+        };
+      });
+      cachedFfCalendarJson = mapped;
+      lastFfCalendarFetch = now;
+      return mapped;
+    }
+  } catch (err) {
+    console.warn("[NEWS GUARD] Failed to parse XML fallback for calendar:", err);
+  }
+
   return cachedFfCalendarJson || [];
 }
 
