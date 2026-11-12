@@ -63,7 +63,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       <button
         ref={ref}
         disabled={isDisabled}
-        className={`inline-flex items-center justify-center transition-all duration-150 select-none cursor-pointer active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 ${
+        className={`inline-flex items-center justify-center whitespace-nowrap shrink-0 transition-all duration-150 select-none cursor-pointer active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 ${
           fullWidth ? "w-full" : ""
         } ${VARIANT_STYLES[variant]} ${SIZE_STYLES[size]} ${className}`}
         {...props}

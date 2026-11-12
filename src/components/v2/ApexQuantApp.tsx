@@ -400,7 +400,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
       </div>
 
       {/* ── Main Application Body ───────────────────────────────────── */}
-      <main className="flex-1 max-w-4xl w-full mx-auto p-4 space-y-4">
+      <main className="flex-1 max-w-4xl w-full mx-auto p-4 pb-36 space-y-4">
         {/* ========================================================== */}
         {/* TAB 1: TERMINAL (LIVE ASSET MONITORS & EXECUTION)          */}
         {/* ========================================================== */}

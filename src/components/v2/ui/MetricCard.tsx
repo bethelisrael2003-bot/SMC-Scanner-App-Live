@@ -49,13 +49,15 @@ export const MetricCard: React.FC<MetricCardProps> = ({
       </div>
 
       {subValue && (
-        <div className="mt-1 flex items-center justify-between text-[10px]">
-          <span
-            className={`px-1.5 py-0.5 rounded font-semibold border inline-block whitespace-nowrap ${statusBadgeBg[status]}`}
-          >
-            {subValue}
-          </span>
-          {hint && <span className="text-zinc-500 truncate ml-1">{hint}</span>}
+        <div className="mt-1.5 flex flex-col gap-1 text-[10px]">
+          <div>
+            <span
+              className={`px-1.5 py-0.5 rounded font-semibold border inline-block whitespace-nowrap ${statusBadgeBg[status]}`}
+            >
+              {subValue}
+            </span>
+          </div>
+          {hint && <span className="text-zinc-500 text-[10px] truncate block">{hint}</span>}
         </div>
       )}
     </div>
