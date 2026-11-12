@@ -175,8 +175,8 @@ const TREND_SWEEP_VERSION = "2026-10-03.2";
 const ASIAN_FADE_VERSION = "2026-09-23.1";
 // 2026-10-13 Aggressive Growth SMC & RoboForex Cent Account engine
 const AGGRESSIVE_VERSION = "2026-10-13.1";
-// 2026-10-18.2 Promote Trend Sweep to Primary Grade A on EUR/USD & Unlock Gold for London+NY Sessions
-const CONFLUENCE_VERSION = "2026-10-18.2-eur-xau-trendsweep";
+// 2026-10-18.3 Fix Broker Epic Matching Bug for Silver/Gold (XAGUSD vs SILVER, XAUUSD vs GOLD) & Stop Early Desync
+const CONFLUENCE_VERSION = "2026-10-18.3-epic-matching-fix";
 // Clean MPR sample boundary — only trades OPENED after this instant count
 // toward the post-fix sample. Moved to the inversion-fix deploy (user
 // decision, 2026-09-16): every prior trade was analyzed on time-inverted
@@ -203,6 +203,17 @@ const EPICS: Record<string, string> = {
   "XAU/USD": "GOLD",
   "XAG/USD": "SILVER",
 };
+
+function doesBrokerPositionMatchTrade(tradePair: string, brokerEpic: string): boolean {
+  if (!tradePair || !brokerEpic) return false;
+  const targetEpic = (EPICS[tradePair] || tradePair.replace("/", "")).toUpperCase();
+  const cleanEpic = brokerEpic.toUpperCase().replace("/", "");
+  return (
+    cleanEpic === targetEpic ||
+    cleanEpic === tradePair.toUpperCase() ||
+    cleanEpic === tradePair.replace("/", "").toUpperCase()
+  );
+}
 
 const RESOLUTIONS: Record<string, string> = {
   "1min": "MINUTE",
@@ -4734,9 +4745,9 @@ async function runBackgroundCycle() {
 
           // Real Broker Position Synchronization
           const isTradeOnBroker = openBrokerPositions.some((pos: any) => {
-            const pEpic = pos.market?.instrumentName || pos.position?.epic;
+            const pEpic = pos.position?.epic || pos.market?.epic || pos.market?.instrumentName;
             const pDir = pos.position?.direction;
-            return (trade.pair.replace("/", "") === pEpic || trade.pair === pEpic) && trade.direction === pDir;
+            return doesBrokerPositionMatchTrade(trade.pair, pEpic) && trade.direction === pDir;
           });
 
           if (isTradeOnBroker) {
@@ -4835,8 +4846,8 @@ async function runBackgroundCycle() {
               try {
                 const openBrokerPositions = await getCapitalOpenPositions();
                 const brokerPos = openBrokerPositions.find((p: any) => {
-                  const pEpic = p.market?.instrumentName || p.position?.epic;
-                  return trade.pair.replace("/", "") === pEpic || trade.pair === pEpic;
+                  const pEpic = p.position?.epic || p.market?.epic || p.market?.instrumentName;
+                  return doesBrokerPositionMatchTrade(trade.pair, pEpic);
                 });
                 if (brokerPos && brokerPos.position?.dealId) {
                   console.log(`[WEEKEND AUTO-FLATTEN] Closing Capital.com deal ${brokerPos.position.dealId} for ${trade.pair}...`);
@@ -4879,8 +4890,8 @@ async function runBackgroundCycle() {
                 try {
                   const openBrokerPositions = await getCapitalOpenPositions();
                   const brokerPos = openBrokerPositions.find((p: any) => {
-                    const pEpic = p.market?.instrumentName || p.position?.epic;
-                    return trade.pair.replace("/", "") === pEpic || trade.pair === pEpic;
+                    const pEpic = p.position?.epic || p.market?.epic || p.market?.instrumentName;
+                    return doesBrokerPositionMatchTrade(trade.pair, pEpic);
                   });
                   if (brokerPos && brokerPos.position?.dealId) {
                     console.log(`[NEWS AUTO-PROTECT] Closing Capital.com deal ${brokerPos.position.dealId} for ${trade.pair} ahead of high-impact news...`);
