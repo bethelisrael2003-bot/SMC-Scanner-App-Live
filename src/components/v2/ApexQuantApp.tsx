@@ -31,6 +31,9 @@ import { MarketWatchlist } from "./MarketWatchlist";
 import { ConfluenceDashboard } from "./ConfluenceDashboard";
 import { AnalyticsDashboard } from "./AnalyticsDashboard";
 import { TradeHistory } from "./TradeHistory";
+import { EconomicRadar } from "./EconomicRadar";
+import { PositionSizer } from "./PositionSizer";
+import { SettingsDashboard } from "./SettingsDashboard";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "https://smc-scanner-backend.onrender.com";
 
@@ -245,6 +248,27 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
     }
   };
 
+  const toggleAutoTrading = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/capital/toggle-auto`, { method: "POST" });
+      if (res.ok) {
+        await fetchAllData();
+      }
+    } catch (err) {
+      console.error("Toggle auto trading error:", err);
+    }
+  };
+
+  const setupPushNotificationChannels = async () => {
+    try {
+      if (isNativePlatform()) {
+        await PushNotifications.requestPermissions();
+      }
+    } catch (err) {
+      console.warn("Push permissions notice:", err);
+    }
+  };
+
   // Dynamic Calculation of Pair Breakdown (Rule 11a — Zero Hardcoded Numbers)
   const dynamicPairStats = useMemo(() => {
     const trades = performanceStats?.trades || [];
@@ -444,257 +468,43 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
         )}
 
         {/* ========================================================== */}
-        {/* TAB 3: NEWS RADAR (WEEKLY CALENDAR & LOCKOUT COUNTDOWN)    */}
+        {/* TAB 3: ECONOMIC NEWS RADAR                                 */}
         {/* ========================================================== */}
         {activeTab === "radar" && (
-          <div className="space-y-4 font-mono">
-            {/* Top Gate Status Card */}
-            <div className="p-4 sm:p-5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                    High-Impact Economic News Radar
-                  </h3>
-                  <p className="text-xs text-zinc-400 mt-1">
-                    Automated 60m pre-event entry lockout and 15m open-trade defense against news slippage gaps.
-                  </p>
-                </div>
-
-                <div className="px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
-                  {economicEvents?.isSystemLocked ? "LOCKOUT ACTIVE" : "ALL SYSTEMS CLEAR"}
-                </div>
-              </div>
-
-              {/* Currency Filters */}
-              <div className="flex items-center gap-1.5 pt-2">
-                {["ALL", "USD", "EUR", "GBP", "JPY"].map(c => (
-                  <button
-                    key={c}
-                    onClick={() => setCalendarFilter(c)}
-                    className={`px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
-                      calendarFilter === c
-                        ? "bg-zinc-700 text-white border border-zinc-600"
-                        : "bg-zinc-950 text-zinc-400 border border-zinc-800 hover:text-white"
-                    }`}
-                  >
-                    {c}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Events List */}
-            <div className="p-4 sm:p-5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3">
-              <h3 className="text-xs font-bold text-white uppercase tracking-wider">
-                Upcoming Tier-1 Economic Releases
-              </h3>
-
-              <div className="space-y-2">
-                {(economicEvents?.events || [])
-                  .filter((e: any) => calendarFilter === "ALL" || e.country === calendarFilter)
-                  .slice(0, 15)
-                  .map((e: any, idx: number) => {
-                    const isNear = e.isLockoutActive;
-                    return (
-                      <div
-                        key={idx}
-                        className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs ${
-                          isNear
-                            ? "bg-rose-950/20 border-rose-500/40 text-rose-200"
-                            : "bg-zinc-950 border-zinc-800/80 text-zinc-300"
-                        }`}
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            e.impact === "High" ? "bg-rose-500/20 text-rose-400 border border-rose-500/40" : "bg-zinc-800 text-zinc-400"
-                          }`}>
-                            {e.country}
-                          </span>
-                          <span className="font-bold text-white">{e.title}</span>
-                        </div>
-
-                        <div className="flex items-center gap-3 text-[11px] text-zinc-400">
-                          <span>Forecast: <strong className="text-zinc-200">{e.forecast}</strong></span>
-                          <span>Prior: <strong className="text-zinc-200">{e.previous}</strong></span>
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            isNear ? "bg-rose-500 text-white" : "bg-zinc-900 text-emerald-400 border border-zinc-800"
-                          }`}>
-                            {isNear ? "LOCKOUT ACTIVE" : "SAFE ZONE"}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
-            </div>
-          </div>
+          <EconomicRadar eventsData={economicEvents} />
         )}
 
         {/* ========================================================== */}
-        {/* TAB 4: RISK SIZER ($25 FLAT RISK PARITY CALCULATOR)        */}
+        {/* TAB 4: RISK & POSITION SIZER                               */}
         {/* ========================================================== */}
         {activeTab === "sizer" && (
-          <div className="space-y-4 font-mono">
-            <div className="p-4 sm:p-5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-4">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                    <Calculator className="w-4 h-4 text-emerald-400" />
-                    Fixed-Dollar Risk Position Sizer
-                  </h3>
-                  <p className="text-xs text-zinc-400 mt-1">
-                    Normalized $25.00 flat risk parity across Silver, Gold, EUR/USD, and GBP/JPY.
-                  </p>
-                </div>
-                <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-bold">
-                  $25.00 FLAT RISK
-                </span>
-              </div>
-
-              {/* Risk Selection Pills */}
-              <div>
-                <label className="text-[10px] text-zinc-400 uppercase tracking-wider block mb-1.5">
-                  Target Cash Risk per Trade
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {[15.0, 25.0, 50.0].map(amt => (
-                    <button
-                      key={amt}
-                      onClick={() => setTargetRiskUsd(amt)}
-                      className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer font-bold text-xs ${
-                        targetRiskUsd === amt
-                          ? "bg-zinc-800 text-white border-zinc-600 shadow-sm"
-                          : "bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-white"
-                      }`}
-                    >
-                      ${amt.toFixed(2)} USD {amt === 25 ? "(Active)" : ""}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Asset & Stop Distance Controls */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[10px] text-zinc-400 uppercase tracking-wider block mb-1">
-                    Selected Instrument
-                  </label>
-                  <select
-                    value={activeProfile.pair}
-                    onChange={(e) => {
-                      const idx = DEDICATED_PROFILES.findIndex(p => p.pair === e.target.value);
-                      if (idx !== -1) setSelectedPairIndex(idx);
-                    }}
-                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white text-xs focus:outline-none focus:border-zinc-600"
-                  >
-                    {DEDICATED_PROFILES.map(p => (
-                      <option key={p.pair} value={p.pair}>{p.pair} ({p.name})</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-[10px] text-zinc-400 uppercase tracking-wider block mb-1">
-                    Planned Stop Loss Distance (Pips/Points)
-                  </label>
-                  <input
-                    type="number"
-                    step="1"
-                    value={customSlPips}
-                    onChange={(e) => setCustomSlPips(Math.max(1, Number(e.target.value)))}
-                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-rose-400 font-bold text-xs focus:outline-none focus:border-rose-500"
-                  />
-                </div>
-              </div>
-
-              {/* Output Result Card */}
-              <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-3">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-zinc-400">Recommended Execution Size:</span>
-                  <span className="text-lg font-bold text-white tracking-tight">
-                    {sizerCalculations.units} {activeProfile.pair.includes("XAU") || activeProfile.pair.includes("XAG") ? "Oz" : "Units"}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2 text-xs pt-1 border-t border-zinc-800/80">
-                  <div className="p-2 rounded-lg bg-zinc-900/60 border border-zinc-800/60">
-                    <span className="text-[10px] text-zinc-500 block">PLANNED RISK</span>
-                    <span className="font-bold text-rose-400">-${sizerCalculations.cashRisk.toFixed(2)}</span>
-                  </div>
-                  <div className="p-2 rounded-lg bg-zinc-900/60 border border-zinc-800/60">
-                    <span className="text-[10px] text-zinc-500 block">TP1 GAIN (1.0R)</span>
-                    <span className="font-bold text-emerald-400">+${sizerCalculations.tp1Gain.toFixed(2)}</span>
-                  </div>
-                  <div className="p-2 rounded-lg bg-zinc-900/60 border border-zinc-800/60">
-                    <span className="text-[10px] text-zinc-500 block">TP2 GAIN (2.5R)</span>
-                    <span className="font-bold text-emerald-400">+${sizerCalculations.tp2Gain.toFixed(2)}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <PositionSizer
+            profiles={DEDICATED_PROFILES}
+            selectedIndex={selectedPairIndex}
+            onSelectIndex={setSelectedPairIndex}
+            accountBalance={liveBalance}
+          />
         )}
 
         {/* ========================================================== */}
-        {/* TAB 5: SETTINGS & SPREAD ARMOR                             */}
+        {/* TAB 5: APPLICATION SETTINGS & RISK PROTOCOL                */}
         {/* ========================================================== */}
         {activeTab === "settings" && (
-          <div className="space-y-4 font-mono">
-            {/* Sunday Reopen Spread Armor Monitor */}
-            <div className="p-4 sm:p-5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3">
-              <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                Sunday Reopen Spread Armor Monitor
-              </h3>
-              <p className="text-xs text-zinc-400">
-                Monitors live bid/ask spreads during Sunday 22:00 WAT reopen and blocks execution if spreads widen beyond institutional thresholds.
-              </p>
-
-              <div className="space-y-2 pt-1">
-                {(spreadArmorData?.pairs || []).map((p: any) => (
-                  <div key={p.pair} className="p-3 rounded-xl bg-zinc-950 border border-zinc-800 flex justify-between items-center text-xs">
-                    <div>
-                      <span className="font-bold text-white">{p.pair}</span>
-                      <span className="text-zinc-400 text-[11px] ml-2">Current Spread: {p.currentSpread}p (Max Safe: {p.threshold}p)</span>
-                    </div>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                      p.isLocked ? "bg-rose-500/20 text-rose-400 border border-rose-500/30" : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                    }`}>
-                      {p.status}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Notification & Audio Preferences */}
-            <div className="p-4 sm:p-5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3">
-              <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                <Volume2 className="w-4 h-4 text-emerald-400" />
-                Alerts &amp; Audio Preferences
-              </h3>
-
-              <div className="flex justify-between items-center p-3 rounded-xl bg-zinc-950 border border-zinc-800 text-xs">
-                <div>
-                  <span className="font-bold text-white">Signal Audio Ping</span>
-                  <p className="text-[11px] text-zinc-400">Plays a subtle chime when an institutional setup confirms</p>
-                </div>
-                <button
-                  onClick={() => {
-                    const next = !soundEnabled;
-                    setSoundEnabled(next);
-                    localStorage.setItem("apex_sound", String(next));
-                  }}
-                  className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                    soundEnabled ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40" : "bg-zinc-800 text-zinc-400"
-                  }`}
-                >
-                  {soundEnabled ? "ENABLED" : "MUTED"}
-                </button>
-              </div>
-            </div>
-          </div>
+          <SettingsDashboard
+            brokerAccount="#322839360067416350"
+            brokerBalance={liveBalance}
+            autoTradingEnabled={capitalStatus?.autoTradingEnabled ?? true}
+            onToggleAutoTrading={toggleAutoTrading}
+            spreadArmorPairs={spreadArmorData?.pairs || []}
+            soundEnabled={soundEnabled}
+            onToggleSound={() => {
+              const next = !soundEnabled;
+              setSoundEnabled(next);
+              localStorage.setItem("apex_sound", String(next));
+            }}
+            onRequestPushPerms={isNativePlatform() ? setupPushNotificationChannels : undefined}
+            buildVersion="v4.5 Pro (Audit Hardened)"
+          />
         )}
       </main>
 
