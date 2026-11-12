@@ -659,6 +659,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
                     spreadArmorData={spreadArmorData}
                     capitalStatus={capitalStatus}
                     economicEvents={economicEvents}
+                    scannedAt={confluenceData?.scannedAt}
                     onBack={() => window.history.back()}
                   />
                 );

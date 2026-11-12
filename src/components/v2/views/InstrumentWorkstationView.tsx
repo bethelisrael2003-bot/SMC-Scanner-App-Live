@@ -16,16 +16,15 @@ import {
   CheckCircle2,
   AlertTriangle,
   Info,
-  Maximize2,
   DollarSign,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import {
   Card,
   Badge,
-  Button,
   RadialGauge,
   formatPairPrice,
-  formatR,
   formatUSD,
 } from "../ui";
 import { LiveCandleChart } from "../LiveCandleChart";
@@ -40,6 +39,7 @@ export interface InstrumentWorkstationProps {
   spreadArmorData: any;
   capitalStatus: any;
   economicEvents: any;
+  scannedAt?: string;
   onBack: () => void;
 }
 
@@ -53,11 +53,12 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
   spreadArmorData,
   capitalStatus,
   economicEvents,
+  scannedAt,
   onBack,
 }) => {
   const [chartTimeframe, setChartTimeframe] = useState<"M15" | "H1" | "H4">("M15");
 
-  // Pair-specific spread armor status
+  // Pair-specific spread armor status from /api/spread-armor
   const armorItem = useMemo(() => {
     return (spreadArmorData?.pairs || []).find((p: any) => p.pair === pair);
   }, [spreadArmorData, pair]);
@@ -68,35 +69,117 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
   const curAsk = livePrice?.ask ?? null;
   const curSpread = livePrice?.spread_pips ?? null;
 
-  // Confluence breakdown and grade
-  const score = confluenceRecord?.score ?? 50;
+  // Market Data Freshness State based on genuine backend timestamp
+  const freshness = useMemo(() => {
+    if (curBid == null && curAsk == null) {
+      return {
+        status: "unavailable" as const,
+        label: "Data Unavailable",
+        color: "text-zinc-500",
+        dot: "bg-zinc-600",
+      };
+    }
+    const timestamp = confluenceRecord?.scannedAt || scannedAt;
+    if (!timestamp) {
+      return {
+        status: "live" as const,
+        label: "Capital.com Feed",
+        color: "text-emerald-400",
+        dot: "bg-emerald-400",
+      };
+    }
+    const diffMs = Date.now() - new Date(timestamp).getTime();
+    if (isNaN(diffMs) || diffMs < 0) {
+      return {
+        status: "live" as const,
+        label: "Live Feed",
+        color: "text-emerald-400",
+        dot: "bg-emerald-400",
+      };
+    }
+    const diffSec = Math.floor(diffMs / 1000);
+    if (diffSec <= 90) {
+      return {
+        status: "live" as const,
+        label: `Live (${diffSec}s ago)`,
+        color: "text-emerald-400",
+        dot: "bg-emerald-400 animate-pulse",
+      };
+    } else if (diffSec <= 300) {
+      const mins = Math.floor(diffSec / 60);
+      return {
+        status: "delayed" as const,
+        label: `Delayed (${mins}m ago)`,
+        color: "text-amber-400",
+        dot: "bg-amber-400",
+      };
+    } else {
+      const mins = Math.floor(diffSec / 60);
+      return {
+        status: "stale" as const,
+        label: `Stale Feed (${mins}m ago)`,
+        color: "text-rose-400",
+        dot: "bg-rose-400",
+      };
+    }
+  }, [curBid, curAsk, confluenceRecord?.scannedAt, scannedAt]);
+
+  // Confluence breakdown & grade from genuine backend calculation
+  const score = confluenceRecord?.score ?? null;
   const grade = confluenceRecord?.confluenceGrade || "WAIT";
-  const isQualified = (grade === "A+" || grade === "A") && score >= 80;
+  const isQualified = (grade === "A+" || grade === "A") && score != null && score >= 80;
   const isArmorLocked = armorItem?.isLocked ?? false;
 
-  const breakdown = confluenceRecord?.scoreBreakdown || {
-    trend: 15,
-    sweep: 5,
-    session: 0,
-    displacement: 5,
-    risk: 15,
-    total: score,
-  };
+  const breakdown = confluenceRecord?.scoreBreakdown || null;
 
-  const isBull = confluenceRecord?.checks?.[0]?.includes("BULLISH") ?? false;
-  const isBear = confluenceRecord?.checks?.[0]?.includes("BEARISH") ?? false;
+  // Name-based lookup of backend check diagnostics (avoids fragile array indexing)
+  const checksList: string[] = confluenceRecord?.checks || [];
+  const trendCheck = useMemo(() => {
+    return checksList.find((c) => c.includes("Macro H1 Trend")) || null;
+  }, [checksList]);
+
+  const sweepCheck = useMemo(() => {
+    return checksList.find((c) => c.includes("Liquidity Sweep")) || null;
+  }, [checksList]);
+
+  const sessionCheck = useMemo(() => {
+    return checksList.find((c) => c.includes("Session Window")) || null;
+  }, [checksList]);
+
+  const displacementCheck = useMemo(() => {
+    return checksList.find((c) => c.includes("Rejection Power")) || null;
+  }, [checksList]);
+
+  const riskCheck = useMemo(() => {
+    return checksList.find((c) => c.includes("Spread & Volatility")) || null;
+  }, [checksList]);
+
+  const isBull = trendCheck?.includes("BULLISH") ?? false;
+  const isBear = trendCheck?.includes("BEARISH") ?? false;
+
   const rawEngineName = confluenceRecord?.gradeAEngine || "Trend Sweep";
   const cleanEngineName = rawEngineName.replace(/\s*\([^\)]*\)\s*/g, "").trim() || "Trend Sweep";
 
-  // 20-bar Structural extremes (Liquidity pools)
+  // 20-bar Structural extremes
   const m15High = confluenceRecord?.m15High ?? null;
   const m15Low = confluenceRecord?.m15Low ?? null;
   const rangePips =
-    m15High && m15Low && pipSize > 0
+    m15High != null && m15Low != null && pipSize > 0
       ? Math.round(((m15High - m15Low) / pipSize) * 10) / 10
       : null;
 
-  // Active position on this instrument (if any exists on Capital.com)
+  // Liquidity mapping: Only label as BSL/SSL when supported by backend sweep output
+  const isHighSwept = sweepCheck
+    ? sweepCheck.toUpperCase().includes("SELL SWEEP") || sweepCheck.toUpperCase().includes("HIGH SWEEP")
+    : false;
+  const isLowSwept = sweepCheck
+    ? sweepCheck.toUpperCase().includes("BUY SWEEP") || sweepCheck.toUpperCase().includes("LOW SWEEP")
+    : false;
+
+  const highLabel = isHighSwept ? "20-Bar High (BSL Swept)" : "20-Bar High";
+  const lowLabel = isLowSwept ? "20-Bar Low (SSL Swept)" : "20-Bar Low";
+
+  // Active broker position check from /api/capital/status
   const activePosition = useMemo(() => {
     return (capitalStatus?.openPositions || []).find((p: any) => {
       const pPair = p.pair || p.market?.symbol || p.market?.epic || "";
@@ -109,7 +192,7 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
     });
   }, [capitalStatus, pair]);
 
-  // Check if upcoming Tier-1 news affects this instrument
+  // Genuine Tier-1 news lockout check from /api/economic-calendar
   const newsRestriction = useMemo(() => {
     const currencies = pair.split("/");
     const events = economicEvents?.events || [];
@@ -118,7 +201,7 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
       if (currencies.includes(e.currency) && (e.impact === "High" || e.impact === "Tier-1")) {
         const eventTime = new Date(e.timestamp).getTime();
         const diffMins = (eventTime - now) / (60 * 1000);
-        // Lockout rule: 60 mins before to 15 mins after
+        // Established lockout rule: 60 mins before to 15 mins after
         if (diffMins >= -15 && diffMins <= 60) {
           return {
             isRestricted: true,
@@ -154,9 +237,8 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
             {category}
           </Badge>
           <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-zinc-900 border border-zinc-800 text-[10px] text-zinc-400 whitespace-nowrap shrink-0">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-            <span className="hidden sm:inline">Capital.com Demo</span>
-            <span className="sm:hidden">Demo</span>
+            <span className={`w-1.5 h-1.5 rounded-full ${freshness.dot} shrink-0`} />
+            <span className={freshness.color}>{freshness.label}</span>
           </div>
         </div>
       </div>
@@ -217,24 +299,24 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
           </div>
         </div>
 
-        {/* Quick Range / Volatility Micro-Bar */}
+        {/* 20-Bar Structural Extremes Micro-Bar */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
           <div className="p-2 rounded-xl bg-[#111721] border border-[#1A222F]">
-            <span className="text-[10px] text-zinc-500 uppercase block">20-Bar Low (SSL)</span>
+            <span className="text-[10px] text-zinc-500 uppercase block">{lowLabel}</span>
             <span className="font-bold text-white tabular-nums mt-0.5 block">
               {m15Low != null ? formatPairPrice(pair, m15Low) : "—"}
             </span>
           </div>
 
           <div className="p-2 rounded-xl bg-[#111721] border border-[#1A222F]">
-            <span className="text-[10px] text-zinc-500 uppercase block">20-Bar High (BSL)</span>
+            <span className="text-[10px] text-zinc-500 uppercase block">{highLabel}</span>
             <span className="font-bold text-white tabular-nums mt-0.5 block">
               {m15High != null ? formatPairPrice(pair, m15High) : "—"}
             </span>
           </div>
 
           <div className="p-2 rounded-xl bg-[#111721] border border-[#1A222F]">
-            <span className="text-[10px] text-zinc-500 uppercase block">Structural Range</span>
+            <span className="text-[10px] text-zinc-500 uppercase block">20-Bar Range</span>
             <span className="font-bold text-cyan-400 tabular-nums mt-0.5 block">
               {rangePips != null ? `${rangePips} pips` : "—"}
             </span>
@@ -284,7 +366,7 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
             </h3>
           </div>
           <Badge variant={activePosition ? "success" : "neutral"} size="xs">
-            {activePosition ? "OPEN ON CAPITAL.COM" : "FLAT (ZERO RISK)"}
+            {activePosition ? "OPEN ON CAPITAL.COM" : "NO OPEN POSITION"}
           </Badge>
         </div>
 
@@ -344,16 +426,16 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
         ) : (
           <div className="p-4 rounded-xl bg-[#111721] border border-[#1A222F] text-center space-y-1 py-5">
             <span className="text-xs text-zinc-400 font-sans block">
-              No active position currently floating on {pair}.
+              No active broker position on {pair}.
             </span>
             <span className="text-[11px] text-zinc-500 font-sans block">
-              Capital is 100% preserved. Autonomous execution will engage when confluence satisfies the 80% threshold.
+              Market entries remain gated by confluence and spread armor criteria.
             </span>
           </div>
         )}
       </Card>
 
-      {/* ── 4. Smart Money Market Structure & Liquidity Intelligence ─ */}
+      {/* ── 4. Smart Money Market Structure & 20-Bar Extremes ─────── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Market Structure Card */}
         <Card variant="default" padding="md" className="space-y-3">
@@ -373,7 +455,7 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
             <div className="flex justify-between items-center p-2.5 rounded-xl bg-[#111721] border border-[#1A222F]">
               <span className="text-zinc-400">Macro Trend Regime:</span>
               <span className={`font-bold ${isBull ? "text-emerald-400" : isBear ? "text-rose-400" : "text-zinc-300"}`}>
-                {confluenceRecord?.checks?.[0]?.replace(/^\[OK\] |^\[INFO\] /i, "") || "EMA10 vs EMA20 Scan"}
+                {trendCheck ? trendCheck.replace(/^\[OK\] |^\[INFO\] /i, "") : "EMA10 vs EMA20 Scan"}
               </span>
             </div>
 
@@ -385,31 +467,33 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
             <div className="flex justify-between items-center p-2.5 rounded-xl bg-[#111721] border border-[#1A222F]">
               <span className="text-zinc-400">Structural Status:</span>
               <span className="text-zinc-200">
-                {confluenceRecord?.checks?.[1]?.replace(/^\[OK\] |^\[INFO\] /i, "") || "Monitoring Range"}
+                {sweepCheck ? sweepCheck.replace(/^\[OK\] |^\[INFO\] /i, "") : "Monitoring 20-Bar Range"}
               </span>
             </div>
           </div>
         </Card>
 
-        {/* Liquidity Intelligence Card */}
+        {/* 20-Bar Structural Extremes & Liquidity Status */}
         <Card variant="default" padding="md" className="space-y-3">
           <div className="flex items-center justify-between pb-2 border-b border-[#1E2633]">
             <div className="flex items-center gap-2">
               <Layers className="w-4 h-4 text-amber-400" />
               <h3 className="text-xs font-bold text-white uppercase tracking-wider">
-                Liquidity Intelligence Pools
+                20-Bar Structural Extremes &amp; Liquidity
               </h3>
             </div>
             <Badge variant="neutral" size="xs">
-              20-Bar Walls
+              Swing Extremes
             </Badge>
           </div>
 
           <div className="space-y-2 text-xs">
             <div className="flex justify-between items-center p-2.5 rounded-xl bg-[#111721] border border-[#1A222F]">
               <div>
-                <span className="font-bold text-rose-400 block">Buy-Side Liquidity (BSL)</span>
-                <span className="text-[10px] text-zinc-500 font-sans">Resting Buy-Stops above 20-bar high</span>
+                <span className="font-bold text-zinc-200 block">{highLabel}</span>
+                <span className="text-[10px] text-zinc-500 font-sans">
+                  {isHighSwept ? "Confirmed institutional sweep above high" : "Rolling 20-bar swing high extreme"}
+                </span>
               </div>
               <span className="font-bold text-white tabular-nums">
                 {m15High != null ? formatPairPrice(pair, m15High) : "—"}
@@ -418,8 +502,10 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
 
             <div className="flex justify-between items-center p-2.5 rounded-xl bg-[#111721] border border-[#1A222F]">
               <div>
-                <span className="font-bold text-emerald-400 block">Sell-Side Liquidity (SSL)</span>
-                <span className="text-[10px] text-zinc-500 font-sans">Resting Sell-Stops below 20-bar low</span>
+                <span className="font-bold text-zinc-200 block">{lowLabel}</span>
+                <span className="text-[10px] text-zinc-500 font-sans">
+                  {isLowSwept ? "Confirmed institutional sweep below low" : "Rolling 20-bar swing low extreme"}
+                </span>
               </div>
               <span className="font-bold text-white tabular-nums">
                 {m15Low != null ? formatPairPrice(pair, m15Low) : "—"}
@@ -427,9 +513,9 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
             </div>
 
             <div className="flex justify-between items-center p-2.5 rounded-xl bg-[#111721] border border-[#1A222F]">
-              <span className="text-zinc-400">Rejection Displacement:</span>
+              <span className="text-zinc-400">Rejection Power:</span>
               <span className="text-purple-400 font-bold">
-                {confluenceRecord?.checks?.[3]?.replace(/^\[OK\] |^\[INFO\] /i, "") || "Candle Ratio Normal"}
+                {displacementCheck ? displacementCheck.replace(/^\[OK\] |^\[INFO\] /i, "") : "Normal Candle Displacement"}
               </span>
             </div>
           </div>
@@ -470,7 +556,7 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
         <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
           <div className="md:col-span-4 flex items-center justify-center p-3 rounded-2xl bg-[#111721] border border-[#1A222F]">
             <RadialGauge
-              score={score}
+              score={score ?? 0}
               grade={grade}
               label="Confluence Score"
               size={96}
@@ -495,91 +581,97 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
           </div>
         </div>
 
-        {/* The 5 Categories Breakdown Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 text-xs">
-          {/* Category 1: Trend */}
-          <div className="p-3 rounded-xl bg-[#111721] border border-[#1A222F] space-y-1.5">
-            <div className="flex justify-between items-center text-[11px]">
-              <span className="text-zinc-400">1. Trend</span>
-              <span className="font-bold text-white">{breakdown.trend}/25</span>
+        {/* The 5 Categories Breakdown Grid (Displays backend scores without recalculation) */}
+        {breakdown ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 text-xs">
+            {/* Category 1: Trend (Max 25 pts) */}
+            <div className="p-3 rounded-xl bg-[#111721] border border-[#1A222F] space-y-1.5">
+              <div className="flex justify-between items-center text-[11px]">
+                <span className="text-zinc-400">1. Trend</span>
+                <span className="font-bold text-white">{breakdown.trend}/25</span>
+              </div>
+              <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-cyan-400 rounded-full transition-all duration-500"
+                  style={{ width: `${(Math.min(25, breakdown.trend) / 25) * 100}%` }}
+                />
+              </div>
+              <span className="text-[10px] text-zinc-500 truncate block">H1 Macro EMA</span>
             </div>
-            <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-cyan-400 rounded-full transition-all duration-500"
-                style={{ width: `${(breakdown.trend / 25) * 100}%` }}
-              />
-            </div>
-            <span className="text-[10px] text-zinc-500 truncate block">H1 Macro EMA</span>
-          </div>
 
-          {/* Category 2: Liquidity Sweep */}
-          <div className="p-3 rounded-xl bg-[#111721] border border-[#1A222F] space-y-1.5">
-            <div className="flex justify-between items-center text-[11px]">
-              <span className="text-zinc-400">2. Sweep</span>
-              <span className="font-bold text-white">{breakdown.sweep}/25</span>
+            {/* Category 2: Liquidity Sweep (Max 25 pts) */}
+            <div className="p-3 rounded-xl bg-[#111721] border border-[#1A222F] space-y-1.5">
+              <div className="flex justify-between items-center text-[11px]">
+                <span className="text-zinc-400">2. Sweep</span>
+                <span className="font-bold text-white">{breakdown.sweep}/25</span>
+              </div>
+              <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-amber-400 rounded-full transition-all duration-500"
+                  style={{ width: `${(Math.min(25, breakdown.sweep) / 25) * 100}%` }}
+                />
+              </div>
+              <span className="text-[10px] text-zinc-500 truncate block">20-Bar Swing Extremes</span>
             </div>
-            <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-amber-400 rounded-full transition-all duration-500"
-                style={{ width: `${(breakdown.sweep / 25) * 100}%` }}
-              />
-            </div>
-            <span className="text-[10px] text-zinc-500 truncate block">20-Bar Swing Extremes</span>
-          </div>
 
-          {/* Category 3: Session */}
-          <div className="p-3 rounded-xl bg-[#111721] border border-[#1A222F] space-y-1.5">
-            <div className="flex justify-between items-center text-[11px]">
-              <span className="text-zinc-400">3. Session</span>
-              <span className="font-bold text-white">{breakdown.session}/20</span>
+            {/* Category 3: Session Window (Max 20 pts) */}
+            <div className="p-3 rounded-xl bg-[#111721] border border-[#1A222F] space-y-1.5">
+              <div className="flex justify-between items-center text-[11px]">
+                <span className="text-zinc-400">3. Session</span>
+                <span className="font-bold text-white">{breakdown.session}/20</span>
+              </div>
+              <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-emerald-400 rounded-full transition-all duration-500"
+                  style={{ width: `${(Math.min(20, breakdown.session) / 20) * 100}%` }}
+                />
+              </div>
+              <span className="text-[10px] text-zinc-500 truncate block">Kill Zone Timing</span>
             </div>
-            <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-emerald-400 rounded-full transition-all duration-500"
-                style={{ width: `${(breakdown.session / 20) * 100}%` }}
-              />
-            </div>
-            <span className="text-[10px] text-zinc-500 truncate block">Kill Zone Timing</span>
-          </div>
 
-          {/* Category 4: Displacement */}
-          <div className="p-3 rounded-xl bg-[#111721] border border-[#1A222F] space-y-1.5">
-            <div className="flex justify-between items-center text-[11px]">
-              <span className="text-zinc-400">4. Displacement</span>
-              <span className="font-bold text-white">{breakdown.displacement}/15</span>
+            {/* Category 4: Displacement Power (Max 15 pts) */}
+            <div className="p-3 rounded-xl bg-[#111721] border border-[#1A222F] space-y-1.5">
+              <div className="flex justify-between items-center text-[11px]">
+                <span className="text-zinc-400">4. Displacement</span>
+                <span className="font-bold text-white">{breakdown.displacement}/15</span>
+              </div>
+              <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-purple-400 rounded-full transition-all duration-500"
+                  style={{ width: `${(Math.min(15, breakdown.displacement) / 15) * 100}%` }}
+                />
+              </div>
+              <span className="text-[10px] text-zinc-500 truncate block">Rejection Body Ratio</span>
             </div>
-            <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-purple-400 rounded-full transition-all duration-500"
-                style={{ width: `${(breakdown.displacement / 15) * 100}%` }}
-              />
-            </div>
-            <span className="text-[10px] text-zinc-500 truncate block">Rejection Power</span>
-          </div>
 
-          {/* Category 5: Risk Gate */}
-          <div className="p-3 rounded-xl bg-[#111721] border border-[#1A222F] space-y-1.5 sm:col-span-2 lg:col-span-1">
-            <div className="flex justify-between items-center text-[11px]">
-              <span className="text-zinc-400">5. Risk Gate</span>
-              <span className="font-bold text-white">{breakdown.risk}/15</span>
+            {/* Category 5: Risk Gate & Spread (Max 15 pts) */}
+            <div className="p-3 rounded-xl bg-[#111721] border border-[#1A222F] space-y-1.5 sm:col-span-2 lg:col-span-1">
+              <div className="flex justify-between items-center text-[11px]">
+                <span className="text-zinc-400">5. Risk Gate</span>
+                <span className="font-bold text-white">{breakdown.risk}/15</span>
+              </div>
+              <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-emerald-400 rounded-full transition-all duration-500"
+                  style={{ width: `${(Math.min(15, breakdown.risk) / 15) * 100}%` }}
+                />
+              </div>
+              <span className="text-[10px] text-zinc-500 truncate block">Spread &amp; Volatility</span>
             </div>
-            <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-emerald-400 rounded-full transition-all duration-500"
-                style={{ width: `${(breakdown.risk / 15) * 100}%` }}
-              />
-            </div>
-            <span className="text-[10px] text-zinc-500 truncate block">Spread &amp; Volatility</span>
           </div>
-        </div>
+        ) : (
+          <div className="p-3 rounded-xl bg-[#111721] text-center text-xs text-zinc-500 py-3">
+            Confluence scoring breakdown pending active engine scan.
+          </div>
+        )}
 
         {/* Verbatim Backend Checks List */}
-        {confluenceRecord?.checks && confluenceRecord.checks.length > 0 && (
+        {checksList.length > 0 && (
           <div className="p-3 rounded-xl bg-[#111721] border border-[#1A222F] space-y-1.5">
             <span className="text-[10px] text-zinc-500 uppercase tracking-wider block mb-1">
               Verbatim Institutional Engine Audits
             </span>
-            {confluenceRecord.checks.map((chk: string, idx: number) => {
+            {checksList.map((chk: string, idx: number) => {
               const isOk = chk.startsWith("[OK]");
               const isScore = chk.startsWith("[SCORE]");
               return (
@@ -598,7 +690,7 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
         )}
       </Card>
 
-      {/* ── 6. Live Market Conditions & News Lockout Status ─────────── */}
+      {/* ── 6. Live Market Conditions & Gating Status ───────────────── */}
       <Card variant="default" padding="md" className="space-y-3">
         <div className="flex items-center justify-between pb-2 border-b border-[#1E2633]">
           <div className="flex items-center gap-2">
@@ -617,7 +709,7 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
             <div>
               <span className="text-zinc-400 block">Session Status:</span>
               <span className="font-bold text-white mt-0.5 block">
-                {confluenceRecord?.checks?.[2]?.replace(/^\[OK\] |^\[INFO\] /i, "") || "Active Order Flow"}
+                {sessionCheck ? sessionCheck.replace(/^\[OK\] |^\[INFO\] /i, "") : "Active Order Flow"}
               </span>
             </div>
             <Clock className="w-4 h-4 text-emerald-400" />
