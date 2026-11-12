@@ -112,6 +112,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
   const viewStackRef = useRef<DrillDownView[]>([]);
   viewStackRef.current = viewStack;
   const lastBackHandledAtRef = useRef<number>(0);
+  const scrollPositionsRef = useRef<Record<string, number>>({});
 
   // Initialize root history frame
   useEffect(() => {
@@ -119,6 +120,10 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
   }, []);
 
   const pushView = useCallback((view: DrillDownView) => {
+    // Save current scroll position of parent screen
+    if (typeof window !== "undefined") {
+      scrollPositionsRef.current[activeTab] = window.scrollY;
+    }
     setViewStack((prev) => {
       const next = [...prev, view];
       viewStackRef.current = next;
@@ -128,16 +133,25 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
       );
       return next;
     });
-  }, []);
+    // Scroll new drill-down view to top
+    if (typeof window !== "undefined") {
+      window.scrollTo(0, 0);
+    }
+  }, [activeTab]);
 
   const popView = useCallback(() => {
     setViewStack((prev) => {
       if (prev.length === 0) return prev;
       const next = prev.slice(0, -1);
       viewStackRef.current = next;
+      // If returning to root parent tab, restore preserved scroll position
+      if (next.length === 0 && typeof window !== "undefined") {
+        const savedY = scrollPositionsRef.current[activeTab] || 0;
+        setTimeout(() => window.scrollTo(0, savedY), 30);
+      }
       return next;
     });
-  }, []);
+  }, [activeTab]);
 
   const switchTab = useCallback((tabId: BottomTabId) => {
     if (tabId === activeTab && viewStack.length === 0) return;
