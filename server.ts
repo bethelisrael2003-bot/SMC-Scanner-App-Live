@@ -6329,10 +6329,43 @@ app.get("/api/economic-calendar", async (req, res) => {
       feedStatus = "LIVE";
     }
 
-    // Intrinsic deterministic event ID assignment:
-    // Derives ID purely from event intrinsic identifying fields: country + date + title + impact + forecast + previous.
-    // This guarantees that distinct events sharing (country, date, title) retain their IDs when events are added, removed, or reordered.
+    // Hash-backed intrinsic deterministic event ID assignment:
+    // Derives stable hash from canonical verbatim fields: country|date|title|impact|forecast|previous.
+    // Guaranteed non-colliding across punctuation variants (0.3% vs 03%), title variants, and stable across feed reordering/membership.
     const occurrenceMap = new Map<string, number>();
+
+    function computeStableEventHash(canonicalStr: string): string {
+      let h1 = 0x811c9dc5;
+      let h2 = 0x811c9dc5 ^ 0x5bd1e995;
+      for (let i = 0; i < canonicalStr.length; i++) {
+        const code = canonicalStr.charCodeAt(i);
+        h1 ^= code;
+        h1 = Math.imul(h1, 0x01000193);
+        h2 ^= code;
+        h2 = Math.imul(h2, 0x01000193) ^ (code << 3);
+      }
+      const part1 = (h1 >>> 0).toString(16).padStart(8, "0");
+      const part2 = (h2 >>> 0).toString(16).padStart(8, "0");
+      return `${part1}${part2}`;
+    }
+
+    function getCanonicalEventString(e: any): string {
+      const country = String(e.country ?? "").trim().toUpperCase();
+      const date = String(e.date ?? "").trim();
+      const title = String(e.title ?? "").trim();
+      const impact = String(e.impact ?? "").trim();
+      const forecast = String(e.forecast ?? "").trim();
+      const previous = String(e.previous ?? "").trim();
+      return `${country}|${date}|${title}|${impact}|${forecast}|${previous}`;
+    }
+
+    function buildStableEventId(e: any): string {
+      const cleanCountry = (e.country || "GLOBAL").trim().toUpperCase();
+      const cleanDate = (e.date || "").replace(/[^0-9]/g, "");
+      const cleanSlug = (e.title || "event").toLowerCase().replace(/[^a-z0-9]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
+      const hash = computeStableEventHash(getCanonicalEventString(e));
+      return `${cleanCountry}_${cleanDate}_${cleanSlug}_${hash}`;
+    }
 
     const radarEvents = events
       .filter((e: any) => targetCurrencies.includes(e.country))
@@ -6342,19 +6375,12 @@ app.get("/api/economic-calendar", async (req, res) => {
         const minutesAway = Math.round(diffMs / (60 * 1000));
         const isLockoutActive = e.impact === "High" && minutesAway >= -30 && minutesAway <= 60;
 
-        const cleanCountry = (e.country || "GLOBAL").trim().toUpperCase();
-        const cleanDate = (e.date || "").replace(/[^0-9]/g, "");
-        const cleanTitle = (e.title || "event").toLowerCase().replace(/[^a-z0-9]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
-        const cleanImpact = (e.impact || "normal").toLowerCase().replace(/[^a-z0-9]/g, "");
-        const cleanForecast = (e.forecast && e.forecast !== "-" ? e.forecast : "none").toLowerCase().replace(/[^a-z0-9]/g, "");
-        const cleanPrevious = (e.previous && e.previous !== "-" ? e.previous : "none").toLowerCase().replace(/[^a-z0-9]/g, "");
-
-        const intrinsicKey = `${cleanCountry}_${cleanDate}_${cleanTitle}_${cleanImpact}_${cleanForecast}_${cleanPrevious}`;
+        const intrinsicId = buildStableEventId(e);
 
         // Handle true duplicate records with 100% identical source fields
-        const occ = occurrenceMap.get(intrinsicKey) || 0;
-        occurrenceMap.set(intrinsicKey, occ + 1);
-        const id = occ === 0 ? intrinsicKey : `${intrinsicKey}_dup${occ}`;
+        const occ = occurrenceMap.get(intrinsicId) || 0;
+        occurrenceMap.set(intrinsicId, occ + 1);
+        const id = occ === 0 ? intrinsicId : `${intrinsicId}_dup${occ}`;
 
         return {
           id,

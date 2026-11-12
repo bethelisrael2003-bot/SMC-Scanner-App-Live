@@ -40,15 +40,38 @@ export interface EconomicRadarProps {
   onSelectEvent?: (eventId: string) => void;
 }
 
+export function computeStableEventHash(canonicalStr: string): string {
+  let h1 = 0x811c9dc5;
+  let h2 = 0x811c9dc5 ^ 0x5bd1e995;
+  for (let i = 0; i < canonicalStr.length; i++) {
+    const code = canonicalStr.charCodeAt(i);
+    h1 ^= code;
+    h1 = Math.imul(h1, 0x01000193);
+    h2 ^= code;
+    h2 = Math.imul(h2, 0x01000193) ^ (code << 3);
+  }
+  const part1 = (h1 >>> 0).toString(16).padStart(8, "0");
+  const part2 = (h2 >>> 0).toString(16).padStart(8, "0");
+  return `${part1}${part2}`;
+}
+
+export function getCanonicalEventString(e: CalendarEvent): string {
+  const country = String(e.country ?? "").trim().toUpperCase();
+  const date = String(e.date ?? "").trim();
+  const title = String(e.title ?? "").trim();
+  const impact = String(e.impact ?? "").trim();
+  const forecast = String(e.forecast ?? "").trim();
+  const previous = String(e.previous ?? "").trim();
+  return `${country}|${date}|${title}|${impact}|${forecast}|${previous}`;
+}
+
 export const getEventId = (e: CalendarEvent): string => {
   if (e.id) return e.id;
   const cleanCountry = (e.country || "GLOBAL").trim().toUpperCase();
   const cleanDate = (e.date || "").replace(/[^0-9]/g, "");
-  const cleanTitle = (e.title || "event").toLowerCase().replace(/[^a-z0-9]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
-  const cleanImpact = (e.impact || "normal").toLowerCase().replace(/[^a-z0-9]/g, "");
-  const cleanForecast = (e.forecast && e.forecast !== "-" ? e.forecast : "none").toLowerCase().replace(/[^a-z0-9]/g, "");
-  const cleanPrevious = (e.previous && e.previous !== "-" ? e.previous : "none").toLowerCase().replace(/[^a-z0-9]/g, "");
-  return `${cleanCountry}_${cleanDate}_${cleanTitle}_${cleanImpact}_${cleanForecast}_${cleanPrevious}`;
+  const cleanSlug = (e.title || "event").toLowerCase().replace(/[^a-z0-9]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
+  const hash = computeStableEventHash(getCanonicalEventString(e));
+  return `${cleanCountry}_${cleanDate}_${cleanSlug}_${hash}`;
 };
 
 export const EconomicRadar: React.FC<EconomicRadarProps> = ({ eventsData, onSelectEvent }) => {
