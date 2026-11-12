@@ -42,10 +42,13 @@ export interface EconomicRadarProps {
 
 export const getEventId = (e: CalendarEvent): string => {
   if (e.id) return e.id;
-  const cleanCountry = (e.country || "GLOBAL").trim();
+  const cleanCountry = (e.country || "GLOBAL").trim().toUpperCase();
   const cleanDate = (e.date || "").replace(/[^0-9]/g, "");
-  const cleanTitle = (e.title || "event").toLowerCase().replace(/[^a-z0-9]/g, "_");
-  return `${cleanCountry}_${cleanDate}_${cleanTitle}`;
+  const cleanTitle = (e.title || "event").toLowerCase().replace(/[^a-z0-9]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
+  const cleanImpact = (e.impact || "normal").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const cleanForecast = (e.forecast && e.forecast !== "-" ? e.forecast : "none").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const cleanPrevious = (e.previous && e.previous !== "-" ? e.previous : "none").toLowerCase().replace(/[^a-z0-9]/g, "");
+  return `${cleanCountry}_${cleanDate}_${cleanTitle}_${cleanImpact}_${cleanForecast}_${cleanPrevious}`;
 };
 
 export const EconomicRadar: React.FC<EconomicRadarProps> = ({ eventsData, onSelectEvent }) => {

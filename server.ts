@@ -6329,37 +6329,10 @@ app.get("/api/economic-calendar", async (req, res) => {
       feedStatus = "LIVE";
     }
 
-    // 1. Sort a reference list by canonical event properties (independent of input order)
-    const canonicalSorted = [...events]
-      .filter((e: any) => targetCurrencies.includes(e.country))
-      .sort((a: any, b: any) => {
-        const keyA = `${a.country}|${a.date}|${a.title}|${a.impact}|${a.forecast}|${a.previous}`;
-        const keyB = `${b.country}|${b.date}|${b.title}|${b.impact}|${b.forecast}|${b.previous}`;
-        return keyA.localeCompare(keyB);
-      });
-
-    // 2. Count occurrences of identical base identifiers in canonical order
+    // Intrinsic deterministic event ID assignment:
+    // Derives ID purely from event intrinsic identifying fields: country + date + title + impact + forecast + previous.
+    // This guarantees that distinct events sharing (country, date, title) retain their IDs when events are added, removed, or reordered.
     const occurrenceMap = new Map<string, number>();
-    const idMap = new Map<any, string>();
-
-    canonicalSorted.forEach((e: any) => {
-      const cleanCountry = (e.country || "GLOBAL").trim().toUpperCase();
-      const cleanDate = (e.date || "").replace(/[^0-9]/g, "");
-      const cleanTitle = (e.title || "event").toLowerCase().replace(/[^a-z0-9]/g, "_");
-      const baseKey = `${cleanCountry}_${cleanDate}_${cleanTitle}`;
-
-      const occ = occurrenceMap.get(baseKey) || 0;
-      occurrenceMap.set(baseKey, occ + 1);
-
-      let stableId = baseKey;
-      if (occ > 0) {
-        const cleanImpact = (e.impact || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-        const cleanForecast = (e.forecast || "").replace(/[^a-z0-9]/gi, "");
-        const cleanPrevious = (e.previous || "").replace(/[^a-z0-9]/gi, "");
-        stableId = `${baseKey}_${cleanImpact || "imp"}_${cleanForecast || "f"}_${cleanPrevious || "p"}_dup${occ}`;
-      }
-      idMap.set(e, stableId);
-    });
 
     const radarEvents = events
       .filter((e: any) => targetCurrencies.includes(e.country))
@@ -6369,8 +6342,22 @@ app.get("/api/economic-calendar", async (req, res) => {
         const minutesAway = Math.round(diffMs / (60 * 1000));
         const isLockoutActive = e.impact === "High" && minutesAway >= -30 && minutesAway <= 60;
 
+        const cleanCountry = (e.country || "GLOBAL").trim().toUpperCase();
+        const cleanDate = (e.date || "").replace(/[^0-9]/g, "");
+        const cleanTitle = (e.title || "event").toLowerCase().replace(/[^a-z0-9]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
+        const cleanImpact = (e.impact || "normal").toLowerCase().replace(/[^a-z0-9]/g, "");
+        const cleanForecast = (e.forecast && e.forecast !== "-" ? e.forecast : "none").toLowerCase().replace(/[^a-z0-9]/g, "");
+        const cleanPrevious = (e.previous && e.previous !== "-" ? e.previous : "none").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+        const intrinsicKey = `${cleanCountry}_${cleanDate}_${cleanTitle}_${cleanImpact}_${cleanForecast}_${cleanPrevious}`;
+
+        // Handle true duplicate records with 100% identical source fields
+        const occ = occurrenceMap.get(intrinsicKey) || 0;
+        occurrenceMap.set(intrinsicKey, occ + 1);
+        const id = occ === 0 ? intrinsicKey : `${intrinsicKey}_dup${occ}`;
+
         return {
-          id: idMap.get(e) || `${(e.country || "GLOBAL").trim().toUpperCase()}_${(e.date || "").replace(/[^0-9]/g, "")}_${(e.title || "event").toLowerCase().replace(/[^a-z0-9]/g, "_")}`,
+          id,
           title: e.title,
           country: e.country,
           impact: e.impact,
