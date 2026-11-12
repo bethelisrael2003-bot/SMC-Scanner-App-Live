@@ -296,7 +296,10 @@ export const AssetAnalyticsView: React.FC<AssetAnalyticsProps> = ({
     const avgDurationHours =
       durationCount > 0 ? (totalDurationMs / durationCount / (1000 * 3600)).toFixed(1) : null;
 
+    const totalClassified = Object.values(models).reduce((sum, m) => sum + m.trades, 0);
+
     return {
+      totalClassified,
       models: Object.entries(models).map(([name, data]) => ({
         name,
         ...data,
@@ -566,7 +569,7 @@ export const AssetAnalyticsView: React.FC<AssetAnalyticsProps> = ({
                 </h3>
               </div>
               <Badge variant="neutral" size="xs">
-                By Setup Type
+                {behaviorInsights.totalClassified} of {metrics.total} Trades
               </Badge>
             </div>
 
