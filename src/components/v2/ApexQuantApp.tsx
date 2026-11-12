@@ -38,6 +38,7 @@ import { PositionSizer } from "./PositionSizer";
 import { SettingsDashboard } from "./SettingsDashboard";
 import { backCoordinator } from "./navigation/BackCoordinator";
 import { InstrumentWorkstationView } from "./views/InstrumentWorkstationView";
+import { AssetAnalyticsView } from "./views/AssetAnalyticsView";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "https://smc-scanner-backend.onrender.com";
 
@@ -590,6 +591,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
             profitFactor={performanceAnalytics?.summary?.profitFactor || 1.05}
             equityCurve={performanceAnalytics?.equityCurve || []}
             pairStats={dynamicPairStats}
+            onSelectPair={(pair) => pushView({ type: "asset_analytics", pair })}
           />
 
           <TradeHistory trades={performanceStats?.trades || []} />
@@ -636,7 +638,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
         </div>
 
         {/* ========================================================== */}
-        {/* FULL-SCREEN DRILL-DOWN CONTAINER (PHASE C WORKSTATION)     */}
+        {/* FULL-SCREEN DRILL-DOWN CONTAINER (PHASE C WORKSTATIONS)    */}
         {/* ========================================================== */}
         {viewStack.length > 0 && (
           <div className="space-y-4">
@@ -664,6 +666,25 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
                   />
                 );
               }
+
+              if (currentView.type === "asset_analytics") {
+                const pairStat =
+                  dynamicPairStats.find((p) => p.pair === currentView.pair) || null;
+                const pairTrades = (performanceStats?.trades || []).filter(
+                  (t: any) => t.pair === currentView.pair
+                );
+
+                return (
+                  <AssetAnalyticsView
+                    pair={currentView.pair}
+                    pairStat={pairStat}
+                    trades={pairTrades}
+                    allEquityPoints={performanceAnalytics?.equityCurve || []}
+                    onBack={() => window.history.back()}
+                  />
+                );
+              }
+
               return null;
             })()}
           </div>

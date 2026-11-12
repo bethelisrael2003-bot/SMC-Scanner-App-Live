@@ -9,6 +9,7 @@ import {
   BarChart2,
   Calendar,
   Percent,
+  ChevronRight,
 } from "lucide-react";
 import {
   Card,
@@ -55,6 +56,7 @@ export interface AnalyticsDashboardProps {
   profitFactor?: number;
   equityCurve: EquityPoint[];
   pairStats: PairStatItem[];
+  onSelectPair?: (pair: string) => void;
 }
 
 export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
@@ -67,6 +69,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   profitFactor = 1.05,
   equityCurve,
   pairStats,
+  onSelectPair,
 }) => {
   const [curveFilter, setCurveFilter] = useState<"ALL" | "30D" | "7D">("ALL");
   const [selectedPointIndex, setSelectedPointIndex] = useState<number>(
@@ -315,10 +318,17 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             return (
               <div
                 key={item.pair}
-                className="p-3 rounded-xl bg-[#111721] border border-[#1A222F] space-y-2"
+                onClick={() => onSelectPair && onSelectPair(item.pair)}
+                className="p-3 rounded-xl bg-[#111721] hover:bg-[#141B24] border border-[#1A222F] hover:border-zinc-700 space-y-2 transition-all cursor-pointer group active:scale-[0.99] select-none"
+                title={`Deep-dive ${item.pair} historical analytics`}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-bold text-white shrink-0">{item.pair}</span>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="text-xs font-bold text-white group-hover:text-cyan-400 transition-colors shrink-0">
+                      {item.pair}
+                    </span>
+                    <ChevronRight className="w-3 h-3 text-zinc-600 group-hover:text-cyan-400 group-hover:translate-x-0.5 transition-all shrink-0" />
+                  </div>
                   <span
                     className={`text-xs font-bold px-2 py-0.5 rounded border whitespace-nowrap shrink-0 tabular-nums ${
                       isProfitable
