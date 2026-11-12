@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { X, AlertTriangle, AlertCircle, ShieldAlert } from "lucide-react";
 import { Button } from "./Button";
+import { backCoordinator } from "../navigation/BackCoordinator";
 
 export type ModalVariant = "primary" | "destructive" | "warning" | "secondary";
 export type ModalSafetyLevel = "level2" | "level3";
@@ -87,43 +88,18 @@ export const Modal: React.FC<ModalProps> = ({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen]);
 
-  // Android Hardware Back / Browser Popstate Coordination
-  // Pushes a synthetic history frame ONLY ONCE when opened; pops and cancels when back is pressed.
+  // Register with Unified Back Coordinator
+  // Guarantees Priority 1 dismissal before any detail view or tab navigation
   useEffect(() => {
     if (!isOpen) return;
 
-    if (typeof window !== "undefined") {
-      (window as any).__apexActiveModalCount = ((window as any).__apexActiveModalCount || 0) + 1;
-    }
-
-    const historyKey = `apex_modal_${Date.now()}`;
-    window.history.pushState({ modalId: historyKey }, "");
-
-    let isDismissedByPop = false;
-
-    const handlePopState = () => {
-      isDismissedByPop = true;
-      if (typeof window !== "undefined") {
-        (window as any).__apexActiveModalCount = Math.max(0, ((window as any).__apexActiveModalCount || 1) - 1);
-      }
+    const unregister = backCoordinator.registerModal(() => {
       if (!isLoadingRef.current && !actionInProgressRef.current) {
         onCloseRef.current();
       }
-    };
+    });
 
-    window.addEventListener("popstate", handlePopState);
-
-    return () => {
-      window.removeEventListener("popstate", handlePopState);
-      if (!isDismissedByPop) {
-        if (typeof window !== "undefined") {
-          (window as any).__apexActiveModalCount = Math.max(0, ((window as any).__apexActiveModalCount || 1) - 1);
-        }
-        if (window.history.state?.modalId === historyKey) {
-          window.history.back();
-        }
-      }
-    };
+    return unregister;
   }, [isOpen]);
 
   if (!isOpen) return null;

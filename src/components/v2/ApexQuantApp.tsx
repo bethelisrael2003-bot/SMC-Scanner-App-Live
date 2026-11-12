@@ -35,6 +35,7 @@ import { TradeHistory } from "./TradeHistory";
 import { EconomicRadar } from "./EconomicRadar";
 import { PositionSizer } from "./PositionSizer";
 import { SettingsDashboard } from "./SettingsDashboard";
+import { backCoordinator } from "./navigation/BackCoordinator";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "https://smc-scanner-backend.onrender.com";
 
@@ -315,31 +316,36 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
     }
   };
 
+  // Register view stack and tab pop handlers with the BackCoordinator
+  useEffect(() => {
+    backCoordinator.setViewStackPopHandler(() => {
+      if (viewStackRef.current.length > 0) {
+        popView();
+        return true;
+      }
+      return false;
+    });
+  }, [popView]);
+
+  useEffect(() => {
+    backCoordinator.setTabPopHandler(() => {
+      if (activeTab !== "terminal") {
+        setActiveTab("terminal");
+        return true;
+      }
+      return false;
+    });
+  }, [activeTab]);
+
   // Master Back Event Coordination (Browser popstate + Capacitor Android hardware back)
   useEffect(() => {
     const handlePopState = (e: PopStateEvent) => {
-      const now = Date.now();
-      if (now - lastBackHandledAtRef.current < 300) return;
-      lastBackHandledAtRef.current = now;
-
-      // Priority 1: Check if a modal is currently open
-      if (typeof window !== "undefined" && (window as any).__apexActiveModalCount > 0) {
-        // Modal handles its own dismissal; do not pop view or change tab
-        return;
-      }
-
-      // Priority 2: Pop view stack if a drill-down page is active
-      if (viewStackRef.current.length > 0) {
-        popView();
-        return;
-      }
-
-      // Priority 3: Root tab navigation via history state
-      if (e.state?.tab) {
+      // If history state carries a specific tab, allow direct state navigation if no modal is open
+      if (e.state?.tab && !backCoordinator.hasOpenModal() && viewStackRef.current.length === 0) {
         setActiveTab(e.state.tab as BottomTabId);
-      } else if (activeTab !== "terminal") {
-        setActiveTab("terminal");
+        return;
       }
+      backCoordinator.handleBack();
     };
 
     window.addEventListener("popstate", handlePopState);
@@ -348,25 +354,8 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
     let removeCapacitorListener: (() => void) | null = null;
     if (isNativePlatform() && (window as any).Capacitor?.Plugins?.App) {
       const appPlugin = (window as any).Capacitor.Plugins.App;
-      const handlerPromise = appPlugin.addListener("backButton", ({ canGoBack }: { canGoBack: boolean }) => {
-        const now = Date.now();
-        if (now - lastBackHandledAtRef.current < 300) return;
-        lastBackHandledAtRef.current = now;
-
-        // If modal open, let modal popstate / dismissal handle it
-        if (typeof window !== "undefined" && (window as any).__apexActiveModalCount > 0) {
-          window.history.back();
-          return;
-        }
-
-        if (viewStackRef.current.length > 0) {
-          window.history.back();
-          return;
-        }
-
-        if (activeTab !== "terminal") {
-          setActiveTab("terminal");
-        }
+      const handlerPromise = appPlugin.addListener("backButton", () => {
+        backCoordinator.handleBack();
       });
 
       if (handlerPromise && typeof handlerPromise.then === "function") {
@@ -380,7 +369,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
       window.removeEventListener("popstate", handlePopState);
       if (removeCapacitorListener) removeCapacitorListener();
     };
-  }, [popView, activeTab]);
+  }, []);
 
   const setupPushNotificationChannels = async () => {
     try {
