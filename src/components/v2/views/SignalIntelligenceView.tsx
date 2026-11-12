@@ -13,6 +13,7 @@ import {
   ExternalLink,
   CheckCircle2,
   XCircle,
+  HelpCircle,
   TrendingUp,
   TrendingDown,
   Activity,
@@ -41,6 +42,31 @@ export interface SignalIntelligenceProps {
   onOpenInstrumentWorkstation?: (pair: string) => void;
 }
 
+export function parseBackendCheck(checkStr: string) {
+  if (typeof checkStr !== "string" || !checkStr.trim()) {
+    return { status: "UNKNOWN" as const, label: "Unknown", title: "Unspecified Check", detail: "Not available" };
+  }
+  const match = checkStr.match(/^\[(OK|INFO|X|SCORE)\]\s*(.*)$/i);
+  if (!match) {
+    return { status: "UNKNOWN" as const, label: "Unknown", title: checkStr, detail: "Status not specified" };
+  }
+  const tag = match[1].toUpperCase();
+  const body = match[2];
+  const colonIdx = body.indexOf(":");
+  const title = colonIdx !== -1 ? body.substring(0, colonIdx).trim() : body.trim();
+  const detail = colonIdx !== -1 ? body.substring(colonIdx + 1).trim() : body.trim();
+
+  let status: "PASS" | "INFO" | "FAIL" | "SCORE" | "UNKNOWN" = "UNKNOWN";
+  let label = "Unknown";
+  if (tag === "OK") { status = "PASS"; label = "Pass"; }
+  else if (tag === "INFO") { status = "INFO"; label = "Info"; }
+  else if (tag === "X") { status = "FAIL"; label = "Fail"; }
+  else if (tag === "SCORE") { status = "SCORE"; label = "Verdict"; }
+  else { status = "UNKNOWN"; label = "Unknown"; }
+
+  return { status, label, title, detail };
+}
+
 export const SignalIntelligenceView: React.FC<SignalIntelligenceProps> = ({
   pair,
   pairName,
@@ -53,13 +79,12 @@ export const SignalIntelligenceView: React.FC<SignalIntelligenceProps> = ({
   onOpenInstrumentWorkstation,
 }) => {
   // ── 1. Authoritative Backend Confluence Fields ─────────────────────────
-  const score = confluenceRecord?.score ?? confluenceRecord?.confidencePct ?? null;
+  const score = typeof confluenceRecord?.score === "number" ? confluenceRecord.score : null;
   const grade = confluenceRecord?.confluenceGrade || "WAIT";
   const rawEngine = confluenceRecord?.gradeAEngine || "Institutional SMC";
   const cleanEngine = rawEngine.replace(/\s*\([^\)]*\)\s*/g, "").trim() || "Institutional SMC";
-  const isQualified = grade !== "WAIT";
 
-  // ── 2. Market Data Freshness Calculation ──────────────────────────────
+  // ── 2. Market Data Freshness Calculation (Strictly server scannedAt) ───
   const freshness = useMemo(() => {
     if (!scannedAt) {
       return {
@@ -94,57 +119,51 @@ export const SignalIntelligenceView: React.FC<SignalIntelligenceProps> = ({
     };
   }, [scannedAt]);
 
-  // ── 3. Four-Pillar Diagnostic Breakdown from Server ───────────────────
+  // ── 3. Diagnostic Scoring Breakdown from Server ───────────────────────
   const breakdown = confluenceRecord?.scoreBreakdown || null;
 
-  // Real backend pillar definitions (authoritative points distribution)
-  const pillars = useMemo(() => {
+  // Real backend scoring components (matches server.ts scoreBreakdown structure)
+  const components = useMemo(() => {
     if (!breakdown) return [];
 
     const list = [
       {
-        id: "trend",
+        rawKey: "trend",
         name: "Macro H1 Trend Structure",
-        description: "H1 10/20 EMA regime and multi-timeframe directional order flow alignment",
         earned: typeof breakdown.trend === "number" ? breakdown.trend : 0,
         max: 25,
       },
       {
-        id: "sweep",
+        rawKey: "sweep",
         name: "Liquidity Pool Sweep Mechanics",
-        description: "M15 rolling 20-bar high/low liquidity purge and sweep bar close confirmation",
         earned: typeof breakdown.sweep === "number" ? breakdown.sweep : 0,
         max: 25,
       },
       {
-        id: "session",
+        rawKey: "session",
         name: "Session Execution Window",
-        description: "London Open (08:30–12:30 WAT) & New York Open (13:30–18:00 WAT) institutional kill zones",
         earned: typeof breakdown.session === "number" ? breakdown.session : 0,
         max: 20,
       },
       {
-        id: "displacement",
+        rawKey: "displacement",
         name: "Displacement & Rejection Power",
-        description: "Post-sweep candle wick rejection ratio and momentum body expansion",
         earned: typeof breakdown.displacement === "number" ? breakdown.displacement : 0,
         max: 15,
       },
       {
-        id: "risk",
+        rawKey: "risk",
         name: "Spread & Volatility Risk Gate",
-        description: "Dynamic Spread Armor friction gate and M14 ATR structural volatility check",
         earned: typeof breakdown.risk === "number" ? breakdown.risk : 0,
         max: 15,
       },
     ];
 
-    // Optional model agreement bonus if returned by backend
+    // Model agreement bonus component if returned by backend
     if (typeof breakdown.bonus === "number" && breakdown.bonus > 0) {
       list.push({
-        id: "bonus",
+        rawKey: "bonus",
         name: "Multi-Engine Model Agreement",
-        description: "Dedicated setup model confirms directional bias with secondary engine",
         earned: breakdown.bonus,
         max: 10,
       });
@@ -152,6 +171,11 @@ export const SignalIntelligenceView: React.FC<SignalIntelligenceProps> = ({
 
     return list;
   }, [breakdown]);
+
+  // Total points sum verification
+  const componentPointsSum = useMemo(() => {
+    return components.reduce((sum, c) => sum + c.earned, 0);
+  }, [components]);
 
   // ── 4. Liquidity Pools & 20-Bar Structural Extremes ────────────────────
   const m15High = typeof confluenceRecord?.m15High === "number" ? confluenceRecord.m15High : null;
@@ -182,12 +206,20 @@ export const SignalIntelligenceView: React.FC<SignalIntelligenceProps> = ({
 
   const unitLabel = pair.includes("XAU") || pair.includes("XAG") ? "Troy Oz" : "Units";
 
-  // Execution plan parameters when genuinely returned by backend
-  const hasExecutionPlan = confluenceRecord?.entryPrice != null;
+  // Execution plan parameters: render ONLY when genuinely supplied by backend
+  const hasExecutionPlan =
+    confluenceRecord?.entryPrice != null &&
+    confluenceRecord?.sl != null &&
+    confluenceRecord?.tp1 != null;
 
-  // Spread armor item
+  // Spread armor item from /api/spread-armor
   const armorItem = (spreadArmorData?.pairs || []).find((a: any) => a.pair === pair) || null;
   const isArmorLocked = armorItem?.isLocked ?? false;
+
+  // Documented cash risk source: read directly from backend cashRisk if populated
+  const backendCashRisk = typeof confluenceRecord?.cashRisk === "number" && confluenceRecord.cashRisk > 0
+    ? formatUSD(confluenceRecord.cashRisk)
+    : "Not available";
 
   return (
     <div className="space-y-4 font-mono select-none overflow-x-hidden animate-in fade-in slide-in-from-right-3 duration-200 pb-36">
@@ -218,13 +250,7 @@ export const SignalIntelligenceView: React.FC<SignalIntelligenceProps> = ({
             size="xs"
             className="whitespace-nowrap shrink-0"
           >
-            {grade === "A+"
-              ? "GRADE A+ QUALIFIED"
-              : grade === "A"
-              ? "GRADE A QUALIFIED"
-              : grade === "B+"
-              ? "GRADE B+ CONFLUENCE"
-              : "MONITORING (WAIT)"}
+            Backend Grade: {grade}
           </Badge>
 
           <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-zinc-900 border border-zinc-800 text-[10px] text-zinc-400 whitespace-nowrap shrink-0">
@@ -248,7 +274,7 @@ export const SignalIntelligenceView: React.FC<SignalIntelligenceProps> = ({
               </Badge>
             </div>
             <p className="text-[11px] text-zinc-400 mt-1 font-sans">
-              Authoritative 100-point algorithmic evaluation from <strong className="text-zinc-200">/api/confluence/scan</strong>
+              Authoritative scoring evaluation from <strong className="text-zinc-200">/api/confluence/scan</strong>
             </p>
           </div>
 
@@ -277,25 +303,27 @@ export const SignalIntelligenceView: React.FC<SignalIntelligenceProps> = ({
               strokeWidth={9}
             />
             <span className="text-[10px] text-zinc-500 mt-2 font-mono text-center block">
-              Gating Threshold: 80% Min for Grade A
+              Max Score: 100 Points
             </span>
           </div>
 
           <div className="md:col-span-8 space-y-2 text-xs">
             <div className="p-3 rounded-xl bg-[#111721] border border-[#1A222F] space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] text-zinc-500 uppercase font-bold">Backend Gating Verdict</span>
+              <div className="flex items-center justify-between flex-wrap gap-1">
+                <span className="text-[10px] text-zinc-500 uppercase font-bold">Backend Grade Verdict</span>
                 <Badge
-                  variant={isQualified ? "success" : isArmorLocked ? "danger" : "neutral"}
+                  variant={grade === "A+" || grade === "A" ? "success" : isArmorLocked ? "danger" : "neutral"}
                   size="xs"
                 >
-                  {isArmorLocked ? "ARMOR GATE LOCKED" : isQualified ? "SETUP AUTHORIZED" : "STANDBY (NO TRADE)"}
+                  Backend Grade: {grade}
                 </Badge>
               </div>
               <p className="text-zinc-200 font-sans text-xs leading-relaxed">
-                {confluenceRecord?.reasoning ||
-                  "Awaiting next 60-second cloud background scan. Capital strictly preserved with 0% risk allocated."}
+                {confluenceRecord?.reasoning || "Awaiting scan from server."}
               </p>
+              <span className="text-[10px] text-zinc-500 block pt-0.5 font-sans">
+                Grade does not guarantee entry; execution guards apply.
+              </span>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
@@ -315,14 +343,14 @@ export const SignalIntelligenceView: React.FC<SignalIntelligenceProps> = ({
                 >
                   {confluenceRecord?.livePrice?.spread_pips != null
                     ? `${confluenceRecord.livePrice.spread_pips} pips`
-                    : "Not recorded"}
+                    : "Not available"}
                 </span>
               </div>
 
               <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 col-span-2 sm:col-span-1">
-                <span className="text-[10px] text-zinc-500 uppercase block">Risk Sizing</span>
-                <span className="font-bold text-amber-400 mt-0.5 block">
-                  $25 Parity Standard
+                <span className="text-[10px] text-zinc-500 uppercase block">Allocated Risk</span>
+                <span className="font-bold text-amber-400 mt-0.5 block tabular-nums">
+                  {backendCashRisk}
                 </span>
               </div>
             </div>
@@ -330,13 +358,13 @@ export const SignalIntelligenceView: React.FC<SignalIntelligenceProps> = ({
         </div>
       </Card>
 
-      {/* ── Section B: Four-Pillar Diagnostic Breakdown ──────────────────── */}
+      {/* ── Section B: Diagnostic Scoring Components Breakdown ───────────── */}
       <Card variant="default" padding="md" className="space-y-4">
         <div className="flex items-center justify-between pb-2 border-b border-[#1E2633] flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <Zap className="w-4 h-4 text-emerald-400 shrink-0" />
             <h3 className="text-xs font-bold text-white uppercase tracking-wider">
-              Diagnostic Scoring Breakdown (Authoritative Engine Pillars)
+              Diagnostic Scoring Components ({components.length} Backend Components)
             </h3>
           </div>
           <Badge variant="neutral" size="xs">
@@ -344,33 +372,33 @@ export const SignalIntelligenceView: React.FC<SignalIntelligenceProps> = ({
           </Badge>
         </div>
 
-        {pillars.length === 0 ? (
+        {components.length === 0 ? (
           <div className="p-4 rounded-xl bg-[#111721] text-center text-zinc-400 text-xs">
-            Diagnostic breakdown data unavailable in active server response.
+            Diagnostic component breakdown unavailable in active server response.
           </div>
         ) : (
           <div className="space-y-2.5">
-            {pillars.map((p) => {
-              const pct = Math.min(100, Math.round((p.earned / p.max) * 100));
-              const isFull = p.earned === p.max;
-              const isZero = p.earned === 0;
+            {components.map((c) => {
+              const pct = Math.min(100, Math.round((c.earned / c.max) * 100));
+              const isFull = c.earned === c.max;
+              const isZero = c.earned === 0;
 
               return (
                 <div
-                  key={p.id}
+                  key={c.rawKey}
                   className="p-3 rounded-xl bg-[#111721] border border-[#1A222F] space-y-2"
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                     <div>
-                      <span className="font-bold text-white text-xs">{p.name}</span>
-                      <p className="text-[11px] text-zinc-400 font-sans mt-0.5">
-                        {p.description}
-                      </p>
+                      <span className="font-bold text-white text-xs">{c.name}</span>
+                      <span className="text-[10px] text-zinc-500 font-mono ml-2">
+                        [raw: {c.rawKey}]
+                      </span>
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
                       <span className="font-bold text-white text-xs tabular-nums">
-                        {p.earned} <span className="text-zinc-500 font-normal">/ {p.max} pts</span>
+                        {c.earned} <span className="text-zinc-500 font-normal">/ {c.max} pts</span>
                       </span>
                       <span
                         className={`text-[10px] font-bold px-1.5 py-0.5 rounded border tabular-nums ${
@@ -405,8 +433,10 @@ export const SignalIntelligenceView: React.FC<SignalIntelligenceProps> = ({
           </div>
         )}
 
-        <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-[10px] text-zinc-400 font-sans">
-          <strong className="text-zinc-300">Scoring Integrity Notice:</strong> Pillar point allocations reflect genuine backend engine rules (Trend 25pts, Sweep 25pts, Session 20pts, Displacement 15pts, Risk Gate 15pts = 100pts Base). Scores are not manipulated or inflated on the frontend.
+        <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-[10px] text-zinc-400 font-sans flex items-start justify-between flex-wrap gap-2">
+          <span>
+            <strong className="text-zinc-300">Component Integrity:</strong> Component allocations reflect raw backend breakdown keys (`trend`, `sweep`, `session`, `displacement`, `risk`, `bonus`). Component earned sum: <strong className="text-white font-mono">{componentPointsSum} pts</strong> (Backend score: <strong className="text-white font-mono">{score ?? "—"} pts</strong>).
+          </span>
         </div>
       </Card>
 
@@ -428,7 +458,7 @@ export const SignalIntelligenceView: React.FC<SignalIntelligenceProps> = ({
           {/* Narrative Block */}
           <div className="p-3.5 rounded-xl bg-[#111721] border border-[#1A222F] space-y-1">
             <span className="text-[10px] text-cyan-400 uppercase tracking-wider font-bold block">
-              Liquidity Pool Context
+              Liquidity Pool Context (aiReasoning.narrative)
             </span>
             <p className="text-xs text-zinc-200 leading-relaxed font-sans">
               {confluenceRecord?.aiReasoning?.narrative || "No narrative available from server scan."}
@@ -439,7 +469,7 @@ export const SignalIntelligenceView: React.FC<SignalIntelligenceProps> = ({
           {confluenceRecord?.aiReasoning?.context && (
             <div className="p-3.5 rounded-xl bg-[#111721] border border-[#1A222F] space-y-1">
               <span className="text-[10px] text-amber-400 uppercase tracking-wider font-bold block">
-                Order Flow Structure &amp; Model Context
+                Order Flow Structure &amp; Model Context (aiReasoning.context)
               </span>
               <p className="text-xs text-zinc-200 leading-relaxed font-sans">
                 {confluenceRecord.aiReasoning.context}
@@ -450,16 +480,16 @@ export const SignalIntelligenceView: React.FC<SignalIntelligenceProps> = ({
           {/* Action & Verdict Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div className="p-3 rounded-xl bg-zinc-950 border border-zinc-800 space-y-1">
-              <span className="text-[10px] text-zinc-500 uppercase block">Engine Verdict</span>
+              <span className="text-[10px] text-zinc-500 uppercase block">Engine Verdict (aiReasoning.verdict)</span>
               <p className="font-bold text-white text-xs">
                 {confluenceRecord?.aiReasoning?.verdict || "Awaiting scan"}
               </p>
             </div>
 
             <div className="p-3 rounded-xl bg-zinc-950 border border-zinc-800 space-y-1">
-              <span className="text-[10px] text-zinc-500 uppercase block">Recommended Action</span>
+              <span className="text-[10px] text-zinc-500 uppercase block">Recommended Action (aiReasoning.action)</span>
               <p className="font-bold text-emerald-400 text-xs">
-                {confluenceRecord?.aiReasoning?.action || "Stand by for confirmed structural break"}
+                {confluenceRecord?.aiReasoning?.action || "Awaiting scan"}
               </p>
             </div>
           </div>
@@ -474,7 +504,7 @@ export const SignalIntelligenceView: React.FC<SignalIntelligenceProps> = ({
                 </span>
               </div>
               <span className="font-bold text-white tabular-nums text-sm">
-                {m15High != null ? formatPairPrice(pair, m15High) : "Not recorded"}
+                {m15High != null ? formatPairPrice(pair, m15High) : "Not available"}
               </span>
             </div>
 
@@ -486,7 +516,7 @@ export const SignalIntelligenceView: React.FC<SignalIntelligenceProps> = ({
                 </span>
               </div>
               <span className="font-bold text-white tabular-nums text-sm">
-                {m15Low != null ? formatPairPrice(pair, m15Low) : "Not recorded"}
+                {m15Low != null ? formatPairPrice(pair, m15Low) : "Not available"}
               </span>
             </div>
           </div>
@@ -519,58 +549,59 @@ export const SignalIntelligenceView: React.FC<SignalIntelligenceProps> = ({
         ) : (
           <div className="space-y-1.5 text-xs">
             {confluenceRecord.checks.map((checkStr: string, idx: number) => {
-              const isPass = checkStr.startsWith("[OK]");
-              const isInfo = checkStr.startsWith("[INFO]");
-              const isFail = checkStr.startsWith("[X]");
-              const isScore = checkStr.startsWith("[SCORE]");
-
-              const cleanText = checkStr.replace(/^\[OK\] |^\[INFO\] |^\[X\] |^\[SCORE\] /i, "");
-              const parts = cleanText.split(":");
-              const ruleTitle = parts[0]?.trim() || cleanText;
-              const ruleDetail = parts.slice(1).join(":").trim();
+              const parsed = parseBackendCheck(checkStr);
 
               return (
                 <div
                   key={idx}
                   className={`p-2.5 rounded-xl border flex items-start gap-2.5 transition-all ${
-                    isPass
+                    parsed.status === "PASS"
                       ? "bg-emerald-500/5 border-emerald-500/20"
-                      : isFail
+                      : parsed.status === "FAIL"
                       ? "bg-rose-500/5 border-rose-500/20"
-                      : isScore
+                      : parsed.status === "SCORE"
                       ? "bg-cyan-500/5 border-cyan-500/20"
-                      : "bg-[#111721] border-[#1A222F]"
+                      : parsed.status === "INFO"
+                      ? "bg-[#111721] border-[#1A222F]"
+                      : "bg-zinc-900/40 border-zinc-800"
                   }`}
                 >
                   <div className="shrink-0 mt-0.5">
-                    {isPass ? (
+                    {parsed.status === "PASS" ? (
                       <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    ) : isFail ? (
+                    ) : parsed.status === "FAIL" ? (
                       <XCircle className="w-4 h-4 text-rose-400" />
-                    ) : isScore ? (
+                    ) : parsed.status === "SCORE" ? (
                       <Zap className="w-4 h-4 text-cyan-400" />
-                    ) : (
+                    ) : parsed.status === "INFO" ? (
                       <Info className="w-4 h-4 text-amber-400" />
+                    ) : (
+                      <HelpCircle className="w-4 h-4 text-zinc-500" />
                     )}
                   </div>
 
                   <div className="min-w-0 flex-1 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                    <span className="font-bold text-white text-xs">
-                      {ruleTitle}
-                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-bold text-white text-xs">
+                        {parsed.title}
+                      </span>
+                      <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 font-mono">
+                        {parsed.label}
+                      </span>
+                    </div>
 
                     <span
                       className={`text-xs tabular-nums ${
-                        isPass
+                        parsed.status === "PASS"
                           ? "text-emerald-300 font-semibold"
-                          : isFail
+                          : parsed.status === "FAIL"
                           ? "text-rose-300 font-semibold"
-                          : isScore
+                          : parsed.status === "SCORE"
                           ? "text-cyan-300 font-bold"
                           : "text-zinc-300"
                       }`}
                     >
-                      {ruleDetail || ruleTitle}
+                      {parsed.detail}
                     </span>
                   </div>
                 </div>
@@ -580,7 +611,7 @@ export const SignalIntelligenceView: React.FC<SignalIntelligenceProps> = ({
         )}
 
         <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-[10px] text-zinc-400 font-sans">
-          <strong className="text-zinc-300">Rule Audit Standard:</strong> Rendered checks represent the genuine output array from the backend confluence scanner without omission, substitution, or artificial pass formatting.
+          <strong className="text-zinc-300">Rule Audit Standard:</strong> Rendered checks represent the genuine output array from the backend confluence scanner. Any unrecognized check status strictly defaults to neutral Unknown.
         </div>
       </Card>
 
@@ -639,14 +670,14 @@ export const SignalIntelligenceView: React.FC<SignalIntelligenceProps> = ({
               <div className="p-2 rounded-lg bg-zinc-950 border border-zinc-800">
                 <span className="text-[10px] text-zinc-500 uppercase block">Stop Loss (SL)</span>
                 <span className="font-bold text-rose-400 tabular-nums mt-0.5 block">
-                  {activePosition.stopLevel != null ? formatPairPrice(pair, activePosition.stopLevel) : "Not set"}
+                  {activePosition.stopLevel != null ? formatPairPrice(pair, activePosition.stopLevel) : "Not available"}
                 </span>
               </div>
 
               <div className="p-2 rounded-lg bg-zinc-950 border border-zinc-800">
                 <span className="text-[10px] text-zinc-500 uppercase block">Take Profit (TP)</span>
                 <span className="font-bold text-emerald-400 tabular-nums mt-0.5 block">
-                  {activePosition.profitLevel != null ? formatPairPrice(pair, activePosition.profitLevel) : "Not set"}
+                  {activePosition.profitLevel != null ? formatPairPrice(pair, activePosition.profitLevel) : "Not available"}
                 </span>
               </div>
 
@@ -668,43 +699,43 @@ export const SignalIntelligenceView: React.FC<SignalIntelligenceProps> = ({
               </span>
             </div>
             <p className="text-xs text-zinc-300 font-sans leading-relaxed">
-              Account is flat on {pair}. Capital is protected with zero market risk exposure. Background cloud engine is continuously scanning for an institutional setup meeting the 80% confluence threshold.
+              Account has NO OPEN POSITION on {pair}. Background cloud engine is continuously scanning for an institutional setup.
             </p>
           </div>
         )}
 
-        {/* Existing Standby Execution Plan Parameters */}
+        {/* Execution Plan Parameters: Renders ONLY when backend genuinely supplies them */}
         <div className="space-y-1.5 pt-1">
           <span className="text-[10px] text-zinc-500 uppercase block font-bold">
-            {hasExecutionPlan ? "Active Execution Plan Parameters" : "Standby Risk Parity Model Standard"}
+            Execution Plan Parameters (Backend Supplied)
           </span>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
             <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800">
               <span className="text-[10px] text-zinc-500 uppercase block">Planned Entry</span>
               <span className="font-bold text-white tabular-nums mt-0.5 block">
-                {hasExecutionPlan ? formatPairPrice(pair, confluenceRecord.entryPrice) : "Awaiting scan"}
+                {hasExecutionPlan ? formatPairPrice(pair, confluenceRecord.entryPrice) : "Not available"}
               </span>
             </div>
 
             <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800">
               <span className="text-[10px] text-zinc-500 uppercase block">Planned Stop Loss</span>
               <span className="font-bold text-rose-400 tabular-nums mt-0.5 block">
-                {hasExecutionPlan && confluenceRecord.sl != null ? formatPairPrice(pair, confluenceRecord.sl) : "Awaiting scan"}
+                {hasExecutionPlan ? formatPairPrice(pair, confluenceRecord.sl) : "Not available"}
               </span>
             </div>
 
             <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800">
               <span className="text-[10px] text-zinc-500 uppercase block">Target 1 (TP1)</span>
               <span className="font-bold text-emerald-400 tabular-nums mt-0.5 block">
-                {hasExecutionPlan && confluenceRecord.tp1 != null ? formatPairPrice(pair, confluenceRecord.tp1) : "Awaiting scan"}
+                {hasExecutionPlan ? formatPairPrice(pair, confluenceRecord.tp1) : "Not available"}
               </span>
             </div>
 
             <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800">
-              <span className="text-[10px] text-zinc-500 uppercase block">Monetary Parity</span>
-              <span className="font-bold text-amber-400 mt-0.5 block">
-                $25.00 Flat Risk
+              <span className="text-[10px] text-zinc-500 uppercase block">Target 2 (TP2)</span>
+              <span className="font-bold text-emerald-400 tabular-nums mt-0.5 block">
+                {hasExecutionPlan && confluenceRecord.tp2 != null ? formatPairPrice(pair, confluenceRecord.tp2) : "Not available"}
               </span>
             </div>
           </div>
