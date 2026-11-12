@@ -13,8 +13,9 @@ import {
   Server,
   Layers,
   Power,
+  ShieldAlert,
 } from "lucide-react";
-import { Card, Badge, Button, formatPips, formatUSD } from "./ui";
+import { Card, Badge, Button, Modal, formatPips, formatUSD } from "./ui";
 
 export interface SpreadArmorPair {
   pair: string;
@@ -49,12 +50,19 @@ export const SettingsDashboard: React.FC<SettingsDashboardProps> = ({
   buildVersion = "v4.5 Pro (Audit Hardened)",
 }) => {
   const [toggleLoading, setToggleLoading] = useState(false);
+  const [confirmToggleAction, setConfirmToggleAction] = useState<"enable" | "disable" | null>(null);
 
-  const handleToggleAuto = async () => {
+  const handleInitiateToggle = () => {
+    if (!onToggleAutoTrading || toggleLoading) return;
+    setConfirmToggleAction(autoTradingEnabled ? "disable" : "enable");
+  };
+
+  const handleConfirmToggle = async () => {
     if (!onToggleAutoTrading) return;
     setToggleLoading(true);
     try {
       await onToggleAutoTrading();
+      setConfirmToggleAction(null);
     } catch (err) {
       console.error("[SETTINGS] Error toggling auto-trading:", err);
     } finally {
@@ -114,7 +122,7 @@ export const SettingsDashboard: React.FC<SettingsDashboardProps> = ({
               variant={autoTradingEnabled ? "primary" : "secondary"}
               size="sm"
               isLoading={toggleLoading}
-              onClick={handleToggleAuto}
+              onClick={handleInitiateToggle}
               icon={<Power className="w-3.5 h-3.5" />}
             >
               {autoTradingEnabled ? "ACTIVE (ON)" : "DISABLED (OFF)"}
@@ -122,6 +130,64 @@ export const SettingsDashboard: React.FC<SettingsDashboardProps> = ({
           )}
         </div>
       </Card>
+
+      {/* Confirmation Modal: Enable Automated Execution */}
+      <Modal
+        isOpen={confirmToggleAction === "enable"}
+        onClose={() => setConfirmToggleAction(null)}
+        onConfirm={handleConfirmToggle}
+        variant="primary"
+        isLoading={toggleLoading}
+        title="Enable Automated Execution?"
+        confirmText="Enable Automation"
+        cancelText="Keep Disabled"
+        icon={<Power className="w-4 h-4 text-emerald-400" />}
+        description={
+          <div className="space-y-2.5 mt-1 font-sans">
+            <p className="text-zinc-200">
+              Automated broker execution will allow the 24/7 cloud engine to autonomously place Capital.com demo CFD orders when confirmed <strong>Grade A+ / Grade A setups</strong> satisfy the <strong>80% confluence threshold</strong>.
+            </p>
+            <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-[11px] font-mono space-y-1 text-zinc-400">
+              <div className="text-zinc-300 font-bold uppercase text-[10px] tracking-wider mb-1">
+                Active Cloud Safeguards:
+              </div>
+              <div>• $25.00 Flat Risk Parity sizing per trade</div>
+              <div>• 2-Hour Post-Loss Lockout on recent loss pairs</div>
+              <div>• Daily Drawdown Circuit Breaker (Max 2 losses / -$50/day)</div>
+              <div>• Max 1 trade per pair per day cap</div>
+              <div>• Dynamic Spread Armor &amp; News Lockout gates</div>
+            </div>
+          </div>
+        }
+      />
+
+      {/* Confirmation Modal: Disable Automated Execution */}
+      <Modal
+        isOpen={confirmToggleAction === "disable"}
+        onClose={() => setConfirmToggleAction(null)}
+        onConfirm={handleConfirmToggle}
+        variant="warning"
+        isLoading={toggleLoading}
+        title="Disable Automated Execution?"
+        confirmText="Disable Automation"
+        cancelText="Keep Active"
+        icon={<ShieldAlert className="w-4 h-4 text-amber-400" />}
+        description={
+          <div className="space-y-2.5 mt-1 font-sans">
+            <p className="text-zinc-200">
+              This will freeze all new automated market entries across all pairs. No new trades will be opened by the background engine.
+            </p>
+            <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-[11px] font-mono space-y-1.5 text-zinc-400">
+              <div className="text-emerald-400 font-bold uppercase text-[10px] tracking-wider">
+                Existing Position Defense:
+              </div>
+              <p className="text-zinc-300">
+                Any currently open broker positions will <strong>remain open</strong> and continue to be defended by their native Capital.com Stop Loss and Take Profit orders, plus cloud profit defense trailing guards.
+              </p>
+            </div>
+          </div>
+        }
+      />
 
       {/* ── Section 2: Risk Armor & Spread Monitor ── */}
       <Card variant="default" padding="md" className="space-y-3">

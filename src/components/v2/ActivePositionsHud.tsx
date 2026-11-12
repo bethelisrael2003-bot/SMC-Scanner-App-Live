@@ -160,31 +160,36 @@ export const ActivePositionsHud: React.FC<ActivePositionsHudProps> = ({
         onConfirm={handleConfirmClose}
         variant="destructive"
         isLoading={actionLoading}
-        title="Confirm Market Close"
-        confirmText="Execute Close"
-        cancelText="Keep Open"
+        title="Close Position at Market?"
+        confirmText="Confirm Market Close"
+        cancelText="Keep Position Open"
         description={
           confirmClosePos && (
-            <div className="space-y-2 mt-1">
-              <p>
-                Are you sure you want to close your active <strong>{confirmClosePos.pair} {confirmClosePos.direction}</strong> position at market?
+            <div className="space-y-2.5 mt-1 font-sans">
+              <p className="text-zinc-200">
+                You are about to close your active <strong>{confirmClosePos.pair} {confirmClosePos.direction}</strong> position at market price on Capital.com.
               </p>
-              <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-mono space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-zinc-500">Size:</span>
-                  <span className="text-white">{confirmClosePos.size} units</span>
+              <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-mono space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <span className="text-zinc-500">Position Size:</span>
+                  <span className="text-white font-semibold">
+                    {confirmClosePos.size} {confirmClosePos.pair.includes("XAU") || confirmClosePos.pair.includes("XAG") ? "Oz" : "Units"}
+                  </span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-zinc-500">Entry Price:</span>
-                  <span className="text-white">{confirmClosePos.entryPrice}</span>
+                <div className="flex justify-between items-center">
+                  <span className="text-zinc-500">Entry Fill:</span>
+                  <span className="text-white font-mono">{confirmClosePos.entryPrice}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-zinc-500">Current Floating P&amp;L:</span>
-                  <span className={Number(confirmClosePos.upl) >= 0 ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>
+                <div className="flex justify-between items-center pt-1 border-t border-zinc-800/80">
+                  <span className="text-zinc-500">Floating P&amp;L:</span>
+                  <span className={`font-bold tabular-nums ${Number(confirmClosePos.upl) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
                     {Number(confirmClosePos.upl) >= 0 ? `+${formatUSD(confirmClosePos.upl)}` : formatUSD(confirmClosePos.upl)}
                   </span>
                 </div>
               </div>
+              <p className="text-[11px] text-zinc-400 leading-tight">
+                This trade will close immediately at current broker market liquidity. This action cannot be reversed.
+              </p>
             </div>
           )
         }
@@ -197,17 +202,31 @@ export const ActivePositionsHud: React.FC<ActivePositionsHudProps> = ({
         onConfirm={handleConfirmBe}
         variant="primary"
         isLoading={actionLoading}
-        title="Move Stop Loss to Breakeven"
-        confirmText="Lock Breakeven"
-        cancelText="Cancel"
+        title="Lock Stop Loss at Breakeven?"
+        confirmText="Confirm Lock Breakeven"
+        cancelText="Keep Current Stop"
         description={
           confirmBePos && (
-            <div className="space-y-2 mt-1">
-              <p>
-                Move Stop Loss to your entry price (<strong>{confirmBePos.entryPrice}</strong>) on Capital.com?
+            <div className="space-y-2.5 mt-1 font-sans">
+              <p className="text-zinc-200">
+                Move Stop Loss to your entry fill price (<strong>{confirmBePos.entryPrice}</strong>) on Capital.com?
               </p>
-              <p className="text-zinc-400 text-xs">
-                This guarantees zero downside loss on this trade. Your Take Profit (<strong>{confirmBePos.profitLevel ?? "N/A"}</strong>) will be strictly preserved.
+              <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-mono space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <span className="text-zinc-500">Target Instrument:</span>
+                  <span className="text-white font-bold">{confirmBePos.pair} ({confirmBePos.direction})</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-zinc-500">New Protected Stop:</span>
+                  <span className="text-emerald-400 font-bold">{confirmBePos.entryPrice} (0.00 Risk)</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-zinc-500">Take Profit Target:</span>
+                  <span className="text-emerald-400 font-mono">{confirmBePos.profitLevel ?? "Preserved"}</span>
+                </div>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-tight">
+                This guarantees zero downside loss on this trade. Your Take Profit level will remain strictly preserved.
               </p>
             </div>
           )
