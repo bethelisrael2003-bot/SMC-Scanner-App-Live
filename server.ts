@@ -5842,7 +5842,7 @@ app.get("/api/ping", (req, res) => {
   });
 });
 
-// Self-ping every 8 minutes to guarantee Render never hits the 15-minute inactivity window
+// Self-ping every 4 minutes to guarantee Render never hits the 15-minute inactivity window
 setInterval(async () => {
   try {
     const pingUrl = `${RENDER_EXTERNAL_URL}/api/ping`;
@@ -5858,7 +5858,7 @@ setInterval(async () => {
   } catch (err: any) {
     console.warn(`[KEEP-ALIVE] Auto self-ping note: ${err.message}`);
   }
-}, 8 * 60 * 1000);
+}, 4 * 60 * 1000);
 
 // REST Api Endpoints
 
