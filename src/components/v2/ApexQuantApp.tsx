@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { PushNotifications } from "@capacitor/push-notifications";
 import { LocalNotifications } from "@capacitor/local-notifications";
+import { App } from "@capacitor/app";
 import { LiveCandleChart } from "./LiveCandleChart";
 import { ActivePositionsHud } from "./ActivePositionsHud";
 import { MarketWatchlist } from "./MarketWatchlist";
@@ -339,7 +340,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
 
   // Master Back Event Coordination (Browser popstate + Capacitor Android hardware back)
   useEffect(() => {
-    const handlePopState = (e: PopStateEvent) => {
+    const onPopState = (e: PopStateEvent) => {
       // If history state carries a specific tab, allow direct state navigation if no modal is open
       if (e.state?.tab && !backCoordinator.hasOpenModal() && viewStackRef.current.length === 0) {
         setActiveTab(e.state.tab as BottomTabId);
@@ -348,25 +349,27 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
       backCoordinator.handleBack();
     };
 
-    window.addEventListener("popstate", handlePopState);
+    window.addEventListener("popstate", onPopState);
 
     // Capacitor Native Android Hardware Back listener
     let removeCapacitorListener: (() => void) | null = null;
-    if (isNativePlatform() && (window as any).Capacitor?.Plugins?.App) {
-      const appPlugin = (window as any).Capacitor.Plugins.App;
-      const handlerPromise = appPlugin.addListener("backButton", () => {
-        backCoordinator.handleBack();
-      });
+    App.addListener("backButton", () => {
+      backCoordinator.handleBack();
+    }).then((handle) => {
+      removeCapacitorListener = () => handle.remove();
+    }).catch((err) => {
+      console.debug("[APEX] Capacitor backButton registration notice:", err);
+    });
 
-      if (handlerPromise && typeof handlerPromise.then === "function") {
-        handlerPromise.then((handle: any) => {
-          removeCapacitorListener = () => handle?.remove?.();
-        });
-      }
-    }
+    // Android Webview/Cordova hardware back fallback listener
+    const onDocBackButton = () => {
+      backCoordinator.handleBack();
+    };
+    document.addEventListener("backbutton", onDocBackButton);
 
     return () => {
-      window.removeEventListener("popstate", handlePopState);
+      window.removeEventListener("popstate", onPopState);
+      document.removeEventListener("backbutton", onDocBackButton);
       if (removeCapacitorListener) removeCapacitorListener();
     };
   }, []);
