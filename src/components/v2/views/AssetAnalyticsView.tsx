@@ -323,9 +323,9 @@ export const AssetAnalyticsView: React.FC<AssetAnalyticsProps> = ({
   }, [filteredByPeriodTrades, outcomeFilter]);
 
   return (
-    <div className="space-y-4 font-mono select-none animate-in fade-in slide-in-from-right-3 duration-200">
+    <div className="space-y-4 font-mono select-none overflow-x-hidden animate-in fade-in slide-in-from-right-3 duration-200">
       {/* ── Top Navigation & Breadcrumbs ──── */}
-      <div className="flex items-center justify-between gap-2.5">
+      <div className="flex items-center justify-between gap-2">
         <button
           onClick={onBack}
           className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-[#0E131A] hover:bg-[#141B24] border border-[#1E2633] text-zinc-300 hover:text-white transition-all cursor-pointer text-xs group shrink-0 whitespace-nowrap"
@@ -337,10 +337,7 @@ export const AssetAnalyticsView: React.FC<AssetAnalyticsProps> = ({
           <span className="text-cyan-400 font-bold whitespace-nowrap">{pair}</span>
         </button>
 
-        <div className="flex items-center gap-2">
-          <Badge variant="neutral" size="xs" className="whitespace-nowrap">
-            Standing Rule 11a
-          </Badge>
+        <div className="shrink-0">
           <SegmentedControl
             options={[
               { value: "7D", label: "7D" },
@@ -358,9 +355,12 @@ export const AssetAnalyticsView: React.FC<AssetAnalyticsProps> = ({
       <Card variant="default" padding="md" className="space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#1E2633]">
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-black text-white tracking-tight">{pair}</h1>
-              <span className="text-xs text-zinc-400 font-sans">· {pairFullName}</span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-xl font-black text-white tracking-tight whitespace-nowrap shrink-0">{pair}</h1>
+              <span className="text-xs text-zinc-400 font-sans truncate">· {pairFullName}</span>
+              <Badge variant="neutral" size="xs" className="whitespace-nowrap shrink-0">
+                Standing Rule 11a
+              </Badge>
             </div>
             <p className="text-[11px] text-zinc-400 mt-1 font-sans">
               Audited institutional performance for period: <strong>{periodFilter === "ALL" ? "All-Time Records" : `Last ${periodFilter}`}</strong>
@@ -378,7 +378,7 @@ export const AssetAnalyticsView: React.FC<AssetAnalyticsProps> = ({
               {formatR(metrics.netR)} Net
             </span>
 
-            <span className="text-xs font-bold px-2 py-1 rounded bg-[#111721] border border-[#1E2633] text-white tabular-nums">
+            <span className="text-xs font-bold px-2 py-1 rounded bg-[#111721] border border-[#1E2633] text-white tabular-nums whitespace-nowrap">
               {metrics.winLossLabel}
             </span>
           </div>
