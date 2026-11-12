@@ -501,7 +501,7 @@ interface NewsProximityResult {
 
 let cachedFfCalendarJson: any[] | null = null;
 let lastFfCalendarFetch = 0;
-let lastFfCalendarSource: "JSON_PRIMARY" | "XML_FALLBACK" | "UNAVAILABLE" = "UNAVAILABLE";
+let lastFfCalendarSource: "JSON_PRIMARY" | "XML_FALLBACK" | "CACHE_STALE" | "FALLBACK_EMBEDDED" | "UNAVAILABLE" = "UNAVAILABLE";
 
 async function getFfCalendarEvents(): Promise<any[]> {
   const now = Date.now();
@@ -562,8 +562,15 @@ async function getFfCalendarEvents(): Promise<any[]> {
         };
       });
       cachedFfCalendarJson = mapped;
-      lastFfCalendarFetch = now;
-      lastFfCalendarSource = "XML_FALLBACK";
+      if (lastNewsSource === "XML_LIVE") {
+        lastFfCalendarFetch = now;
+        lastFfCalendarSource = "XML_FALLBACK";
+      } else if (lastNewsSource === "CACHE") {
+        // Do NOT reset lastFfCalendarFetch on cached fallback
+        lastFfCalendarSource = "CACHE_STALE";
+      } else {
+        lastFfCalendarSource = "FALLBACK_EMBEDDED";
+      }
       return mapped;
     }
   } catch (err) {
@@ -574,6 +581,8 @@ async function getFfCalendarEvents(): Promise<any[]> {
   // preserving the authentic age of previously cached data.
   if (!cachedFfCalendarJson || cachedFfCalendarJson.length === 0) {
     lastFfCalendarSource = "UNAVAILABLE";
+  } else if (lastFfCalendarSource === "UNAVAILABLE") {
+    lastFfCalendarSource = "CACHE_STALE";
   }
 
   return cachedFfCalendarJson || [];
@@ -2715,6 +2724,7 @@ function findCorrelationConflicts(signals: any[]) {
 // In-Memory cache for Economic News to handle 429 quota exceptions and speed up load
 let cachedNews: any[] | null = null;
 let lastNewsFetchTime = 0;
+let lastNewsSource: "XML_LIVE" | "CACHE" | "STATIC_FALLBACK" = "STATIC_FALLBACK";
 
 const fallbackNews = [
   { time: "06-15-2026 12:30 GMT", currency: "USD", event: "Empire State Manufacturing Index (NY)", impact: "HIGH", forecast: "-2.5", previous: "-1.1" },
@@ -2802,11 +2812,13 @@ async function getEconomicNews() {
     if (events.length > 0) {
       cachedNews = events;
       lastNewsFetchTime = now;
+      lastNewsSource = "XML_LIVE";
       return events;
     }
     throw new Error("No events found in parsed XML");
   } catch (error) {
     console.warn("[INFO] Error fetching Forex Factory news: returning cached or fallback: ", error);
+    lastNewsSource = cachedNews ? "CACHE" : "STATIC_FALLBACK";
     return cachedNews || fallbackNews;
   }
 }
@@ -6317,21 +6329,48 @@ app.get("/api/economic-calendar", async (req, res) => {
       feedStatus = "LIVE";
     }
 
+    // 1. Sort a reference list by canonical event properties (independent of input order)
+    const canonicalSorted = [...events]
+      .filter((e: any) => targetCurrencies.includes(e.country))
+      .sort((a: any, b: any) => {
+        const keyA = `${a.country}|${a.date}|${a.title}|${a.impact}|${a.forecast}|${a.previous}`;
+        const keyB = `${b.country}|${b.date}|${b.title}|${b.impact}|${b.forecast}|${b.previous}`;
+        return keyA.localeCompare(keyB);
+      });
+
+    // 2. Count occurrences of identical base identifiers in canonical order
+    const occurrenceMap = new Map<string, number>();
+    const idMap = new Map<any, string>();
+
+    canonicalSorted.forEach((e: any) => {
+      const cleanCountry = (e.country || "GLOBAL").trim().toUpperCase();
+      const cleanDate = (e.date || "").replace(/[^0-9]/g, "");
+      const cleanTitle = (e.title || "event").toLowerCase().replace(/[^a-z0-9]/g, "_");
+      const baseKey = `${cleanCountry}_${cleanDate}_${cleanTitle}`;
+
+      const occ = occurrenceMap.get(baseKey) || 0;
+      occurrenceMap.set(baseKey, occ + 1);
+
+      let stableId = baseKey;
+      if (occ > 0) {
+        const cleanImpact = (e.impact || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+        const cleanForecast = (e.forecast || "").replace(/[^a-z0-9]/gi, "");
+        const cleanPrevious = (e.previous || "").replace(/[^a-z0-9]/gi, "");
+        stableId = `${baseKey}_${cleanImpact || "imp"}_${cleanForecast || "f"}_${cleanPrevious || "p"}_dup${occ}`;
+      }
+      idMap.set(e, stableId);
+    });
+
     const radarEvents = events
       .filter((e: any) => targetCurrencies.includes(e.country))
-      .map((e: any, idx: number) => {
+      .map((e: any) => {
         const timeMs = e.date ? new Date(e.date).getTime() : 0;
         const diffMs = timeMs - now;
         const minutesAway = Math.round(diffMs / (60 * 1000));
         const isLockoutActive = e.impact === "High" && minutesAway >= -30 && minutesAway <= 60;
 
-        const cleanCountry = (e.country || "GLOBAL").trim();
-        const cleanDate = (e.date || "").replace(/[^0-9]/g, "");
-        const cleanTitle = (e.title || "event").toLowerCase().replace(/[^a-z0-9]/g, "_");
-        const id = `${cleanCountry}_${cleanDate}_${cleanTitle}_${idx}`;
-
         return {
-          id,
+          id: idMap.get(e) || `${(e.country || "GLOBAL").trim().toUpperCase()}_${(e.date || "").replace(/[^0-9]/g, "")}_${(e.title || "event").toLowerCase().replace(/[^a-z0-9]/g, "_")}`,
           title: e.title,
           country: e.country,
           impact: e.impact,

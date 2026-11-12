@@ -32,7 +32,7 @@ export interface MacroEventIntelligenceProps {
   event: CalendarEvent | null;
   allEvents: CalendarEvent[];
   feedStatus?: "LIVE" | "DELAYED" | "STALE" | "UNAVAILABLE";
-  feedSource?: "JSON_PRIMARY" | "XML_FALLBACK" | "UNAVAILABLE";
+  feedSource?: "JSON_PRIMARY" | "XML_FALLBACK" | "CACHE_STALE" | "FALLBACK_EMBEDDED" | "UNAVAILABLE";
   lastSuccessTimestamp?: string | null;
   onBack: () => void;
   onOpenInstrumentWorkstation?: (pair: string) => void;
@@ -338,6 +338,14 @@ export const MacroEventIntelligenceView: React.FC<MacroEventIntelligenceProps> =
     }
   }, [lastSuccessTimestamp]);
 
+  const feedSourceDetailedLabel = useMemo(() => {
+    if (feedSource === "JSON_PRIMARY") return "Forex Factory Primary JSON Feed (nfs.faireconomy.media)";
+    if (feedSource === "XML_FALLBACK") return "Forex Factory Live XML Fallback (nfs.faireconomy.media)";
+    if (feedSource === "CACHE_STALE") return "Cached Historical Feed (Preserved Baseline)";
+    if (feedSource === "FALLBACK_EMBEDDED") return "Emergency Static Fallback Baseline";
+    return "Calendar Data Unavailable";
+  }, [feedSource]);
+
   return (
     <div className="space-y-4 font-mono select-none overflow-x-hidden animate-in fade-in slide-in-from-right-3 duration-200 pb-36">
       {/* ── Top Navigation & Breadcrumbs ──── */}
@@ -534,11 +542,7 @@ export const MacroEventIntelligenceView: React.FC<MacroEventIntelligenceProps> =
               </span>
             </div>
             <div className="text-[10px] text-zinc-400 font-sans">
-              {feedSource === "XML_FALLBACK"
-                ? "Forex Factory XML Fallback Active (nfs.faireconomy.media)"
-                : feedSource === "JSON_PRIMARY"
-                ? "Forex Factory Primary JSON Feed (nfs.faireconomy.media)"
-                : "Calendar Data Unavailable"}
+              {feedSourceDetailedLabel}
             </div>
             <div className="text-[9px] text-zinc-500 font-mono">
               Last sync: {lastSyncWAT} ({lastSyncUTC})

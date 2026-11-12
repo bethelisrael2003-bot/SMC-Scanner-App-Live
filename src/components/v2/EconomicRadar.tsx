@@ -33,7 +33,7 @@ export interface EconomicRadarProps {
     nextHighImpact?: CalendarEvent | null;
     events?: CalendarEvent[];
     lastSuccessTimestamp?: string | null;
-    feedSource?: "JSON_PRIMARY" | "XML_FALLBACK" | "UNAVAILABLE";
+    feedSource?: "JSON_PRIMARY" | "XML_FALLBACK" | "CACHE_STALE" | "FALLBACK_EMBEDDED" | "UNAVAILABLE";
     feedStatus?: "LIVE" | "DELAYED" | "STALE" | "UNAVAILABLE";
     freshnessWindowMinutes?: number;
   } | null;
@@ -54,6 +54,14 @@ export const EconomicRadar: React.FC<EconomicRadarProps> = ({ eventsData, onSele
 
   const feedStatus = eventsData?.feedStatus || (eventsData?.events && eventsData.events.length > 0 ? "LIVE" : "UNAVAILABLE");
   const feedSource = eventsData?.feedSource || "XML_FALLBACK";
+
+  const feedSourceLabel = useMemo(() => {
+    if (feedSource === "JSON_PRIMARY") return "Forex Factory Primary JSON Feed";
+    if (feedSource === "XML_FALLBACK") return "Forex Factory Live XML Fallback";
+    if (feedSource === "CACHE_STALE") return "Cached Historical Feed (Preserved Baseline)";
+    if (feedSource === "FALLBACK_EMBEDDED") return "Emergency Static Fallback Baseline";
+    return "Calendar Data Unavailable";
+  }, [feedSource]);
 
   const lastSyncTimeWAT = useMemo(() => {
     if (!eventsData?.lastSuccessTimestamp) return "Live Polling";
@@ -228,11 +236,7 @@ export const EconomicRadar: React.FC<EconomicRadarProps> = ({ eventsData, onSele
             </span>
             <span className="text-zinc-600">·</span>
             <span className="text-zinc-300 font-mono text-[10px]">
-              {feedSource === "XML_FALLBACK"
-                ? "Forex Factory XML Fallback Active"
-                : feedSource === "JSON_PRIMARY"
-                ? "Forex Factory Primary JSON Feed"
-                : "Calendar Data Unavailable"}
+              {feedSourceLabel}
             </span>
           </div>
 
