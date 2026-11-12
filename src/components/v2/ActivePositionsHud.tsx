@@ -30,19 +30,29 @@ export const ActivePositionsHud: React.FC<ActivePositionsHudProps> = ({
   const [confirmClosePos, setConfirmClosePos] = useState<ActivePosition | null>(null);
   const [confirmBePos, setConfirmBePos] = useState<ActivePosition | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   if (!openPositions || openPositions.length === 0) {
     return null;
   }
 
+  const handleCloseModal = () => {
+    if (actionLoading) return;
+    setConfirmClosePos(null);
+    setConfirmBePos(null);
+    setActionError(null);
+  };
+
   const handleConfirmClose = async () => {
     if (!confirmClosePos) return;
     setActionLoading(true);
+    setActionError(null);
     try {
       await onClosePosition(confirmClosePos.dealId);
       setConfirmClosePos(null);
-    } catch (err) {
+    } catch (err: any) {
       console.error("[HUD] Error closing position:", err);
+      setActionError(err.message || "Failed to close position at broker. Please retry.");
     } finally {
       setActionLoading(false);
     }
@@ -51,11 +61,13 @@ export const ActivePositionsHud: React.FC<ActivePositionsHudProps> = ({
   const handleConfirmBe = async () => {
     if (!confirmBePos) return;
     setActionLoading(true);
+    setActionError(null);
     try {
       await onUpdateStop(confirmBePos.dealId, confirmBePos.entryPrice, confirmBePos.profitLevel);
       setConfirmBePos(null);
-    } catch (err) {
+    } catch (err: any) {
       console.error("[HUD] Error moving stop to BE:", err);
+      setActionError(err.message || "Failed to update stop on broker. Please retry.");
     } finally {
       setActionLoading(false);
     }
@@ -156,7 +168,7 @@ export const ActivePositionsHud: React.FC<ActivePositionsHudProps> = ({
       {/* Confirmation Modal: Close at Market */}
       <Modal
         isOpen={!!confirmClosePos}
-        onClose={() => setConfirmClosePos(null)}
+        onClose={handleCloseModal}
         onConfirm={handleConfirmClose}
         variant="destructive"
         isLoading={actionLoading}
@@ -187,6 +199,14 @@ export const ActivePositionsHud: React.FC<ActivePositionsHudProps> = ({
                   </span>
                 </div>
               </div>
+
+              {actionError && (
+                <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>{actionError}</span>
+                </div>
+              )}
+
               <p className="text-[11px] text-zinc-400 leading-tight">
                 This trade will close immediately at current broker market liquidity. This action cannot be reversed.
               </p>
@@ -198,7 +218,7 @@ export const ActivePositionsHud: React.FC<ActivePositionsHudProps> = ({
       {/* Confirmation Modal: Lock Breakeven */}
       <Modal
         isOpen={!!confirmBePos}
-        onClose={() => setConfirmBePos(null)}
+        onClose={handleCloseModal}
         onConfirm={handleConfirmBe}
         variant="primary"
         isLoading={actionLoading}
@@ -225,6 +245,14 @@ export const ActivePositionsHud: React.FC<ActivePositionsHudProps> = ({
                   <span className="text-emerald-400 font-mono">{confirmBePos.profitLevel ?? "Preserved"}</span>
                 </div>
               </div>
+
+              {actionError && (
+                <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>{actionError}</span>
+                </div>
+              )}
+
               <p className="text-[11px] text-zinc-400 leading-tight">
                 This guarantees zero downside loss on this trade. Your Take Profit level will remain strictly preserved.
               </p>

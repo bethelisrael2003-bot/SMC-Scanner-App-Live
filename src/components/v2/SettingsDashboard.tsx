@@ -51,20 +51,30 @@ export const SettingsDashboard: React.FC<SettingsDashboardProps> = ({
 }) => {
   const [toggleLoading, setToggleLoading] = useState(false);
   const [confirmToggleAction, setConfirmToggleAction] = useState<"enable" | "disable" | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const handleCloseModal = () => {
+    if (toggleLoading) return;
+    setConfirmToggleAction(null);
+    setActionError(null);
+  };
 
   const handleInitiateToggle = () => {
     if (!onToggleAutoTrading || toggleLoading) return;
+    setActionError(null);
     setConfirmToggleAction(autoTradingEnabled ? "disable" : "enable");
   };
 
   const handleConfirmToggle = async () => {
     if (!onToggleAutoTrading) return;
     setToggleLoading(true);
+    setActionError(null);
     try {
       await onToggleAutoTrading();
       setConfirmToggleAction(null);
-    } catch (err) {
+    } catch (err: any) {
       console.error("[SETTINGS] Error toggling auto-trading:", err);
+      setActionError(err.message || "Failed to update automated execution state. Please retry.");
     } finally {
       setToggleLoading(false);
     }
@@ -134,7 +144,7 @@ export const SettingsDashboard: React.FC<SettingsDashboardProps> = ({
       {/* Confirmation Modal: Enable Automated Execution */}
       <Modal
         isOpen={confirmToggleAction === "enable"}
-        onClose={() => setConfirmToggleAction(null)}
+        onClose={handleCloseModal}
         onConfirm={handleConfirmToggle}
         variant="primary"
         isLoading={toggleLoading}
@@ -157,6 +167,13 @@ export const SettingsDashboard: React.FC<SettingsDashboardProps> = ({
               <div>• Max 1 trade per pair per day cap</div>
               <div>• Dynamic Spread Armor &amp; News Lockout gates</div>
             </div>
+
+            {actionError && (
+              <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{actionError}</span>
+              </div>
+            )}
           </div>
         }
       />
@@ -164,7 +181,7 @@ export const SettingsDashboard: React.FC<SettingsDashboardProps> = ({
       {/* Confirmation Modal: Disable Automated Execution */}
       <Modal
         isOpen={confirmToggleAction === "disable"}
-        onClose={() => setConfirmToggleAction(null)}
+        onClose={handleCloseModal}
         onConfirm={handleConfirmToggle}
         variant="warning"
         isLoading={toggleLoading}
@@ -185,6 +202,13 @@ export const SettingsDashboard: React.FC<SettingsDashboardProps> = ({
                 Any currently open broker positions will <strong>remain open</strong> and continue to be defended by their native Capital.com Stop Loss and Take Profit orders, plus cloud profit defense trailing guards.
               </p>
             </div>
+
+            {actionError && (
+              <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{actionError}</span>
+              </div>
+            )}
           </div>
         }
       />

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   Activity,
   TrendingUp,
@@ -15,6 +15,7 @@ import {
   RefreshCw,
   ExternalLink,
   ChevronRight,
+  ChevronLeft,
   Calendar,
   DollarSign,
   Layers,
@@ -88,6 +89,12 @@ const DEDICATED_PROFILES: PairStrategyProfile[] = [
   },
 ];
 
+export type DrillDownView =
+  | { type: "instrument_workstation"; pair: string }
+  | { type: "asset_analytics"; pair: string }
+  | { type: "trade_detail"; tradeId: string }
+  | { type: "macro_event"; eventId: string };
+
 const isNativePlatform = () => {
   return typeof window !== "undefined" &&
          (window as any).Capacitor &&
@@ -97,6 +104,32 @@ const isNativePlatform = () => {
 
 export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => void } = {}) {
   const [activeTab, setActiveTab] = useState<BottomTabId>("terminal");
+  const [viewStack, setViewStack] = useState<DrillDownView[]>([]);
+  const viewStackRef = useRef<DrillDownView[]>([]);
+  viewStackRef.current = viewStack;
+  const lastBackHandledAtRef = useRef<number>(0);
+
+  const pushView = useCallback((view: DrillDownView) => {
+    setViewStack((prev) => {
+      const next = [...prev, view];
+      viewStackRef.current = next;
+      window.history.pushState(
+        { type: "apex_view", depth: next.length },
+        ""
+      );
+      return next;
+    });
+  }, []);
+
+  const popView = useCallback(() => {
+    setViewStack((prev) => {
+      if (prev.length === 0) return prev;
+      const next = prev.slice(0, -1);
+      viewStackRef.current = next;
+      return next;
+    });
+  }, []);
+
   const [selectedPairIndex, setSelectedPairIndex] = useState<number>(0);
   const [copiedTradeId, setCopiedTradeId] = useState<string | null>(null);
 
@@ -220,29 +253,35 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ dealId }),
       });
-      if (res.ok) {
-        await fetchAllData();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || (data && data.success === false)) {
+        throw new Error(data.message || data.error || `Broker rejected close order for deal ${dealId}`);
       }
+      await fetchAllData();
     } catch (err) {
       console.error("Close position error:", err);
+      throw err;
     } finally {
       setClosingDealId(null);
     }
   };
 
-  const moveTradeToBreakeven = async (dealId: string, entryPrice: number) => {
+  const moveTradeToBreakeven = async (dealId: string, entryPrice: number, profitLevel?: number) => {
     setMovingBeDealId(dealId);
     try {
       const res = await fetch(`${API_BASE_URL}/api/capital/update-stop`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dealId, newStopLevel: entryPrice }),
+        body: JSON.stringify({ dealId, newStopLevel: entryPrice, profitLevel }),
       });
-      if (res.ok) {
-        await fetchAllData();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || (data && data.success === false)) {
+        throw new Error(data.message || data.error || `Broker rejected stop update order for deal ${dealId}`);
       }
+      await fetchAllData();
     } catch (err) {
       console.error("Move to BE error:", err);
+      throw err;
     } finally {
       setMovingBeDealId(null);
     }
@@ -251,13 +290,75 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
   const toggleAutoTrading = async () => {
     try {
       const res = await fetch(`${API_BASE_URL}/api/capital/toggle-auto`, { method: "POST" });
-      if (res.ok) {
-        await fetchAllData();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || (data && data.success === false)) {
+        throw new Error(data.error || data.message || "Failed to update automated execution state on server");
       }
+      await fetchAllData();
     } catch (err) {
       console.error("Toggle auto trading error:", err);
+      throw err;
     }
   };
+
+  // Master Back Event Coordination (Browser popstate + Capacitor Android hardware back)
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      const now = Date.now();
+      if (now - lastBackHandledAtRef.current < 300) return;
+      lastBackHandledAtRef.current = now;
+
+      // Priority 1: Check if a modal is currently open or just popped its history frame
+      if (e.state?.modalId) {
+        // Modal handles its own dismissal
+        return;
+      }
+
+      // Priority 2: Pop view stack if a drill-down page is active
+      if (viewStackRef.current.length > 0) {
+        popView();
+        return;
+      }
+
+      // Priority 3: Root tab behavior - return to Terminal rather than exiting
+      if (activeTab !== "terminal") {
+        setActiveTab("terminal");
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+
+    // Capacitor Native Android Hardware Back listener
+    let removeCapacitorListener: (() => void) | null = null;
+    if (isNativePlatform() && (window as any).Capacitor?.Plugins?.App) {
+      const appPlugin = (window as any).Capacitor.Plugins.App;
+      const handlerPromise = appPlugin.addListener("backButton", ({ canGoBack }: { canGoBack: boolean }) => {
+        const now = Date.now();
+        if (now - lastBackHandledAtRef.current < 300) return;
+        lastBackHandledAtRef.current = now;
+
+        if (viewStackRef.current.length > 0) {
+          window.history.back();
+          return;
+        }
+
+        if (activeTab !== "terminal") {
+          setActiveTab("terminal");
+        }
+      });
+
+      if (handlerPromise && typeof handlerPromise.then === "function") {
+        handlerPromise.then((handle: any) => {
+          removeCapacitorListener = () => handle?.remove?.();
+        });
+      }
+    }
+
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+      if (removeCapacitorListener) removeCapacitorListener();
+    };
+  }, [popView, activeTab]);
 
   const setupPushNotificationChannels = async () => {
     try {
@@ -334,14 +435,25 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
       {/* ── Top Executive Header Bar ──────────────────────────────── */}
       <header className="sticky top-0 z-40 bg-[#080B10]/95 backdrop-blur-md border-b border-zinc-800/80 px-3 sm:px-4 py-2.5 sm:py-3 flex items-center justify-between gap-2 select-none">
         <div className="flex items-center gap-2 sm:gap-3 shrink-0 min-w-0">
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            <span className="font-mono font-black text-white text-base tracking-tight whitespace-nowrap inline-block shrink-0">
-              APEX
-            </span>
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 font-semibold border border-zinc-700/60 whitespace-nowrap shrink-0">
-              PRO v4.5
-            </span>
-          </div>
+          {viewStack.length > 0 ? (
+            <button
+              onClick={() => window.history.back()}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white transition-all cursor-pointer font-mono text-xs shrink-0"
+              title="Return to previous view"
+            >
+              <ChevronLeft className="w-4 h-4 text-emerald-400" />
+              <span className="font-semibold">Back</span>
+            </button>
+          ) : (
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              <span className="font-mono font-black text-white text-base tracking-tight whitespace-nowrap inline-block shrink-0">
+                APEX
+              </span>
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 font-semibold border border-zinc-700/60 whitespace-nowrap shrink-0">
+                PRO v4.5
+              </span>
+            </div>
+          )}
 
           <div className="hidden sm:flex items-center gap-1.5 text-xs font-mono text-zinc-400 pl-2 border-l border-zinc-800 shrink-0">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -408,92 +520,88 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
         {/* ========================================================== */}
         {/* TAB 1: TERMINAL (LIVE ASSET MONITORS & EXECUTION)          */}
         {/* ========================================================== */}
-        {activeTab === "terminal" && (
-          <div className="space-y-4">
-            {/* 1. Live Active Broker Positions Command HUD (with Confirmation Modals) */}
-            <ActivePositionsHud
-              openPositions={capitalStatus?.openPositions || []}
-              onClosePosition={closeCapitalTrade}
-              onUpdateStop={moveTradeToBreakeven}
-            />
+        <div className={activeTab === "terminal" && viewStack.length === 0 ? "space-y-4" : "hidden"}>
+          {/* 1. Live Active Broker Positions Command HUD (with Confirmation Modals) */}
+          <ActivePositionsHud
+            openPositions={capitalStatus?.openPositions || []}
+            onClosePosition={closeCapitalTrade}
+            onUpdateStop={moveTradeToBreakeven}
+          />
 
-            {/* 2. Core Institutional Watchlist Carousel */}
-            <MarketWatchlist
-              profiles={DEDICATED_PROFILES}
-              selectedIndex={selectedPairIndex}
-              onSelect={setSelectedPairIndex}
-              confluenceData={confluenceData}
-              spreadArmorData={spreadArmorData}
-            />
+          {/* 2. Core Institutional Watchlist Carousel */}
+          <MarketWatchlist
+            profiles={DEDICATED_PROFILES}
+            selectedIndex={selectedPairIndex}
+            onSelect={setSelectedPairIndex}
+            confluenceData={confluenceData}
+            spreadArmorData={spreadArmorData}
+          />
 
-            {/* 3. Live Interactive TradingView Candlestick Chart */}
-            <LiveCandleChart
-              pair={activeProfile.pair}
-              timeframe={chartTimeframe}
-              onTimeframeChange={setChartTimeframe}
-              entryPrice={currentConf?.entryPrice}
-              slPrice={currentConf?.sl}
-              tpPrice={currentConf?.tp1}
-              sweepPrice={currentConf?.sweptLevel || null}
-            />
+          {/* 3. Live Interactive TradingView Candlestick Chart */}
+          <LiveCandleChart
+            pair={activeProfile.pair}
+            timeframe={chartTimeframe}
+            onTimeframeChange={setChartTimeframe}
+            entryPrice={currentConf?.entryPrice}
+            slPrice={currentConf?.sl}
+            tpPrice={currentConf?.tp1}
+            sweepPrice={currentConf?.sweptLevel || null}
+          />
 
-            {/* 4. Four-Pillar Visual Confluence & Market Structure Cockpit */}
-            <ConfluenceDashboard
-              pair={activeProfile.pair}
-              pairName={activeProfile.name}
-              confluenceRecord={currentConf}
-              armorStatus={currentArmor?.status || "SAFE"}
-              maxSafeSpread={activeProfile.spreadThreshold}
-              onCopyOrder={(text) => copyToClipboard(text, "plan")}
-              copiedOrder={copiedTradeId === "plan"}
-            />
-          </div>
-        )}
+          {/* 4. Four-Pillar Visual Confluence & Market Structure Cockpit */}
+          <ConfluenceDashboard
+            pair={activeProfile.pair}
+            pairName={activeProfile.name}
+            confluenceRecord={currentConf}
+            armorStatus={currentArmor?.status || "SAFE"}
+            maxSafeSpread={activeProfile.spreadThreshold}
+            onCopyOrder={(text) => copyToClipboard(text, "plan")}
+            copiedOrder={copiedTradeId === "plan"}
+          />
+        </div>
 
         {/* ========================================================== */}
         {/* TAB 2: ANALYTICS & AUDITED TRADE HISTORY                   */}
         {/* ========================================================== */}
-        {activeTab === "analytics" && (
-          <div className="space-y-4">
-            <AnalyticsDashboard
-              currentBalance={liveBalance}
-              baselineDeposit={11000.0}
-              winRate={performanceStats?.winRate || 60.0}
-              totalWins={performanceStats?.totalWins || 9}
-              totalLosses={performanceStats?.totalLosses || 6}
-              totalNetR={performanceAnalytics?.totalNetR ?? 2.91}
-              profitFactor={performanceAnalytics?.summary?.profitFactor || 1.05}
-              equityCurve={performanceAnalytics?.equityCurve || []}
-              pairStats={dynamicPairStats}
-            />
+        <div className={activeTab === "analytics" && viewStack.length === 0 ? "space-y-4" : "hidden"}>
+          <AnalyticsDashboard
+            currentBalance={liveBalance}
+            baselineDeposit={11000.0}
+            winRate={performanceStats?.winRate || 60.0}
+            totalWins={performanceStats?.totalWins || 9}
+            totalLosses={performanceStats?.totalLosses || 6}
+            totalNetR={performanceAnalytics?.totalNetR ?? 2.91}
+            profitFactor={performanceAnalytics?.summary?.profitFactor || 1.05}
+            equityCurve={performanceAnalytics?.equityCurve || []}
+            pairStats={dynamicPairStats}
+          />
 
-            <TradeHistory trades={performanceStats?.trades || []} />
-          </div>
-        )}
+          <TradeHistory trades={performanceStats?.trades || []} />
+        </div>
 
         {/* ========================================================== */}
         {/* TAB 3: ECONOMIC NEWS RADAR                                 */}
         {/* ========================================================== */}
-        {activeTab === "radar" && (
+        <div className={activeTab === "radar" && viewStack.length === 0 ? "space-y-4" : "hidden"}>
           <EconomicRadar eventsData={economicEvents} />
-        )}
+        </div>
 
         {/* ========================================================== */}
         {/* TAB 4: RISK & POSITION SIZER                               */}
         {/* ========================================================== */}
-        {activeTab === "sizer" && (
+        <div className={activeTab === "sizer" && viewStack.length === 0 ? "space-y-4" : "hidden"}>
           <PositionSizer
             profiles={DEDICATED_PROFILES}
             selectedIndex={selectedPairIndex}
             onSelectIndex={setSelectedPairIndex}
             accountBalance={liveBalance}
           />
-        )}
+        </div>
 
         {/* ========================================================== */}
         {/* TAB 5: APPLICATION SETTINGS & RISK PROTOCOL                */}
         {/* ========================================================== */}
-        {activeTab === "settings" && (
+        <div className={activeTab === "settings" && viewStack.length === 0 ? "space-y-4" : "hidden"}>
           <SettingsDashboard
             brokerAccount="#322839360067416350"
             brokerBalance={liveBalance}
@@ -509,6 +617,35 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
             onRequestPushPerms={isNativePlatform() ? setupPushNotificationChannels : undefined}
             buildVersion="v4.5 Pro (Audit Hardened)"
           />
+        </div>
+
+        {/* ========================================================== */}
+        {/* PHASE B NAVIGATION CONTAINER (FRAMEWORK READY FOR PHASE C) */}
+        {/* ========================================================== */}
+        {viewStack.length > 0 && (
+          <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-150">
+            {(() => {
+              const currentView = viewStack[viewStack.length - 1];
+              return (
+                <div className="p-4 rounded-2xl bg-[#0E131A] border border-[#1E2633] space-y-3 font-mono">
+                  <div className="flex items-center justify-between pb-2 border-b border-[#1E2633]">
+                    <span className="text-xs font-bold text-white uppercase tracking-wider">
+                      {currentView.type.replace(/_/g, " ")}
+                    </span>
+                    <button
+                      onClick={() => window.history.back()}
+                      className="text-xs text-zinc-400 hover:text-white flex items-center gap-1 cursor-pointer"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" /> Back
+                    </button>
+                  </div>
+                  <p className="text-xs text-zinc-400 font-sans leading-relaxed">
+                    Phase B Navigation Stack active. Parent screen state preserved in memory. Full detail workstation view ready for Phase C.
+                  </p>
+                </div>
+              );
+            })()}
+          </div>
         )}
       </main>
 
@@ -527,7 +664,12 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as BottomTabId)}
+                onClick={() => {
+                  if (viewStack.length > 0) {
+                    setViewStack([]);
+                  }
+                  setActiveTab(tab.id as BottomTabId);
+                }}
                 className={`py-1.5 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer ${
                   active
                     ? "text-emerald-400 font-bold"
