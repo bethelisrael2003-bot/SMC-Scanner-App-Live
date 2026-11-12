@@ -29,6 +29,8 @@ import { LiveCandleChart } from "./LiveCandleChart";
 import { ActivePositionsHud } from "./ActivePositionsHud";
 import { MarketWatchlist } from "./MarketWatchlist";
 import { ConfluenceDashboard } from "./ConfluenceDashboard";
+import { AnalyticsDashboard } from "./AnalyticsDashboard";
+import { TradeHistory } from "./TradeHistory";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "https://smc-scanner-backend.onrender.com";
 
@@ -421,226 +423,23 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
         )}
 
         {/* ========================================================== */}
-        {/* TAB 2: ANALYTICS (SVG EQUITY CURVE & AUDITED TRADE LOG)    */}
+        {/* TAB 2: ANALYTICS & AUDITED TRADE HISTORY                   */}
         {/* ========================================================== */}
         {activeTab === "analytics" && (
           <div className="space-y-4">
-            {/* Top 4 Metric Cards (100% Dynamic) */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 font-mono">
-              <div className="p-3.5 rounded-xl bg-zinc-900/80 border border-zinc-800">
-                <span className="text-[10px] text-zinc-400 uppercase tracking-wider block">Live Balance</span>
-                <span className="text-lg font-bold text-white tracking-tight block mt-0.5 whitespace-nowrap">
-                  ${liveBalance.toFixed(2)}
-                </span>
-                <span className={`text-[10px] font-semibold ${balanceDelta >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                  {balanceDelta >= 0 ? `+$${balanceDelta.toFixed(2)}` : `-$${Math.abs(balanceDelta).toFixed(2)}`} Net Baseline
-                </span>
-              </div>
+            <AnalyticsDashboard
+              currentBalance={liveBalance}
+              baselineDeposit={11000.0}
+              winRate={performanceStats?.winRate || 60.0}
+              totalWins={performanceStats?.totalWins || 9}
+              totalLosses={performanceStats?.totalLosses || 6}
+              totalNetR={performanceAnalytics?.totalNetR ?? 2.91}
+              profitFactor={performanceAnalytics?.summary?.profitFactor || 1.05}
+              equityCurve={performanceAnalytics?.equityCurve || []}
+              pairStats={dynamicPairStats}
+            />
 
-              <div className="p-3.5 rounded-xl bg-zinc-900/80 border border-zinc-800">
-                <span className="text-[10px] text-zinc-400 uppercase tracking-wider block">Win Rate (Rule 11a)</span>
-                <span className="text-lg font-bold text-white tracking-tight block mt-0.5 whitespace-nowrap">
-                  {performanceStats?.winRate || 60.0}%
-                </span>
-                <span className="text-[10px] text-zinc-400 font-semibold">
-                  ({performanceStats?.totalWins || 9}W / {performanceStats?.totalLosses || 6}L)
-                </span>
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-zinc-900/80 border border-zinc-800">
-                <span className="text-[10px] text-zinc-400 uppercase tracking-wider block">Portfolio R Net</span>
-                <span className={`text-lg font-bold tracking-tight block mt-0.5 whitespace-nowrap ${
-                  (performanceAnalytics?.totalNetR ?? 2.91) >= 0 ? "text-emerald-400" : "text-rose-400"
-                }`}>
-                  {(performanceAnalytics?.totalNetR ?? 2.91) >= 0 ? `+${performanceAnalytics?.totalNetR ?? 2.91}R` : `${performanceAnalytics?.totalNetR ?? 2.91}R`}
-                </span>
-                <span className="text-[10px] text-zinc-400 font-semibold">
-                  {performanceStats?.trades?.length || 0} Total Events
-                </span>
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-zinc-900/80 border border-zinc-800">
-                <span className="text-[10px] text-zinc-400 uppercase tracking-wider block">Profit Factor</span>
-                <span className="text-lg font-bold text-white tracking-tight block mt-0.5 whitespace-nowrap">
-                  {performanceAnalytics?.summary?.profitFactor || 1.05}
-                </span>
-                <span className="text-[10px] text-emerald-400 font-semibold">Net Active</span>
-              </div>
-            </div>
-
-            {/* Visual Vector SVG Equity Curve */}
-            <div className="p-4 sm:p-5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3 font-mono">
-              <div className="flex justify-between items-center">
-                <div>
-                  <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                    <TrendingUp className="w-4 h-4 text-emerald-400" />
-                    Portfolio Equity Curve ($ USD)
-                  </h3>
-                  <p className="text-[11px] text-zinc-400 mt-0.5">
-                    Account trajectory tracking each closed trade from $11,000.00 baseline
-                  </p>
-                </div>
-                <span className={`text-xs font-bold px-2 py-0.5 rounded border ${
-                  balanceDelta >= 0 ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" : "text-rose-400 bg-rose-500/10 border-rose-500/20"
-                }`}>
-                  ${liveBalance.toFixed(2)} USD
-                </span>
-              </div>
-
-              {/* Vector SVG Area Chart */}
-              <div className="relative w-full h-48 bg-zinc-950/80 rounded-xl border border-zinc-800/80 p-3 flex flex-col justify-between overflow-hidden">
-                <svg className="w-full h-full overflow-visible" viewBox="0 0 500 120" preserveAspectRatio="none">
-                  <defs>
-                    <linearGradient id="equityGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#10B981" stopOpacity="0.35" />
-                      <stop offset="100%" stopColor="#10B981" stopOpacity="0.0" />
-                    </linearGradient>
-                  </defs>
-
-                  {/* Horizontal Guide Lines */}
-                  <line x1="0" y1="30" x2="500" y2="30" stroke="#27272a" strokeDasharray="3 3" />
-                  <line x1="0" y1="70" x2="500" y2="70" stroke="#27272a" strokeDasharray="3 3" />
-                  <line x1="0" y1="100" x2="500" y2="100" stroke="#27272a" strokeDasharray="3 3" />
-
-                  {/* Baseline $11,000 Level */}
-                  <line x1="0" y1="40" x2="500" y2="40" stroke="#3f3f46" strokeWidth="1" strokeDasharray="2 2" />
-
-                  {/* Area Fill */}
-                  <polygon
-                    points="0,40 38,85 76,78 114,83 152,105 190,102 228,110 266,103 304,98 342,115 380,97 418,86 456,38 500,20 500,120 0,120"
-                    fill="url(#equityGrad)"
-                  />
-
-                  {/* Equity Line */}
-                  <polyline
-                    fill="none"
-                    stroke="#10B981"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    points="0,40 38,85 76,78 114,83 152,105 190,102 228,110 266,103 304,98 342,115 380,97 418,86 456,38 500,20"
-                  />
-
-                  {/* Data Points */}
-                  {[
-                    { cx: 0, cy: 40, label: "$11,000.00 (Deposit)" },
-                    { cx: 38, cy: 85, label: "Trade #1: -$77.90 (CPI Crash)" },
-                    { cx: 76, cy: 78, label: "Trade #2: +$12.50" },
-                    { cx: 114, cy: 83, label: "Trade #3: -$8.00" },
-                    { cx: 152, cy: 105, label: "Trade #5: -$43.70 (Wide SL)" },
-                    { cx: 190, cy: 102, label: "Trade #6: +$4.20" },
-                    { cx: 228, cy: 110, label: "Trade #7: -$12.30" },
-                    { cx: 266, cy: 103, label: "Trade #8: +$9.35" },
-                    { cx: 304, cy: 98, label: "Trade #9: +$7.52" },
-                    { cx: 342, cy: 115, label: "Trade #10: -$25.00" },
-                    { cx: 380, cy: 97, label: "Trade #11: +$26.11" },
-                    { cx: 418, cy: 86, label: "Trade #12: +$15.80" },
-                    { cx: 456, cy: 38, label: "EUR/USD Manual: +$14.60" },
-                    { cx: 500, cy: 20, label: "Live High Point: $11,046.98" },
-                  ].map((p, i) => (
-                    <circle
-                      key={i}
-                      cx={p.cx}
-                      cy={p.cy}
-                      r="4"
-                      className="fill-emerald-400 stroke-zinc-950 stroke-2 hover:r-6 cursor-pointer transition-all"
-                      onClick={() => setSelectedCurvePoint(performanceAnalytics?.equityCurve?.[i])}
-                    />
-                  ))}
-                </svg>
-              </div>
-
-              {/* Point Inspector */}
-              <div className="p-2.5 rounded-lg bg-zinc-950 border border-zinc-800 text-xs flex justify-between items-center text-zinc-300">
-                <span>Selected: <strong className="text-white">{selectedCurvePoint?.label || selectedCurvePoint?.pair || "All Trades"}</strong></span>
-                <span>Balance: <strong className="text-emerald-400">${(selectedCurvePoint?.balance || liveBalance).toFixed(2)} USD</strong></span>
-                <span>R:R: <strong className={selectedCurvePoint?.r >= 0 ? "text-emerald-400" : "text-rose-400"}>{selectedCurvePoint?.r >= 0 ? `+${selectedCurvePoint?.r}R` : `${selectedCurvePoint?.r || 0}R`}</strong></span>
-              </div>
-            </div>
-
-            {/* Performance by Pair Table (100% Dynamically Calculated from Database) */}
-            <div className="p-4 sm:p-5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3 font-mono">
-              <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center justify-between">
-                <span>Asset Breakdown (Standing Rule 11a)</span>
-                <span className="text-[10px] text-zinc-400 font-normal">Real-Time Database Audit</span>
-              </h3>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs text-left">
-                  <thead>
-                    <tr className="border-b border-zinc-800 text-zinc-400 text-[10px] uppercase">
-                      <th className="pb-2">Asset</th>
-                      <th className="pb-2">Win Rate</th>
-                      <th className="pb-2">Win / Loss</th>
-                      <th className="pb-2">Net R</th>
-                      <th className="pb-2">Closed Trades</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-800/60 text-zinc-300">
-                    {dynamicPairStats.map((row: any) => (
-                      <tr key={row.pair}>
-                        <td className="py-2.5 font-bold text-white">{row.pair}</td>
-                        <td className={`py-2.5 font-bold ${row.winRate >= 50 ? "text-emerald-400" : "text-rose-400"}`}>
-                          {row.winRate}%
-                        </td>
-                        <td className="py-2.5">{row.wins}W / {row.losses}L</td>
-                        <td className={`py-2.5 font-bold ${row.rNet >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                          {row.rNet >= 0 ? `+${row.rNet}R` : `${row.rNet}R`}
-                        </td>
-                        <td className="py-2.5 text-zinc-400 font-mono">
-                          {row.trades} trade{row.trades === 1 ? "" : "s"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Complete Chronological Trade Log (100% Dynamic from Database) */}
-            <div className="p-4 sm:p-5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3 font-mono">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-bold text-white uppercase tracking-wider">
-                  Audited Trade History
-                </h3>
-                <span className="text-xs text-zinc-400 font-bold">
-                  {performanceStats?.totalClosed || performanceStats?.trades?.length || 0} Closed Trades Logged
-                </span>
-              </div>
-
-              <div className="space-y-2">
-                {(performanceStats?.trades || []).map((t: any, idx: number) => {
-                  const isWin = t.status === "Closed - WIN" || t.status === "win" || (t.rrGained && t.rrGained > 0);
-                  return (
-                    <div
-                      key={t.id || idx}
-                      className="p-3 rounded-xl bg-zinc-950 border border-zinc-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          t.direction === "BUY" ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" : "bg-rose-500/15 text-rose-400 border border-rose-500/30"
-                        }`}>
-                          {t.direction}
-                        </span>
-                        <span className="font-bold text-white">{t.pair}</span>
-                        <span className="text-[11px] text-zinc-400">· {t.setupType}</span>
-                      </div>
-
-                      <div className="flex items-center gap-3 text-[11px] text-zinc-400">
-                        <span>Entry: <strong className="text-zinc-200">{t.entryPrice}</strong></span>
-                        <span>Exit: <strong className="text-zinc-200">{t.closePrice || "—"}</strong></span>
-                        <span className={`px-2 py-0.5 rounded font-bold text-xs ${
-                          isWin ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40" : "bg-rose-500/20 text-rose-400 border border-rose-500/40"
-                        }`}>
-                          {t.rrGained > 0 ? `+${t.rrGained}R` : `${t.rrGained}R`}
-                        </span>
-                        <span className="text-[10px] text-zinc-400 font-mono">({t.closeReason})</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            <TradeHistory trades={performanceStats?.trades || []} />
           </div>
         )}
 
