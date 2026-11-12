@@ -109,6 +109,11 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
   viewStackRef.current = viewStack;
   const lastBackHandledAtRef = useRef<number>(0);
 
+  // Initialize root history frame
+  useEffect(() => {
+    window.history.replaceState({ tab: "terminal" }, "");
+  }, []);
+
   const pushView = useCallback((view: DrillDownView) => {
     setViewStack((prev) => {
       const next = [...prev, view];
@@ -129,6 +134,15 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
       return next;
     });
   }, []);
+
+  const switchTab = useCallback((tabId: BottomTabId) => {
+    if (tabId === activeTab && viewStack.length === 0) return;
+    if (viewStack.length > 0) {
+      setViewStack([]);
+    }
+    setActiveTab(tabId);
+    window.history.pushState({ tab: tabId }, "");
+  }, [activeTab, viewStack.length]);
 
   const [selectedPairIndex, setSelectedPairIndex] = useState<number>(0);
   const [copiedTradeId, setCopiedTradeId] = useState<string | null>(null);
@@ -308,9 +322,9 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
       if (now - lastBackHandledAtRef.current < 300) return;
       lastBackHandledAtRef.current = now;
 
-      // Priority 1: Check if a modal is currently open or just popped its history frame
-      if (e.state?.modalId) {
-        // Modal handles its own dismissal
+      // Priority 1: Check if a modal is currently open
+      if (typeof window !== "undefined" && (window as any).__apexActiveModalCount > 0) {
+        // Modal handles its own dismissal; do not pop view or change tab
         return;
       }
 
@@ -320,8 +334,10 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
         return;
       }
 
-      // Priority 3: Root tab behavior - return to Terminal rather than exiting
-      if (activeTab !== "terminal") {
+      // Priority 3: Root tab navigation via history state
+      if (e.state?.tab) {
+        setActiveTab(e.state.tab as BottomTabId);
+      } else if (activeTab !== "terminal") {
         setActiveTab("terminal");
       }
     };
@@ -336,6 +352,12 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
         const now = Date.now();
         if (now - lastBackHandledAtRef.current < 300) return;
         lastBackHandledAtRef.current = now;
+
+        // If modal open, let modal popstate / dismissal handle it
+        if (typeof window !== "undefined" && (window as any).__apexActiveModalCount > 0) {
+          window.history.back();
+          return;
+        }
 
         if (viewStackRef.current.length > 0) {
           window.history.back();
@@ -664,12 +686,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
             return (
               <button
                 key={tab.id}
-                onClick={() => {
-                  if (viewStack.length > 0) {
-                    setViewStack([]);
-                  }
-                  setActiveTab(tab.id as BottomTabId);
-                }}
+                onClick={() => switchTab(tab.id as BottomTabId)}
                 className={`py-1.5 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer ${
                   active
                     ? "text-emerald-400 font-bold"

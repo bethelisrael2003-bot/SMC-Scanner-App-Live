@@ -92,6 +92,10 @@ export const Modal: React.FC<ModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
 
+    if (typeof window !== "undefined") {
+      (window as any).__apexActiveModalCount = ((window as any).__apexActiveModalCount || 0) + 1;
+    }
+
     const historyKey = `apex_modal_${Date.now()}`;
     window.history.pushState({ modalId: historyKey }, "");
 
@@ -99,6 +103,9 @@ export const Modal: React.FC<ModalProps> = ({
 
     const handlePopState = () => {
       isDismissedByPop = true;
+      if (typeof window !== "undefined") {
+        (window as any).__apexActiveModalCount = Math.max(0, ((window as any).__apexActiveModalCount || 1) - 1);
+      }
       if (!isLoadingRef.current && !actionInProgressRef.current) {
         onCloseRef.current();
       }
@@ -108,9 +115,13 @@ export const Modal: React.FC<ModalProps> = ({
 
     return () => {
       window.removeEventListener("popstate", handlePopState);
-      // Clean up the history frame only if closed internally without a popstate event
-      if (!isDismissedByPop && window.history.state?.modalId === historyKey) {
-        window.history.back();
+      if (!isDismissedByPop) {
+        if (typeof window !== "undefined") {
+          (window as any).__apexActiveModalCount = Math.max(0, ((window as any).__apexActiveModalCount || 1) - 1);
+        }
+        if (window.history.state?.modalId === historyKey) {
+          window.history.back();
+        }
       }
     };
   }, [isOpen]);
