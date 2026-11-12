@@ -49,9 +49,10 @@ export interface TradeRecord {
 
 export interface TradeHistoryProps {
   trades: TradeRecord[];
+  onSelectTrade?: (tradeId: string) => void;
 }
 
-export const TradeHistory: React.FC<TradeHistoryProps> = ({ trades }) => {
+export const TradeHistory: React.FC<TradeHistoryProps> = ({ trades, onSelectTrade }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedPairFilter, setSelectedPairFilter] = useState("ALL");
   const [selectedOutcomeFilter, setSelectedOutcomeFilter] = useState("ALL");
@@ -184,7 +185,13 @@ export const TradeHistory: React.FC<TradeHistoryProps> = ({ trades }) => {
             return (
               <div
                 key={t.id || idx}
-                onClick={() => setInspectingTrade(t)}
+                onClick={() => {
+                  if (onSelectTrade) {
+                    onSelectTrade(t.id);
+                  } else {
+                    setInspectingTrade(t);
+                  }
+                }}
                 className="group p-2.5 sm:p-3 rounded-xl bg-[#0E131A] hover:bg-[#141B24] border border-[#1E2633] hover:border-zinc-700 transition-all duration-150 flex items-center justify-between gap-3 cursor-pointer select-none active:scale-[0.99]"
               >
                 {/* Left: Direction Pill, Pair, Date */}

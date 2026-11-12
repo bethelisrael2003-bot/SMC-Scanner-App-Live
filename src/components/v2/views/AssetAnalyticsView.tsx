@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from "react";
 import {
   ChevronLeft,
+  ChevronRight,
   Award,
   TrendingUp,
   TrendingDown,
@@ -34,6 +35,7 @@ export interface AssetAnalyticsProps {
   pairStat: any;
   trades: any[];
   allEquityPoints: any[];
+  onSelectTrade?: (tradeId: string) => void;
   onBack: () => void;
 }
 
@@ -42,6 +44,7 @@ export const AssetAnalyticsView: React.FC<AssetAnalyticsProps> = ({
   pairStat,
   trades,
   allEquityPoints,
+  onSelectTrade,
   onBack,
 }) => {
   const [periodFilter, setPeriodFilter] = useState<"7D" | "30D" | "ALL">("ALL");
@@ -701,7 +704,11 @@ export const AssetAnalyticsView: React.FC<AssetAnalyticsProps> = ({
               return (
                 <div
                   key={t.id || idx}
-                  className="p-2.5 sm:p-3 rounded-xl bg-[#0E131A] border border-[#1E2633] flex items-center justify-between gap-3"
+                  onClick={() => onSelectTrade && onSelectTrade(t.id)}
+                  className={`p-2.5 sm:p-3 rounded-xl bg-[#0E131A] border border-[#1E2633] flex items-center justify-between gap-3 ${
+                    onSelectTrade ? "hover:bg-[#141B24] hover:border-zinc-700 transition-all cursor-pointer group active:scale-[0.99] select-none" : ""
+                  }`}
+                  title="View forensic trade execution audit"
                 >
                   {/* Left: Direction Badge & Dates */}
                   <div className="flex items-center gap-2.5 min-w-0">
@@ -712,7 +719,9 @@ export const AssetAnalyticsView: React.FC<AssetAnalyticsProps> = ({
 
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <span className="font-bold text-white text-xs">{(t.setupType || "Setup").replace(/\s*\([^\)]*\)\s*/g, "").trim()}</span>
+                        <span className="font-bold text-white text-xs group-hover:text-cyan-400 transition-colors">
+                          {(t.setupType || "Setup").replace(/\s*\([^\)]*\)\s*/g, "").trim()}
+                        </span>
                       </div>
                       <div className="text-[10px] text-zinc-400 truncate">
                         {formatShortDate(t.closeTimestamp || t.timestamp)}
@@ -728,21 +737,25 @@ export const AssetAnalyticsView: React.FC<AssetAnalyticsProps> = ({
                   </div>
 
                   {/* Right: R-Multiple Badge & Close Reason */}
-                  <div className="text-right shrink-0">
-                    <span
-                      className={`text-xs font-bold px-2 py-0.5 rounded font-mono border inline-block tabular-nums ${
-                        isWin
-                          ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-                          : isBE
-                          ? "bg-zinc-800 text-zinc-300 border-zinc-700"
-                          : "bg-rose-500/15 text-rose-400 border-rose-500/30"
-                      }`}
-                    >
-                      {formatR(rVal)}
-                    </span>
-                    <span className="text-[10px] text-zinc-500 block uppercase mt-0.5">
-                      {t.closeReason || "CLOSED"}
-                    </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div className="text-right">
+                      <span
+                        className={`text-xs font-bold px-2 py-0.5 rounded font-mono border inline-block tabular-nums ${
+                          isWin
+                            ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                            : isBE
+                            ? "bg-zinc-800 text-zinc-300 border-zinc-700"
+                            : "bg-rose-500/15 text-rose-400 border-rose-500/30"
+                        }`}
+                      >
+                        {formatR(rVal)}
+                      </span>
+                      <span className="text-[10px] text-zinc-500 block uppercase mt-0.5">
+                        {t.closeReason || "CLOSED"}
+                      </span>
+                    </div>
+
+                    <ChevronRight className="w-3.5 h-3.5 text-zinc-600 group-hover:text-cyan-400 group-hover:translate-x-0.5 transition-all shrink-0" />
                   </div>
                 </div>
               );

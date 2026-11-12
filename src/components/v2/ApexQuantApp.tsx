@@ -39,6 +39,7 @@ import { SettingsDashboard } from "./SettingsDashboard";
 import { backCoordinator } from "./navigation/BackCoordinator";
 import { InstrumentWorkstationView } from "./views/InstrumentWorkstationView";
 import { AssetAnalyticsView } from "./views/AssetAnalyticsView";
+import { ForensicTradeDetailView } from "./views/ForensicTradeDetailView";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "https://smc-scanner-backend.onrender.com";
 
@@ -608,7 +609,10 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
             onSelectPair={(pair) => pushView({ type: "asset_analytics", pair })}
           />
 
-          <TradeHistory trades={performanceStats?.trades || []} />
+          <TradeHistory
+            trades={performanceStats?.trades || []}
+            onSelectTrade={(tradeId) => pushView({ type: "trade_detail", tradeId })}
+          />
         </div>
 
         {/* ========================================================== */}
@@ -694,6 +698,24 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
                     pairStat={pairStat}
                     trades={pairTrades}
                     allEquityPoints={performanceAnalytics?.equityCurve || []}
+                    onSelectTrade={(tradeId) => pushView({ type: "trade_detail", tradeId })}
+                    onBack={() => window.history.back()}
+                  />
+                );
+              }
+
+              if (currentView.type === "trade_detail") {
+                const targetTrade = (performanceStats?.trades || []).find(
+                  (t: any) => t.id === currentView.tradeId
+                ) || null;
+                const equityPoint = (performanceAnalytics?.equityCurve || []).find(
+                  (p: any) => p.tradeId === currentView.tradeId
+                ) || null;
+
+                return (
+                  <ForensicTradeDetailView
+                    trade={targetTrade}
+                    equityPoint={equityPoint}
                     onBack={() => window.history.back()}
                   />
                 );
