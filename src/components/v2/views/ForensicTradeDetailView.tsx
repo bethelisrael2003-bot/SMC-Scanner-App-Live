@@ -105,6 +105,92 @@ export const ForensicTradeDetailView: React.FC<ForensicTradeDetailProps> = ({
     return Number((rVal * 25.0).toFixed(2));
   }, [equityPoint, trade.dollarPnl, rVal]);
 
+  // Chronological Timestamp Relationship Validation
+  const timestampChronology = useMemo(() => {
+    if (!trade.timestamp && !trade.closeTimestamp) {
+      return {
+        status: "MISSING_BOTH",
+        isValid: false,
+        displayLabel: "Timestamps unavailable",
+        holdingDuration: null,
+        durationLabel: "Not recorded",
+        explanation: "Neither opening fill nor closing settlement timestamp was recorded in the trade log.",
+      };
+    }
+    if (!trade.timestamp) {
+      return {
+        status: "MISSING_OPEN",
+        isValid: false,
+        displayLabel: "Opening timestamp unavailable",
+        holdingDuration: null,
+        durationLabel: "Not recorded (Opening time missing)",
+        explanation: "Opening market fill timestamp is not recorded in the source log.",
+      };
+    }
+    if (!trade.closeTimestamp) {
+      return {
+        status: "MISSING_CLOSE",
+        isValid: false,
+        displayLabel: "Timestamp unavailable",
+        holdingDuration: null,
+        durationLabel: "Not recorded (Closing time missing)",
+        explanation: "Closing settlement timestamp is not recorded in the source log.",
+      };
+    }
+
+    const openMs = new Date(trade.timestamp).getTime();
+    const closeMs = new Date(trade.closeTimestamp).getTime();
+
+    if (isNaN(openMs) || isNaN(closeMs)) {
+      return {
+        status: "PARSE_ERROR",
+        isValid: false,
+        displayLabel: "Timestamp parsing error",
+        holdingDuration: null,
+        durationLabel: "Not recorded (Invalid format)",
+        explanation: "One or both timestamps cannot be parsed as valid ISO dates.",
+      };
+    }
+
+    if (closeMs > openMs) {
+      const diffMs = closeMs - openMs;
+      const totalMins = Math.floor(diffMs / (60 * 1000));
+      const hours = Math.floor(totalMins / 60);
+      const mins = totalMins % 60;
+      const duration = hours > 0 ? `${hours}h ${mins}m (Derived)` : `${mins}m (Derived)`;
+
+      return {
+        status: "VALID",
+        isValid: true,
+        displayLabel: trade.closeTimestamp,
+        holdingDuration: duration,
+        durationLabel: duration,
+        explanation: "Valid chronological settlement timestamp.",
+      };
+    }
+
+    if (closeMs === openMs) {
+      return {
+        status: "IDENTICAL",
+        isValid: false,
+        displayLabel: "Inconsistent (Identical to open timestamp)",
+        holdingDuration: null,
+        durationLabel: "Unavailable (Identical timestamps)",
+        explanation: `Closing timestamp is identical to opening fill time (${trade.closeTimestamp}); no distinct settlement timestamp was logged.`,
+      };
+    }
+
+    // closeMs < openMs
+    return {
+      status: "INVALID_CHRONOLOGY",
+      isValid: false,
+      displayLabel: "Chronologically invalid (Precedes open timestamp)",
+      holdingDuration: null,
+      durationLabel: "Chronologically invalid (Close < Open)",
+      explanation: `Closing timestamp (${trade.closeTimestamp}) chronologically precedes opening timestamp (${trade.timestamp}).`,
+    };
+  }, [trade.timestamp, trade.closeTimestamp]);
+
   // Comprehensive Data Integrity & Anomaly Detection
   const anomaly = useMemo(() => {
     const reasons: string[] = [];
@@ -112,6 +198,13 @@ export const ForensicTradeDetailView: React.FC<ForensicTradeDetailProps> = ({
     let isInitialSlInconsistent = false;
     let isTpInconsistent = false;
     let isExitInconsistent = false;
+
+    // Check chronological timestamp validity
+    if (!timestampChronology.isValid) {
+      if (timestampChronology.status === "IDENTICAL" || timestampChronology.status === "INVALID_CHRONOLOGY") {
+        reasons.push(timestampChronology.explanation);
+      }
+    }
 
     if (trade.direction === "BUY") {
       // For BUY: exit should be > entry for winning outcome / TP
@@ -185,25 +278,21 @@ export const ForensicTradeDetailView: React.FC<ForensicTradeDetailProps> = ({
       isInitialSlInconsistent,
       isTpInconsistent,
       isExitInconsistent,
+      isTimestampInconsistent: timestampChronology.status === "IDENTICAL",
+      isTimestampInvalid: timestampChronology.status === "INVALID_CHRONOLOGY",
     };
-  }, [trade.direction, trade.entryPrice, trade.closePrice, trade.initialSl, trade.tp1, trade.status, trade.closeReason, trade.id, rVal]);
-
-  // Position holding duration (derived strictly from valid, non-identical open and close timestamps)
-  const holdingDuration = useMemo(() => {
-    if (!trade.timestamp || !trade.closeTimestamp) return null;
-    const openMs = new Date(trade.timestamp).getTime();
-    const closeMs = new Date(trade.closeTimestamp).getTime();
-    const diffMs = closeMs - openMs;
-    if (diffMs <= 0 || isNaN(diffMs)) return null;
-
-    const totalMins = Math.floor(diffMs / (60 * 1000));
-    const hours = Math.floor(totalMins / 60);
-    const mins = totalMins % 60;
-    if (hours > 0) {
-      return `${hours}h ${mins}m (Derived)`;
-    }
-    return `${mins}m (Derived)`;
-  }, [trade.timestamp, trade.closeTimestamp]);
+  }, [
+    trade.direction,
+    trade.entryPrice,
+    trade.closePrice,
+    trade.initialSl,
+    trade.tp1,
+    trade.status,
+    trade.closeReason,
+    trade.id,
+    rVal,
+    timestampChronology,
+  ]);
 
   // Original risk in pips (derived calculation)
   const hasInitialSl = typeof trade.initialSl === "number" && !isNaN(trade.initialSl);
@@ -337,8 +426,16 @@ export const ForensicTradeDetailView: React.FC<ForensicTradeDetailProps> = ({
 
           <div className="p-2.5 rounded-xl bg-[#111721] border border-[#1A222F]">
             <span className="text-[10px] text-zinc-500 uppercase block">Holding Duration</span>
-            <span className="font-bold text-white mt-0.5 block">
-              {holdingDuration || (trade.timestamp === trade.closeTimestamp ? "Not recorded (Identical timestamps)" : "Not recorded")}
+            <span
+              className={`font-bold mt-0.5 block ${
+                timestampChronology.status === "INVALID_CHRONOLOGY"
+                  ? "text-rose-400"
+                  : timestampChronology.status === "IDENTICAL"
+                  ? "text-amber-400"
+                  : "text-white"
+              }`}
+            >
+              {timestampChronology.durationLabel}
             </span>
           </div>
 
@@ -446,9 +543,11 @@ export const ForensicTradeDetailView: React.FC<ForensicTradeDetailProps> = ({
             <span
               className={
                 typeof trade.fillDriftAtr === "number" && !isNaN(trade.fillDriftAtr)
-                  ? trade.fillDriftAtr >= 0
+                  ? trade.fillDriftAtr > 0
                     ? "text-emerald-400 font-bold"
-                    : "text-rose-400 font-bold"
+                    : trade.fillDriftAtr < 0
+                    ? "text-rose-400 font-bold"
+                    : "text-zinc-300 font-bold"
                   : "text-zinc-500 font-normal"
               }
             >
@@ -541,15 +640,33 @@ export const ForensicTradeDetailView: React.FC<ForensicTradeDetailProps> = ({
           <div className="relative">
             <span
               className={`absolute -left-6 top-1 w-2.5 h-2.5 rounded-full ring-4 ring-[#0E131A] ${
-                anomaly.hasAnomaly ? "bg-amber-400" : isWin ? "bg-emerald-400" : isBE ? "bg-zinc-400" : "bg-rose-400"
+                !timestampChronology.isValid
+                  ? timestampChronology.status === "INVALID_CHRONOLOGY"
+                    ? "bg-rose-400"
+                    : "bg-amber-400"
+                  : anomaly.hasAnomaly
+                  ? "bg-amber-400"
+                  : isWin
+                  ? "bg-emerald-400"
+                  : isBE
+                  ? "bg-zinc-400"
+                  : "bg-rose-400"
               }`}
             />
             <div className="text-xs font-bold text-white flex flex-col sm:flex-row sm:items-center justify-between gap-1">
               <span>
                 {(trade.breakevenTriggered || trade.closeReason === "BE") ? "4" : "3"}. Position Closed &amp; Settled
               </span>
-              <span className="text-[10px] text-zinc-300 font-mono font-normal">
-                {trade.closeTimestamp ? trade.closeTimestamp : "Timestamp unavailable"}
+              <span
+                className={`text-[10px] font-mono font-normal ${
+                  timestampChronology.isValid
+                    ? "text-zinc-300"
+                    : timestampChronology.status === "INVALID_CHRONOLOGY"
+                    ? "text-rose-400 font-semibold"
+                    : "text-amber-400 font-semibold"
+                }`}
+              >
+                {timestampChronology.displayLabel}
               </span>
             </div>
             <p className="text-[11px] text-zinc-400 font-sans mt-0.5 leading-relaxed">
@@ -563,6 +680,11 @@ export const ForensicTradeDetailView: React.FC<ForensicTradeDetailProps> = ({
                 {formatR(rVal)}
               </strong>{" "}
               ({dollarPnl >= 0 ? `+${formatUSD(dollarPnl)}` : formatUSD(dollarPnl)} derived at $25 risk parity).
+              {!timestampChronology.isValid && (
+                <span className="block mt-0.5 text-[10px] text-amber-300/80 font-sans">
+                  Note: {timestampChronology.explanation}
+                </span>
+              )}
             </p>
           </div>
         </div>
@@ -642,6 +764,8 @@ export const ForensicTradeDetailView: React.FC<ForensicTradeDetailProps> = ({
                 className={
                   anomaly.isExitInconsistent || anomaly.isTpInconsistent
                     ? "text-amber-400 font-bold"
+                    : trade.closeReason === "TP1" && !timestampChronology.isValid
+                    ? "text-amber-400 font-bold"
                     : trade.closeReason === "TP1" || rVal >= 0.5
                     ? "text-emerald-400 font-bold"
                     : "text-zinc-400"
@@ -649,6 +773,8 @@ export const ForensicTradeDetailView: React.FC<ForensicTradeDetailProps> = ({
               >
                 {anomaly.isExitInconsistent || anomaly.isTpInconsistent
                   ? "Unreconciled (Exit contradicts direction)"
+                  : trade.closeReason === "TP1" && !timestampChronology.isValid
+                  ? "Unreconciled (Closure timestamp inconsistent)"
                   : trade.closeReason === "TP1"
                   ? "REACHED & FILLED"
                   : rVal >= 0.5
