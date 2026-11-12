@@ -26,6 +26,9 @@ import {
 import { PushNotifications } from "@capacitor/push-notifications";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { LiveCandleChart } from "./LiveCandleChart";
+import { ActivePositionsHud } from "./ActivePositionsHud";
+import { MarketWatchlist } from "./MarketWatchlist";
+import { ConfluenceDashboard } from "./ConfluenceDashboard";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "https://smc-scanner-backend.onrender.com";
 
@@ -377,125 +380,23 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
         {/* ========================================================== */}
         {activeTab === "terminal" && (
           <div className="space-y-4">
-            {/* ── Active Open Positions on Broker (LIVE COMMAND HUD) ── */}
-            {capitalStatus?.openPositions && capitalStatus.openPositions.length > 0 ? (
-              <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-950/40 via-zinc-900/90 to-emerald-950/40 border border-emerald-500/50 shadow-lg space-y-3 font-mono">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>
-                    <span className="text-xs font-bold text-white uppercase tracking-wider">
-                      LIVE RUNNING POSITION ({capitalStatus.openPositions.length}/2 Active)
-                    </span>
-                  </div>
-                  <span className="text-[10px] text-zinc-400">Capital.com Broker Deal</span>
-                </div>
+            {/* 1. Live Active Broker Positions Command HUD (with Confirmation Modals) */}
+            <ActivePositionsHud
+              openPositions={capitalStatus?.openPositions || []}
+              onClosePosition={closeCapitalTrade}
+              onUpdateStop={moveTradeToBreakeven}
+            />
 
-                {capitalStatus.openPositions.map((pos: any) => {
-                  const isUp = Number(pos.upl) >= 0;
-                  return (
-                    <div key={pos.dealId} className="p-3.5 rounded-xl bg-zinc-950 border border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <span className={`px-2.5 py-1 rounded-lg text-xs font-bold ${
-                          pos.direction === "BUY" ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40" : "bg-rose-500/20 text-rose-400 border border-rose-500/40"
-                        }`}>
-                          {pos.direction}
-                        </span>
-                        <div>
-                          <div className="font-bold text-white text-sm flex items-center gap-2">
-                            <span>{pos.pair}</span>
-                            <span className="text-xs text-zinc-400">({pos.size} {pos.pair.includes("XAU") || pos.pair.includes("XAG") ? "Oz" : "Units"})</span>
-                          </div>
-                          <div className="text-[11px] text-zinc-400 mt-0.5">
-                            Entry: <strong className="text-zinc-200">{pos.entryPrice}</strong> · SL: <strong className="text-rose-400">{pos.stopLevel || "—"}</strong> · TP: <strong className="text-emerald-400">{pos.profitLevel || "—"}</strong>
-                          </div>
-                        </div>
-                      </div>
+            {/* 2. Core Institutional Watchlist Carousel */}
+            <MarketWatchlist
+              profiles={DEDICATED_PROFILES}
+              selectedIndex={selectedPairIndex}
+              onSelect={setSelectedPairIndex}
+              confluenceData={confluenceData}
+              spreadArmorData={spreadArmorData}
+            />
 
-                      <div className="flex items-center gap-3 flex-wrap sm:flex-nowrap justify-between sm:justify-end">
-                        <div className="text-right">
-                          <span className={`text-base font-black ${isUp ? "text-emerald-400" : "text-rose-400"}`}>
-                            {isUp ? `+$${Number(pos.upl).toFixed(2)}` : `-$${Math.abs(Number(pos.upl)).toFixed(2)}`} USD
-                          </span>
-                          <span className="text-[10px] text-zinc-500 block">Floating P&amp;L</span>
-                        </div>
-
-                        <div className="flex items-center gap-1.5">
-                          {pos.entryPrice && pos.stopLevel && (
-                            <button
-                              onClick={() => moveTradeToBreakeven(pos.dealId, Number(pos.entryPrice))}
-                              disabled={movingBeDealId === pos.dealId}
-                              className="px-3 py-1.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-300 text-xs font-bold transition-all cursor-pointer whitespace-nowrap"
-                            >
-                              {movingBeDealId === pos.dealId ? "Moving..." : "Lock BE"}
-                            </button>
-                          )}
-                          <button
-                            onClick={() => closeCapitalTrade(pos.dealId)}
-                            disabled={closingDealId === pos.dealId}
-                            className="px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white border border-rose-500/40 text-xs font-bold transition-all cursor-pointer whitespace-nowrap"
-                          >
-                            {closingDealId === pos.dealId ? "Closing..." : "Close at Market"}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
-
-            {/* 4-Asset Grid Selector */}
-            <div>
-              <div className="text-[11px] uppercase font-mono text-zinc-400 mb-2 flex items-center justify-between">
-                <span>Core Institutional Universe</span>
-                <span className="text-zinc-500">4 Monitored Pairs</span>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                {DEDICATED_PROFILES.map((p, idx) => {
-                  const active = selectedPairIndex === idx;
-                  const cData = (confluenceData?.pairs || []).find((x: any) => x.pair === p.pair);
-                  const isBull = cData?.checks?.[0]?.includes("BULLISH");
-                  const live = cData?.livePrice;
-
-                  return (
-                    <button
-                      key={p.pair}
-                      onClick={() => setSelectedPairIndex(idx)}
-                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer relative ${
-                        active
-                          ? "bg-zinc-900 border-zinc-600 shadow-sm"
-                          : "bg-zinc-950/60 border-zinc-800/80 hover:border-zinc-700"
-                      }`}
-                    >
-                      <div className="flex justify-between items-start mb-1.5">
-                        <span className="font-mono font-bold text-white text-xs">{p.pair}</span>
-                        <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded font-semibold ${
-                          cData?.confluenceGrade && cData.confluenceGrade !== "WAIT"
-                            ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
-                            : "bg-zinc-900 text-zinc-400 border border-zinc-800"
-                        }`}>
-                          {cData?.confluenceGrade || "WAIT"}
-                        </span>
-                      </div>
-
-                      <div className="text-[11px] font-mono text-zinc-300 font-semibold">
-                        {live ? live.bid : "—"}
-                      </div>
-
-                      <div className="flex justify-between items-center text-[10px] font-mono text-zinc-400 mt-1">
-                        <span>Spread: {live?.spread_pips ?? "—"}p</span>
-                        <span className={isBull ? "text-emerald-400" : "text-rose-400"}>
-                          {isBull ? "▲ Bull" : "▼ Bear"}
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Live Interactive TradingView Candlestick Chart */}
+            {/* 3. Live Interactive TradingView Candlestick Chart */}
             <LiveCandleChart
               pair={activeProfile.pair}
               timeframe={chartTimeframe}
@@ -506,95 +407,16 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
               sweepPrice={currentConf?.sweptLevel || null}
             />
 
-            {/* Selected Asset Analysis Card */}
-            <div className="bg-zinc-900/70 border border-zinc-800 rounded-2xl p-4 sm:p-5 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-base font-bold text-white font-mono">{activeProfile.pair}</h2>
-                    <span className="text-xs text-zinc-400">· {activeProfile.name}</span>
-                  </div>
-                  <div className="text-xs font-mono text-zinc-400 mt-0.5">
-                    Live Bid: <span className="text-white font-semibold">{currentConf?.livePrice?.bid || "—"}</span> · Ask: <span className="text-white font-semibold">{currentConf?.livePrice?.ask || "—"}</span> · Spread: <span className="text-emerald-400 font-semibold">{currentConf?.livePrice?.spread_pips ?? "—"} pips</span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 self-start sm:self-auto">
-                  <div className="px-3 py-1.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-mono">
-                    <span className="text-zinc-500">Spread Armor: </span>
-                    <span className={currentArmor?.isLocked ? "text-rose-400 font-bold" : "text-emerald-400 font-bold"}>
-                      {currentArmor?.status || "SAFE"} ({activeProfile.spreadThreshold}p Max)
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Execution Status / Setup Card */}
-              {currentConf?.confluenceGrade && currentConf.confluenceGrade !== "WAIT" && currentConf.entryPrice ? (
-                <div className="p-4 rounded-xl bg-emerald-950/20 border border-emerald-500/40 space-y-3 font-mono">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-emerald-400 font-bold uppercase tracking-wide">
-                      HIGH-CONVICTION EXECUTION PLAN ({currentConf.confluenceGrade})
-                    </span>
-                    <button
-                      onClick={() => copyToClipboard(`EXECUTE ${currentConf.direction} ${activeProfile.pair} @ ${currentConf.entryPrice} | SL: ${currentConf.sl} | TP1: ${currentConf.tp1} | TP2: ${currentConf.tp2}`, "plan")}
-                      className="text-xs flex items-center gap-1 text-zinc-400 hover:text-white"
-                    >
-                      {copiedTradeId === "plan" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>Copy Order</span>
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                    <div className="p-2.5 rounded-lg bg-zinc-900/80 border border-zinc-800">
-                      <span className="text-zinc-500 text-[10px] block">DIRECTION</span>
-                      <span className="font-bold text-white text-sm">{currentConf.direction}</span>
-                    </div>
-                    <div className="p-2.5 rounded-lg bg-zinc-900/80 border border-zinc-800">
-                      <span className="text-zinc-500 text-[10px] block">ENTRY</span>
-                      <span className="font-bold text-white text-sm">{currentConf.entryPrice}</span>
-                    </div>
-                    <div className="p-2.5 rounded-lg bg-zinc-900/80 border border-zinc-800">
-                      <span className="text-zinc-500 text-[10px] block">STOP LOSS</span>
-                      <span className="font-bold text-rose-400 text-sm">{currentConf.sl}</span>
-                    </div>
-                    <div className="p-2.5 rounded-lg bg-zinc-900/80 border border-zinc-800">
-                      <span className="text-zinc-500 text-[10px] block">TAKE PROFIT 1</span>
-                      <span className="font-bold text-emerald-400 text-sm">{currentConf.tp1}</span>
-                    </div>
-                  </div>
-
-                  <div className="text-xs text-zinc-300 p-2.5 rounded-lg bg-zinc-900/50 border border-zinc-800/80">
-                    <span className="font-bold text-amber-400">Fixed $25 Sizing: </span>
-                    Execute with target risk normalized to $25.00 flat USD. Move stop to Breakeven automatically at 1:1 R:R.
-                  </div>
-                </div>
-              ) : (
-                <div className="p-4 rounded-xl bg-zinc-950/70 border border-zinc-800/80 space-y-3 font-mono">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-zinc-400 font-bold uppercase tracking-wider">
-                      Market Structure &amp; Confluence Status
-                    </span>
-                    <span className="text-xs px-2 py-0.5 rounded bg-zinc-900 text-zinc-400 border border-zinc-800">
-                      {currentConf?.confluenceGrade || "WAIT"}
-                    </span>
-                  </div>
-
-                  <p className="text-xs text-zinc-300 leading-relaxed">
-                    {currentConf?.reasoning || "Market is currently outside active kill zone or observing weekend market closure. Capital preserved with 0% risk allocated."}
-                  </p>
-
-                  {/* Checklist Items */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-1">
-                    {(currentConf?.checks || []).map((check: string, idx: number) => (
-                      <div key={idx} className="p-2 rounded-lg bg-zinc-900/60 border border-zinc-800/60 text-zinc-300">
-                        {check}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
+            {/* 4. Four-Pillar Visual Confluence & Market Structure Cockpit */}
+            <ConfluenceDashboard
+              pair={activeProfile.pair}
+              pairName={activeProfile.name}
+              confluenceRecord={currentConf}
+              armorStatus={currentArmor?.status || "SAFE"}
+              maxSafeSpread={activeProfile.spreadThreshold}
+              onCopyOrder={(text) => copyToClipboard(text, "plan")}
+              copiedOrder={copiedTradeId === "plan"}
+            />
           </div>
         )}
 
