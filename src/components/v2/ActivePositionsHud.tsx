@@ -20,12 +20,14 @@ export interface ActivePositionsHudProps {
   onUpdateStop: (dealId: string, entryPrice: number, profitLevel?: number) => Promise<void>;
   isClosing?: boolean;
   isUpdatingBe?: boolean;
+  onOpenPositionWorkstation?: (dealId: string) => void;
 }
 
 export const ActivePositionsHud: React.FC<ActivePositionsHudProps> = ({
   openPositions,
   onClosePosition,
   onUpdateStop,
+  onOpenPositionWorkstation,
 }) => {
   const [confirmClosePos, setConfirmClosePos] = useState<ActivePosition | null>(null);
   const [confirmBePos, setConfirmBePos] = useState<ActivePosition | null>(null);
@@ -96,7 +98,10 @@ export const ActivePositionsHud: React.FC<ActivePositionsHudProps> = ({
               key={pos.dealId}
               variant="highlight"
               padding="sm"
-              className="border-emerald-500/40 bg-gradient-to-r from-emerald-950/20 via-[#0E131A] to-emerald-950/20"
+              interactive={!!onOpenPositionWorkstation}
+              onClick={() => onOpenPositionWorkstation && onOpenPositionWorkstation(pos.dealId)}
+              className="border-emerald-500/40 bg-gradient-to-r from-emerald-950/20 via-[#0E131A] to-emerald-950/20 cursor-pointer group"
+              title="Inspect Live Deal Forensics"
             >
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-1">
                 {/* Left: Direction & Pair Info */}
@@ -108,9 +113,14 @@ export const ActivePositionsHud: React.FC<ActivePositionsHudProps> = ({
 
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-white tracking-tight">{pos.pair}</span>
+                      <span className="text-sm font-bold text-white tracking-tight group-hover:text-emerald-300 transition-colors">
+                        {pos.pair}
+                      </span>
                       <span className="text-xs text-zinc-400">
                         {pos.size} {unitLabel}
+                      </span>
+                      <span className="text-[10px] text-emerald-400/80 font-sans hidden sm:inline group-hover:underline">
+                        Inspect Telemetry →
                       </span>
                     </div>
                     <div className="text-[11px] text-zinc-400 flex flex-wrap items-center gap-2 mt-0.5">
@@ -140,9 +150,12 @@ export const ActivePositionsHud: React.FC<ActivePositionsHudProps> = ({
                         type="button"
                         variant="secondary"
                         size="sm"
-                        onClick={() => setConfirmBePos(pos)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setConfirmBePos(pos);
+                        }}
                         icon={<Lock className="w-3 h-3 text-cyan-400" />}
-                        title="Move Stop Loss to Entry Price (Zero Risk)"
+                        title="Move Stop Loss to Entry Price"
                       >
                         Lock BE
                       </Button>
@@ -152,7 +165,10 @@ export const ActivePositionsHud: React.FC<ActivePositionsHudProps> = ({
                       type="button"
                       variant="destructive"
                       size="sm"
-                      onClick={() => setConfirmClosePos(pos)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConfirmClosePos(pos);
+                      }}
                       icon={<XCircle className="w-3 h-3" />}
                     >
                       Close at Market

@@ -43,6 +43,7 @@ export interface InstrumentWorkstationProps {
   scannedAt?: string;
   onBack: () => void;
   onAuditConfluence?: (pair: string) => void;
+  onOpenPositionWorkstation?: (dealId: string) => void;
 }
 
 export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = ({
@@ -58,6 +59,7 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
   scannedAt,
   onBack,
   onAuditConfluence,
+  onOpenPositionWorkstation,
 }) => {
   const [chartTimeframe, setChartTimeframe] = useState<"M15" | "H1" | "H4">("M15");
 
@@ -425,6 +427,21 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
                 </span>
               </div>
             </div>
+
+            {onOpenPositionWorkstation && (
+              <div className="pt-2 border-t border-emerald-500/30">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  fullWidth
+                  onClick={() => onOpenPositionWorkstation(activePosition.dealId)}
+                  icon={<Activity className="w-3.5 h-3.5 text-emerald-400" />}
+                >
+                  INSPECT LIVE DEAL FORENSICS →
+                </Button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="p-4 rounded-xl bg-[#111721] border border-[#1A222F] text-center space-y-1 py-5">

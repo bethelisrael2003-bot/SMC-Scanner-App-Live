@@ -42,6 +42,7 @@ import { AssetAnalyticsView } from "./views/AssetAnalyticsView";
 import { ForensicTradeDetailView } from "./views/ForensicTradeDetailView";
 import { MacroEventIntelligenceView } from "./views/MacroEventIntelligenceView";
 import { SignalIntelligenceView } from "./views/SignalIntelligenceView";
+import { LivePositionWorkstationView } from "./views/LivePositionWorkstationView";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "https://smc-scanner-backend.onrender.com";
 
@@ -101,7 +102,8 @@ export type DrillDownView =
   | { type: "asset_analytics"; pair: string }
   | { type: "trade_detail"; tradeId: string }
   | { type: "macro_event"; eventId: string }
-  | { type: "signal_intelligence"; pair: string };
+  | { type: "signal_intelligence"; pair: string }
+  | { type: "live_position"; dealId: string };
 
 const isNativePlatform = () => {
   return typeof window !== "undefined" &&
@@ -560,6 +562,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
             openPositions={capitalStatus?.openPositions || []}
             onClosePosition={closeCapitalTrade}
             onUpdateStop={moveTradeToBreakeven}
+            onOpenPositionWorkstation={(dealId) => pushView({ type: "live_position", dealId })}
           />
 
           {/* 2. Core Institutional Watchlist Carousel */}
@@ -689,6 +692,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
                     scannedAt={confluenceData?.scannedAt}
                     onBack={() => window.history.back()}
                     onAuditConfluence={(pair) => pushView({ type: "signal_intelligence", pair })}
+                    onOpenPositionWorkstation={(dealId) => pushView({ type: "live_position", dealId })}
                   />
                 );
               }
@@ -763,6 +767,25 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
                     spreadArmorData={spreadArmorData}
                     scannedAt={confluenceData?.scannedAt}
                     onBack={() => window.history.back()}
+                    onOpenInstrumentWorkstation={(pair) => pushView({ type: "instrument_workstation", pair })}
+                  />
+                );
+              }
+
+              if (currentView.type === "live_position") {
+                return (
+                  <LivePositionWorkstationView
+                    dealId={currentView.dealId}
+                    openPositions={capitalStatus?.openPositions || []}
+                    trades={performanceStats?.trades || []}
+                    confluenceData={confluenceData}
+                    spreadArmorData={spreadArmorData}
+                    economicEvents={economicEvents}
+                    accountBalance={liveBalance}
+                    onClosePosition={closeCapitalTrade}
+                    onUpdateStop={moveTradeToBreakeven}
+                    onBack={() => window.history.back()}
+                    onOpenSignalIntelligence={(pair) => pushView({ type: "signal_intelligence", pair })}
                     onOpenInstrumentWorkstation={(pair) => pushView({ type: "instrument_workstation", pair })}
                   />
                 );
