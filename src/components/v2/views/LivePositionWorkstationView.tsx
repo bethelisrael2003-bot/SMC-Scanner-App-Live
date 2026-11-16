@@ -1,3 +1,14 @@
+/**
+ * LivePositionWorkstationView.tsx
+ * Phase C (Part 6): Full-Screen Live Position Forensics & Trade Defense Workstation.
+ *
+ * Operational Governance:
+ * - Ordinary viewing is read-only and observational.
+ * - Manual trade interventions (Close Position and Lock Breakeven) require explicit Level-2
+ *   confirmation and strictly reuse existing Phase A handlers with synchronous re-entrancy locks
+ *   and native Android Back dismissal. No new execution handlers are created.
+ */
+
 import React, { useState, useMemo, useEffect } from "react";
 import {
   ChevronLeft,
@@ -406,7 +417,7 @@ export const LivePositionWorkstationView: React.FC<LivePositionWorkstationProps>
             </div>
 
             <Badge variant="neutral" size="sm">
-              Open Positions: 0 of 2 Max
+              Open Positions: 0 of 2
             </Badge>
           </div>
 
@@ -422,12 +433,12 @@ export const LivePositionWorkstationView: React.FC<LivePositionWorkstationProps>
             </div>
 
             <div className="p-3 rounded-xl bg-[#111721] border border-[#1A222F]">
-              <span className="text-[10px] text-zinc-500 uppercase block font-bold">Active Exposure</span>
-              <span className="text-sm font-bold text-emerald-400 mt-1 block tabular-nums">
-                0 Active Deals
+              <span className="text-[10px] text-zinc-500 uppercase block font-bold">Open Positions</span>
+              <span className="text-sm font-bold text-white mt-1 block tabular-nums">
+                0 of 2
               </span>
               <span className="text-[10px] text-zinc-500 font-sans block mt-0.5">
-                0.00R active position risk
+                Maximum 2 concurrent trades
               </span>
             </div>
 
@@ -447,7 +458,7 @@ export const LivePositionWorkstationView: React.FC<LivePositionWorkstationProps>
               Institutional Monitoring Notice
             </div>
             <p>
-              Autonomous cloud scanning engine is monitoring all 4 core markets (EUR/USD, GBP/JPY, XAU/USD, XAG/USD). Trades execute automatically when confirmed setups satisfy the 80% confluence threshold.
+              Autonomous cloud scanning engine is actively monitoring all 4 core markets (EUR/USD, GBP/JPY, XAU/USD, XAG/USD) across autonomous strategy engines. Standing guards and risk parameters remain actively enforced.
             </p>
           </div>
         </Card>
@@ -870,7 +881,7 @@ export const LivePositionWorkstationView: React.FC<LivePositionWorkstationProps>
         <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-[10px] text-zinc-400 font-sans flex items-start gap-2">
           <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
           <span>
-            <strong>Safety Protocol:</strong> All manual actions re-use the approved Phase A confirmation modals with synchronous re-entrancy locks and native Android Back dismissal. Zero unconfirmed mutating actions exist on this workstation.
+            <strong>Operational Governance:</strong> Ordinary viewing is strictly read-only and observational. Manual risk interventions (Close Position and Lock Breakeven) require explicit confirmation and reuse approved Phase A handlers with synchronous re-entrancy protection and native Android Back dismissal. Zero unconfirmed mutating actions exist on this workstation.
           </span>
         </div>
       </Card>
