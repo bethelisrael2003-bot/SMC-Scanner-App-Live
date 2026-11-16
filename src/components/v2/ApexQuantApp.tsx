@@ -43,6 +43,8 @@ import { ForensicTradeDetailView } from "./views/ForensicTradeDetailView";
 import { MacroEventIntelligenceView } from "./views/MacroEventIntelligenceView";
 import { SignalIntelligenceView } from "./views/SignalIntelligenceView";
 import { LivePositionWorkstationView } from "./views/LivePositionWorkstationView";
+import { AdvancedChartRoomView } from "./views/AdvancedChartRoomView";
+import { Card, Badge, Button, formatUSD, formatPairPrice } from "./ui";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "https://smc-scanner-backend.onrender.com";
 
@@ -103,7 +105,8 @@ export type DrillDownView =
   | { type: "trade_detail"; tradeId: string }
   | { type: "macro_event"; eventId: string }
   | { type: "signal_intelligence"; pair: string }
-  | { type: "live_position"; dealId: string };
+  | { type: "live_position"; dealId: string }
+  | { type: "advanced_chart"; pair: string; timeframe?: string };
 
 const isNativePlatform = () => {
   return typeof window !== "undefined" &&
@@ -565,38 +568,109 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
             onOpenPositionWorkstation={(dealId) => pushView({ type: "live_position", dealId })}
           />
 
-          {/* 2. Core Institutional Watchlist Carousel */}
+          {/* 2. Core Institutional Watchlist (4 Markets Overview with Direct Navigation) */}
           <MarketWatchlist
             profiles={DEDICATED_PROFILES}
             selectedIndex={selectedPairIndex}
             onSelect={setSelectedPairIndex}
             onOpenWorkstation={(pair) => pushView({ type: "instrument_workstation", pair })}
+            onOpenAdvancedChart={(pair) => pushView({ type: "advanced_chart", pair })}
             confluenceData={confluenceData}
             spreadArmorData={spreadArmorData}
           />
 
-          {/* 3. Live Interactive TradingView Candlestick Chart */}
-          <LiveCandleChart
-            pair={activeProfile.pair}
-            timeframe={chartTimeframe}
-            onTimeframeChange={setChartTimeframe}
-            entryPrice={currentConf?.entryPrice}
-            slPrice={currentConf?.sl}
-            tpPrice={currentConf?.tp1}
-            sweepPrice={currentConf?.sweptLevel || null}
-          />
+          {/* 3. Institutional Market Monitoring & System Defense Dashboard */}
+          <Card variant="default" padding="md" className="space-y-3 font-mono">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-[#1E2633]">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                  Institutional Market Monitoring &amp; Capital Defense
+                </h3>
+              </div>
+              <Badge variant="neutral" size="xs">
+                Real-Time Telemetry
+              </Badge>
+            </div>
 
-          {/* 4. Four-Pillar Visual Confluence & Market Structure Cockpit */}
-          <ConfluenceDashboard
-            pair={activeProfile.pair}
-            pairName={activeProfile.name}
-            confluenceRecord={currentConf}
-            armorStatus={currentArmor?.status || "SAFE"}
-            maxSafeSpread={activeProfile.spreadThreshold}
-            onCopyOrder={(text) => copyToClipboard(text, "plan")}
-            copiedOrder={copiedTradeId === "plan"}
-            onOpenSignalIntelligence={(pair) => pushView({ type: "signal_intelligence", pair })}
-          />
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              <div className="p-2.5 rounded-xl bg-[#111721] border border-[#1A222F] space-y-1">
+                <span className="text-[10px] text-zinc-500 uppercase block font-bold">Account Cash Balance</span>
+                <span className="font-bold text-white text-sm block tabular-nums">
+                  {formatUSD(liveBalance)}
+                </span>
+                <span className="text-[10px] text-zinc-500 block truncate">
+                  Authoritative Broker Equity
+                </span>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-[#111721] border border-[#1A222F] space-y-1">
+                <span className="text-[10px] text-zinc-500 uppercase block font-bold">Dynamic Spread Armor</span>
+                <div className="flex items-center gap-1.5">
+                  <span className={`w-2 h-2 rounded-full ${spreadArmorData?.armorActive ? "bg-emerald-400" : "bg-amber-400"}`} />
+                  <span className="font-bold text-white text-sm block">
+                    {spreadArmorData?.armorActive ? "ARMED" : "OFFLINE"}
+                  </span>
+                </div>
+                <span className="text-[10px] text-zinc-500 block truncate">
+                  Guard 1: 4 Pairs Safe
+                </span>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-[#111721] border border-[#1A222F] space-y-1">
+                <span className="text-[10px] text-zinc-500 uppercase block font-bold">News Lockout Guard</span>
+                <div className="flex items-center gap-1.5">
+                  <span className={`w-2 h-2 rounded-full ${economicEvents?.isLockoutActive ? "bg-rose-400 animate-pulse" : "bg-cyan-400"}`} />
+                  <span className={`font-bold text-sm block ${economicEvents?.isLockoutActive ? "text-rose-400" : "text-white"}`}>
+                    {economicEvents?.isLockoutActive ? "LOCKOUT" : "RADAR ACTIVE"}
+                  </span>
+                </div>
+                <span className="text-[10px] text-zinc-500 block truncate">
+                  Guard 2 / 2B Pre-Event Shield
+                </span>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-[#111721] border border-[#1A222F] space-y-1">
+                <span className="text-[10px] text-zinc-500 uppercase block font-bold">Portfolio Concurrency</span>
+                <span className="font-bold text-white text-sm block tabular-nums">
+                  {capitalStatus?.openPositionsCount ?? 0} of 2 Active
+                </span>
+                <span className="text-[10px] text-zinc-500 block truncate">
+                  $25.00 Flat Risk Parity
+                </span>
+              </div>
+            </div>
+
+            {/* Quick-Launch Command Bar to Dedicated Workstations & Chart Room */}
+            <div className="p-2 rounded-xl bg-zinc-950 border border-zinc-800/80 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span className="text-[11px] text-zinc-400 font-sans">
+                Dedicated Workstations:
+              </span>
+
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {DEDICATED_PROFILES.map((p) => (
+                  <button
+                    key={p.pair}
+                    onClick={() => pushView({ type: "instrument_workstation", pair: p.pair })}
+                    className="px-2 py-1 rounded-lg bg-[#111721] hover:bg-[#1A222F] border border-[#1E2633] text-[10px] font-bold text-zinc-300 hover:text-white transition-all cursor-pointer flex items-center gap-1"
+                    title={`Open ${p.pair} APEX Intelligence Workstation`}
+                  >
+                    <span>{p.pair}</span>
+                    <span className="text-emerald-400">WS</span>
+                  </button>
+                ))}
+
+                <button
+                  onClick={() => pushView({ type: "advanced_chart", pair: activeProfile.pair })}
+                  className="px-2.5 py-1 rounded-lg bg-cyan-950/40 hover:bg-cyan-900/60 border border-cyan-500/40 text-[10px] font-bold text-cyan-300 hover:text-white transition-all cursor-pointer flex items-center gap-1 shadow-sm"
+                  title="Open Dedicated Full-Screen Advanced Chart Room"
+                >
+                  <Activity className="w-3 h-3 text-cyan-400" />
+                  <span>CHART ROOM ({activeProfile.pair}) →</span>
+                </button>
+              </div>
+            </div>
+          </Card>
         </div>
 
         {/* ========================================================== */}
@@ -693,6 +767,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
                     onBack={() => window.history.back()}
                     onAuditConfluence={(pair) => pushView({ type: "signal_intelligence", pair })}
                     onOpenPositionWorkstation={(dealId) => pushView({ type: "live_position", dealId })}
+                    onOpenAdvancedChart={(pair) => pushView({ type: "advanced_chart", pair })}
                   />
                 );
               }
@@ -786,6 +861,21 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
                     onUpdateStop={moveTradeToBreakeven}
                     onBack={() => window.history.back()}
                     onOpenSignalIntelligence={(pair) => pushView({ type: "signal_intelligence", pair })}
+                    onOpenInstrumentWorkstation={(pair) => pushView({ type: "instrument_workstation", pair })}
+                  />
+                );
+              }
+
+              if (currentView.type === "advanced_chart") {
+                const confRecord = (confluenceData?.pairs || []).find((p: any) => p.pair === currentView.pair) || null;
+                return (
+                  <AdvancedChartRoomView
+                    pair={currentView.pair}
+                    initialTimeframe={(currentView.timeframe as any) || "H1"}
+                    confluenceRecord={confRecord}
+                    capitalStatus={capitalStatus}
+                    spreadArmorData={spreadArmorData}
+                    onBack={() => window.history.back()}
                     onOpenInstrumentWorkstation={(pair) => pushView({ type: "instrument_workstation", pair })}
                   />
                 );

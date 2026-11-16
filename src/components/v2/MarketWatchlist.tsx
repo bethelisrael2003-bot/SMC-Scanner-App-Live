@@ -1,5 +1,5 @@
 import React from "react";
-import { TrendingUp, TrendingDown, ShieldCheck, AlertCircle } from "lucide-react";
+import { TrendingUp, TrendingDown, ShieldCheck, AlertCircle, LineChart, Compass } from "lucide-react";
 import { Card, Badge, formatPairPrice } from "./ui";
 
 export interface PairProfile {
@@ -15,6 +15,7 @@ export interface MarketWatchlistProps {
   selectedIndex: number;
   onSelect: (index: number) => void;
   onOpenWorkstation?: (pair: string) => void;
+  onOpenAdvancedChart?: (pair: string) => void;
   confluenceData: any;
   spreadArmorData: any;
 }
@@ -24,6 +25,7 @@ export const MarketWatchlist: React.FC<MarketWatchlistProps> = ({
   selectedIndex,
   onSelect,
   onOpenWorkstation,
+  onOpenAdvancedChart,
   confluenceData,
   spreadArmorData,
 }) => {
@@ -103,6 +105,37 @@ export const MarketWatchlist: React.FC<MarketWatchlistProps> = ({
                   R: {formatPairPrice(profile.pair, pairData.m15Low)} – {formatPairPrice(profile.pair, pairData.m15High)}
                 </div>
               )}
+
+              {/* Action Buttons: Workstation & Chart */}
+              <div className="grid grid-cols-2 gap-1 mt-2 pt-1.5 border-t border-[#1E2633]/80">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelect(idx);
+                    if (onOpenWorkstation) onOpenWorkstation(profile.pair);
+                  }}
+                  className="px-1.5 py-1 rounded bg-[#111721] hover:bg-[#1A222F] border border-[#1E2633] hover:border-zinc-700 text-[10px] font-bold text-zinc-300 hover:text-white transition-all cursor-pointer flex items-center justify-center gap-1"
+                  title="Open APEX Intelligence Workstation"
+                >
+                  <Compass className="w-2.5 h-2.5 text-emerald-400 shrink-0" />
+                  <span>WS</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelect(idx);
+                    if (onOpenAdvancedChart) onOpenAdvancedChart(profile.pair);
+                  }}
+                  className="px-1.5 py-1 rounded bg-cyan-950/30 hover:bg-cyan-900/50 border border-cyan-500/30 hover:border-cyan-500/60 text-[10px] font-bold text-cyan-300 hover:text-white transition-all cursor-pointer flex items-center justify-center gap-1"
+                  title="Open Dedicated Full-Screen Advanced Chart Room"
+                >
+                  <LineChart className="w-2.5 h-2.5 text-cyan-400 shrink-0" />
+                  <span>CHART</span>
+                </button>
+              </div>
             </Card>
           );
         })}
