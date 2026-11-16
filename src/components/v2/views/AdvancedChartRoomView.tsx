@@ -60,6 +60,7 @@ export type DrawingType = "horizontal" | "trendline";
 
 export interface ChartDrawing {
   id: string;
+  pair: string; // Strictly scoped to specific instrument (e.g. EUR/USD)
   type: DrawingType;
   label: string;
   color: string;
@@ -181,8 +182,18 @@ export const AdvancedChartRoomView: React.FC<AdvancedChartRoomProps> = ({
   const [showSmcLevels, setShowSmcLevels] = useState<boolean>(true);
   const [showExtremes, setShowExtremes] = useState<boolean>(true);
 
-  // Advanced Observational Drawing Layer State
-  const [drawings, setDrawings] = useState<ChartDrawing[]>([]);
+  // Advanced Observational Drawing Layer State (Session-Preserved & Instrument-Scoped)
+  const [drawings, setDrawings] = useState<ChartDrawing[]>(() => {
+    if (typeof window !== "undefined" && window.sessionStorage) {
+      try {
+        const saved = sessionStorage.getItem("apex_chart_drawings");
+        return saved ? JSON.parse(saved) : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  });
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
   const [showDrawingTools, setShowDrawingTools] = useState<boolean>(false);
   const [activeDrawingMode, setActiveDrawingMode] = useState<DrawingType | null>(null);
@@ -575,10 +586,13 @@ export const AdvancedChartRoomView: React.FC<AdvancedChartRoomProps> = ({
   const renderUserDrawings = useCallback(() => {
     if (!candleSeriesRef.current || !chartRef.current) return;
 
-    // 1. Clean up removed horizontal price lines
-    const currentDrawingIds = new Set(drawings.map((d) => d.id));
+    // Filter drawings strictly for active instrument
+    const visibleDrawings = drawings.filter((d) => d.pair === activePair);
+    const visibleDrawingIds = new Set(visibleDrawings.map((d) => d.id));
+
+    // 1. Clean up removed or off-pair horizontal price lines
     userPriceLinesMapRef.current.forEach((priceLine, id) => {
-      if (!currentDrawingIds.has(id)) {
+      if (!visibleDrawingIds.has(id)) {
         try {
           candleSeriesRef.current.removePriceLine(priceLine);
         } catch {
@@ -588,9 +602,9 @@ export const AdvancedChartRoomView: React.FC<AdvancedChartRoomProps> = ({
       }
     });
 
-    // 2. Clean up removed trendline series
+    // 2. Clean up removed or off-pair trendline series
     userTrendlineSeriesMapRef.current.forEach((series, id) => {
-      if (!currentDrawingIds.has(id)) {
+      if (!visibleDrawingIds.has(id)) {
         try {
           chartRef.current.removeSeries(series);
         } catch {
@@ -600,8 +614,8 @@ export const AdvancedChartRoomView: React.FC<AdvancedChartRoomProps> = ({
       }
     });
 
-    // 3. Render or update active drawings
-    for (const d of drawings) {
+    // 3. Render visible drawings for the active pair
+    for (const d of visibleDrawings) {
       const isSelected = selectedDrawingId === d.id;
 
       if (d.type === "horizontal" && d.price && d.price > 0) {
@@ -668,7 +682,7 @@ export const AdvancedChartRoomView: React.FC<AdvancedChartRoomProps> = ({
         }
       }
     }
-  }, [drawings, selectedDrawingId]);
+  }, [drawings, selectedDrawingId, activePair]);
 
   // Initial and reactive fetch
   useEffect(() => {
@@ -694,6 +708,7 @@ export const AdvancedChartRoomView: React.FC<AdvancedChartRoomProps> = ({
 
     const newDrawing: ChartDrawing = {
       id: `draw_h_${Date.now()}`,
+      pair: activePair,
       type: "horizontal",
       label: newDrawingLabel || label,
       color: newDrawingColor,
@@ -701,7 +716,13 @@ export const AdvancedChartRoomView: React.FC<AdvancedChartRoomProps> = ({
       createdAt: Date.now(),
     };
 
-    setDrawings((prev) => [...prev, newDrawing]);
+    setDrawings((prev) => {
+      const next = [...prev, newDrawing];
+      try {
+        sessionStorage.setItem("apex_chart_drawings", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
     setSelectedDrawingId(newDrawing.id);
     setNewHorizPrice("");
     setActiveDrawingMode(null);
@@ -724,6 +745,7 @@ export const AdvancedChartRoomView: React.FC<AdvancedChartRoomProps> = ({
 
       const newDrawing: ChartDrawing = {
         id: `draw_tl_${Date.now()}`,
+        pair: activePair,
         type: "trendline",
         label: `Ascending Support Trendline`,
         color: "#10B981",
@@ -733,7 +755,13 @@ export const AdvancedChartRoomView: React.FC<AdvancedChartRoomProps> = ({
         p2: p2Candle.low,
         createdAt: Date.now(),
       };
-      setDrawings((prev) => [...prev, newDrawing]);
+      setDrawings((prev) => {
+        const next = [...prev, newDrawing];
+        try {
+          sessionStorage.setItem("apex_chart_drawings", JSON.stringify(next));
+        } catch {}
+        return next;
+      });
       setSelectedDrawingId(newDrawing.id);
     } else {
       // Connect highest high to recent high
@@ -746,6 +774,7 @@ export const AdvancedChartRoomView: React.FC<AdvancedChartRoomProps> = ({
 
       const newDrawing: ChartDrawing = {
         id: `draw_tl_${Date.now()}`,
+        pair: activePair,
         type: "trendline",
         label: `Descending Resistance Trendline`,
         color: "#F43F5E",
@@ -755,7 +784,13 @@ export const AdvancedChartRoomView: React.FC<AdvancedChartRoomProps> = ({
         p2: p2Candle.high,
         createdAt: Date.now(),
       };
-      setDrawings((prev) => [...prev, newDrawing]);
+      setDrawings((prev) => {
+        const next = [...prev, newDrawing];
+        try {
+          sessionStorage.setItem("apex_chart_drawings", JSON.stringify(next));
+        } catch {}
+        return next;
+      });
       setSelectedDrawingId(newDrawing.id);
     }
     setActiveDrawingMode(null);
@@ -763,13 +798,25 @@ export const AdvancedChartRoomView: React.FC<AdvancedChartRoomProps> = ({
 
   // Delete Individual Drawing
   const handleDeleteDrawing = (id: string) => {
-    setDrawings((prev) => prev.filter((d) => d.id !== id));
+    setDrawings((prev) => {
+      const next = prev.filter((d) => d.id !== id);
+      try {
+        sessionStorage.setItem("apex_chart_drawings", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
     if (selectedDrawingId === id) setSelectedDrawingId(null);
   };
 
   // Clear All Drawings
   const handleClearAllDrawings = () => {
-    setDrawings([]);
+    setDrawings((prev) => {
+      const next = prev.filter((d) => d.pair !== activePair);
+      try {
+        sessionStorage.setItem("apex_chart_drawings", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
     setSelectedDrawingId(null);
   };
 
@@ -929,7 +976,7 @@ export const AdvancedChartRoomView: React.FC<AdvancedChartRoomProps> = ({
               title="Toggle Institutional Drawing Layer"
             >
               <PenTool className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Drawings {drawings.length > 0 ? `(${drawings.length})` : ""}</span>
+              <span>Drawings {drawings.filter((d) => d.pair === activePair).length > 0 ? `(${drawings.filter((d) => d.pair === activePair).length})` : ""}</span>
             </button>
 
             <button
@@ -1049,13 +1096,13 @@ export const AdvancedChartRoomView: React.FC<AdvancedChartRoomProps> = ({
                 </span>
               </div>
 
-              {drawings.length > 0 && (
+              {drawings.filter((d) => d.pair === activePair).length > 0 && (
                 <button
                   onClick={handleClearAllDrawings}
                   className="px-2 py-0.5 rounded bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-500/30 text-[10px] font-bold cursor-pointer transition-all flex items-center gap-1"
                 >
                   <Trash2 className="w-3 h-3" />
-                  <span>Clear All ({drawings.length})</span>
+                  <span>Clear ({drawings.filter((d) => d.pair === activePair).length})</span>
                 </button>
               )}
             </div>
@@ -1159,15 +1206,16 @@ export const AdvancedChartRoomView: React.FC<AdvancedChartRoomProps> = ({
               </div>
             )}
 
-            {/* Active Drawing Objects Manager & Selector */}
-            {drawings.length > 0 && (
+            {/* Active Drawing Objects Manager & Selector (Instrument Scoped) */}
+            {drawings.filter((d) => d.pair === activePair).length > 0 && (
               <div className="space-y-1.5 pt-1 border-t border-zinc-800">
-                <span className="text-[10px] text-zinc-500 uppercase font-bold block">
-                  Active Objects ({drawings.length} on canvas):
-                </span>
+                <div className="flex items-center justify-between text-[10px] text-zinc-500 uppercase font-bold">
+                  <span>Active Objects ({activePair}): {drawings.filter((d) => d.pair === activePair).length} on canvas</span>
+                  <span className="text-[9px] text-cyan-400/80 font-mono">Instrument-Scoped · Session-Preserved</span>
+                </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-36 overflow-y-auto">
-                  {drawings.map((d) => {
+                  {drawings.filter((d) => d.pair === activePair).map((d) => {
                     const isSelected = selectedDrawingId === d.id;
                     return (
                       <div
