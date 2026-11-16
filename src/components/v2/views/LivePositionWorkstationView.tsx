@@ -7,6 +7,12 @@
  * - Manual trade interventions (Close Position and Lock Breakeven) require explicit Level-2
  *   confirmation and strictly reuse existing Phase A handlers with synchronous re-entrancy locks
  *   and native Android Back dismissal. No new execution handlers are created.
+ *
+ * Broker Tick-Size Safeguard:
+ * - Authoritative Capital.com dealing rules (/api/v1/markets/{epic}) are not currently integrated.
+ * - Stop confirmation is withheld ("STOP STATUS UNAVAILABLE — BROKER TICK SIZE UNVERIFIED") to prevent
+ *   false breakeven or profit stop confirmations based on unverified precision assumptions.
+ * - Raw broker entry and stop levels remain visible and clearly distinguished from classification.
  */
 
 import React, { useState, useMemo, useEffect } from "react";
@@ -70,7 +76,9 @@ export interface LivePositionWorkstationProps {
   onOpenInstrumentWorkstation?: (pair: string) => void;
 }
 
-// ── Instrument Precision & Multiplier Map ───────────────────────────────
+// ── Instrument Precision & Multiplier Map (Unverified Display Heuristic) ──
+// NOTE: Precision below reflects decimal display formatting only and does NOT
+// represent verified Capital.com dealing rules or permitted order tick increments.
 function getInstrumentPrecision(pair: string): { precision: number; tickSize: number; pipSize: number } {
   const p = (pair || "").toUpperCase();
   if (p.includes("JPY")) return { precision: 3, tickSize: 0.001, pipSize: 0.01 };
@@ -165,20 +173,39 @@ export function evaluateLiveRMultiple(
   };
 }
 
-// ── Tick-Aware Stop Classification (Normalized Integer Ticks) ────────────
+// ── Tick-Aware Stop Classification Safeguard ─────────────────────────────
+// NOTE: Until authoritative permitted tick-size metadata is available from
+// Capital.com dealing rules, stop confirmation is withheld to prevent false
+// breakeven or profit stop confirmations based on unverified assumptions.
 export function classifyBrokerStopByTick(
   direction: "BUY" | "SELL" | string,
   entryPrice: number | null | undefined,
   stopLevel: number | null | undefined,
   initialSl: number | null | undefined,
-  precision: number
+  precision: number,
+  authoritativeTickSizeVerified: boolean = false
 ): { status: string; label: string; badgeVariant: "success" | "warning" | "danger" | "neutral" } {
+  // Missing or invalid stopLevel
+  if (typeof stopLevel !== "number" || !Number.isFinite(stopLevel) || stopLevel <= 0) {
+    return { status: "UNAVAILABLE", label: "STOP STATUS UNAVAILABLE", badgeVariant: "neutral" };
+  }
+
+  // Missing or invalid entryPrice or direction
   if (
     typeof entryPrice !== "number" || !Number.isFinite(entryPrice) || entryPrice <= 0 ||
-    typeof stopLevel !== "number" || !Number.isFinite(stopLevel) || stopLevel <= 0 ||
     (direction !== "BUY" && direction !== "SELL")
   ) {
     return { status: "UNAVAILABLE", label: "STOP STATUS UNAVAILABLE", badgeVariant: "neutral" };
+  }
+
+  // Mandatory Safeguard: Authoritative broker tick-size metadata is currently unverified.
+  // Until authoritative Capital.com dealing rules are integrated, never produce confirmed breakeven or profit stop.
+  if (!authoritativeTickSizeVerified) {
+    return {
+      status: "UNAVAILABLE",
+      label: "STOP STATUS UNAVAILABLE — BROKER TICK SIZE UNVERIFIED",
+      badgeVariant: "neutral",
+    };
   }
 
   const multiplier = Math.pow(10, precision);
@@ -305,7 +332,7 @@ export const LivePositionWorkstationView: React.FC<LivePositionWorkstationProps>
     );
   }, [activePosition, initialSl, liveBid, liveAsk, freshness.isFresh]);
 
-  // Tick-Aware Stop Confirmation Status
+  // Tick-Aware Stop Confirmation Status (Safeguarded: Authoritative tick-size unverified)
   const stopClassification = useMemo(() => {
     if (!activePosition) return { status: "UNAVAILABLE", label: "STOP STATUS UNAVAILABLE", badgeVariant: "neutral" as const };
     return classifyBrokerStopByTick(
@@ -313,7 +340,8 @@ export const LivePositionWorkstationView: React.FC<LivePositionWorkstationProps>
       activePosition.entryPrice,
       activePosition.stopLevel,
       initialSl,
-      precision
+      precision,
+      false // Authoritative Capital.com tick-size dealing rules currently unverified in app
     );
   }, [activePosition, initialSl, precision]);
 
@@ -568,7 +596,8 @@ export const LivePositionWorkstationView: React.FC<LivePositionWorkstationProps>
             <span className="text-[10px] text-zinc-500 uppercase block">Stop Confirmation</span>
             <span className={`font-bold text-xs mt-0.5 block truncate ${
               stopClassification.badgeVariant === "success" ? "text-emerald-400" :
-              stopClassification.badgeVariant === "danger" ? "text-rose-400" : "text-amber-400"
+              stopClassification.badgeVariant === "danger" ? "text-rose-400" :
+              stopClassification.badgeVariant === "warning" ? "text-amber-400" : "text-zinc-400"
             }`}>
               {stopClassification.label}
             </span>
@@ -658,8 +687,13 @@ export const LivePositionWorkstationView: React.FC<LivePositionWorkstationProps>
             </div>
           </div>
 
-          <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-[10px] text-zinc-400 font-sans">
-            <strong className="text-zinc-300">Stop Defense Notice:</strong> Confirmed breakeven stops represent stop order placement at entry price on Capital.com. This does not guarantee zero monetary loss, as spread friction, financing rollover fees, and execution slippage remain possible.
+          <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-[10px] text-zinc-400 font-sans space-y-1">
+            <div>
+              <strong className="text-zinc-300">Observed Broker Stop vs Classification:</strong> Raw broker stop and entry prices above reflect live order values reported by Capital.com. Automated stop confirmation is currently withheld (&quot;STOP STATUS UNAVAILABLE — BROKER TICK SIZE UNVERIFIED&quot;) because authoritative broker dealing rules and permitted price increments are not currently available in the application.
+            </div>
+            <div>
+              <strong className="text-zinc-300">Stop Defense Notice:</strong> Breakeven stops on Capital.com do not guarantee zero monetary loss, as spread friction, financing rollover fees, and execution slippage remain possible.
+            </div>
           </div>
         </div>
       </Card>
