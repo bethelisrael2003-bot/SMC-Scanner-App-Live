@@ -100,6 +100,8 @@ export interface ExnessInstrumentCondition {
   volumeMax: number;
   volumeStep: number;
   marginPercent?: number;
+  swapLong?: number;
+  swapShort?: number;
 }
 
 export interface ExnessAckResponse {
@@ -681,6 +683,55 @@ export class ExnessBrokerAdapter {
       usedMargin,
       freeMargin: equity - usedMargin,
       tradeMode: "trading_enabled",
+    };
+  }
+
+  /**
+   * Fetches official trading conditions and specifications for an instrument.
+   */
+  public async getInstrumentConditions(pairOrInstrument: string): Promise<ExnessInstrumentCondition> {
+    const cleanInstrument = APEX_TO_EXNESS_MAP[pairOrInstrument] || pairOrInstrument.replace("/", "");
+    if (this.isSimulationMode) {
+      return EXNESS_INSTRUMENT_SPECS[cleanInstrument] || {
+        instrument: cleanInstrument,
+        pointDigits: 5,
+        contractSize: 100000,
+        volumeMin: 0.01,
+        volumeMax: 200,
+        volumeStep: 0.01,
+      };
+    }
+
+    const accessPoint = await this.resolveAccessPoint();
+    const path = `/v1/configuration/accounts/${this.config.accountId}/instruments/${cleanInstrument}/conditions`;
+    const headers = generateSignedHeaders({
+      apiKey: this.config.apiKey,
+      privateKey: this.privateKeyObj!,
+      method: "GET",
+      pathWithQuery: path,
+    });
+
+    const res = await fetch(`${accessPoint}${path}`, {
+      method: "GET",
+      headers,
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!res.ok) {
+      throw new Error(`Exness getInstrumentConditions failed for ${cleanInstrument}: HTTP ${res.status}`);
+    }
+
+    const data = (await res.json()) as any;
+    return {
+      instrument: data.instrument || cleanInstrument,
+      pointDigits: data.point_digits ?? 5,
+      contractSize: parseFloat(data.contract_size || "100000"),
+      volumeMin: parseFloat(data.volume_min || "0.01"),
+      volumeMax: parseFloat(data.volume_max || "200"),
+      volumeStep: parseFloat(data.volume_step || "0.01"),
+      marginPercent: data.margin_percent ? parseFloat(data.margin_percent) : 1.0,
+      swapLong: data.swap_long ? parseFloat(data.swap_long) : undefined,
+      swapShort: data.swap_short ? parseFloat(data.swap_short) : undefined,
     };
   }
 
