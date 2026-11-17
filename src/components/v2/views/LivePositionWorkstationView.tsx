@@ -440,7 +440,7 @@ export const LivePositionWorkstationView: React.FC<LivePositionWorkstationProps>
                 </h1>
               </div>
               <p className="text-xs text-zinc-400 mt-1 font-sans">
-                Account has no open market commitments on Capital.com demo.
+                Account has no open market commitments on Exness Demo (or Capital.com demo).
               </p>
             </div>
 
@@ -542,6 +542,9 @@ export const LivePositionWorkstationView: React.FC<LivePositionWorkstationProps>
               </h1>
               <Badge variant="neutral" size="xs">
                 {activePosition.size} {unitLabel}
+              </Badge>
+              <Badge variant="neutral" size="xs" className="font-mono text-[10px]">
+                {activePosition.broker || "Exness Demo"}
               </Badge>
               <Badge variant="neutral" size="xs" className="font-mono text-[10px]">
                 Deal: {activePosition.dealId.slice(0, 16)}...
@@ -934,7 +937,7 @@ export const LivePositionWorkstationView: React.FC<LivePositionWorkstationProps>
           confirmClosePos && (
             <div className="space-y-2.5 mt-1 font-sans">
               <p className="text-zinc-200">
-                You are about to close your active <strong>{confirmClosePos.pair} {confirmClosePos.direction}</strong> position at market price on Capital.com.
+                You are about to close your active <strong>{confirmClosePos.pair} {confirmClosePos.direction}</strong> position at market price on {confirmClosePos.broker || "broker"}.
               </p>
               <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-mono space-y-1.5">
                 <div className="flex justify-between items-center">
@@ -984,7 +987,7 @@ export const LivePositionWorkstationView: React.FC<LivePositionWorkstationProps>
           confirmBePos && (
             <div className="space-y-2.5 mt-1 font-sans">
               <p className="text-zinc-200">
-                You are about to adjust your active <strong>{confirmBePos.pair} {confirmBePos.direction}</strong> Stop Loss directly to your entry fill price on Capital.com.
+                You are about to adjust your active <strong>{confirmBePos.pair} {confirmBePos.direction}</strong> Stop Loss directly to your entry fill price on {confirmBePos.broker || "broker"}.
               </p>
               <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-mono space-y-1.5">
                 <div className="flex justify-between items-center">
@@ -1005,7 +1008,7 @@ export const LivePositionWorkstationView: React.FC<LivePositionWorkstationProps>
               )}
 
               <p className="text-[11px] text-zinc-400 leading-tight">
-                Adjusts stop level on Capital.com broker order. Your Take Profit level will remain strictly preserved.
+                Adjusts stop level on {confirmBePos.broker || "broker"} order. Your Take Profit level will remain strictly preserved.
               </p>
             </div>
           )

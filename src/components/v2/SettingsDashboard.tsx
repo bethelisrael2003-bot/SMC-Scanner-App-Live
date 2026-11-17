@@ -93,7 +93,7 @@ export const SettingsDashboard: React.FC<SettingsDashboardProps> = ({
               </h2>
             </div>
             <p className="text-xs text-zinc-400 mt-1 font-sans leading-relaxed">
-              24/7 automated background execution connecting to Capital.com REST API.
+              24/7 automated background execution connecting to Exness Trading API.
             </p>
           </div>
           <div className="shrink-0 pt-0.5">
@@ -107,7 +107,7 @@ export const SettingsDashboard: React.FC<SettingsDashboardProps> = ({
           <div className="p-3 rounded-xl bg-[#111721] border border-[#1A222F]">
             <span className="text-[10px] text-zinc-500 uppercase block">Broker Target Account</span>
             <span className="text-sm font-bold text-white mt-0.5 block">{brokerAccount}</span>
-            <span className="text-[10px] text-zinc-400 mt-1 block">Capital.com Demo CFD</span>
+            <span className="text-[10px] text-zinc-400 mt-1 block">Exness Trading API Demo</span>
           </div>
 
           <div className="p-3 rounded-xl bg-[#111721] border border-[#1A222F]">
@@ -122,7 +122,7 @@ export const SettingsDashboard: React.FC<SettingsDashboardProps> = ({
           <div>
             <span className="text-xs font-bold text-white block">Automated Broker Execution</span>
             <p className="text-[11px] text-zinc-400 font-sans mt-0.5">
-              Fires confirmed Grade A+ / Grade A setups on Capital.com demo
+              Fires confirmed Grade A+ / Grade A setups on Exness demo via direct Trading API
             </p>
           </div>
 
@@ -155,7 +155,7 @@ export const SettingsDashboard: React.FC<SettingsDashboardProps> = ({
         description={
           <div className="space-y-2.5 mt-1 font-sans">
             <p className="text-zinc-200">
-              Automated broker execution will allow the 24/7 cloud engine to autonomously place Capital.com demo CFD orders when confirmed <strong>Grade A+ / Grade A setups</strong> satisfy the <strong>80% confluence threshold</strong>.
+              Automated broker execution will allow the 24/7 cloud engine to autonomously place Exness demo orders when confirmed <strong>Grade A+ / Grade A setups</strong> satisfy the <strong>80% confluence threshold</strong>.
             </p>
             <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-[11px] font-mono space-y-1 text-zinc-400">
               <div className="text-zinc-300 font-bold uppercase text-[10px] tracking-wider mb-1">
@@ -199,7 +199,7 @@ export const SettingsDashboard: React.FC<SettingsDashboardProps> = ({
                 Existing Position Defense:
               </div>
               <p className="text-zinc-300">
-                Any currently open broker positions will <strong>remain open</strong> and continue to be defended by their native Capital.com Stop Loss and Take Profit orders, plus cloud profit defense trailing guards.
+                Any currently open broker positions will <strong>remain open</strong> and continue to be defended by their native broker Stop Loss and Take Profit orders, plus cloud profit defense trailing guards.
               </p>
             </div>
 

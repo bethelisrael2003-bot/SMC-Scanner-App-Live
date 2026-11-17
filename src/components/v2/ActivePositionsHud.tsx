@@ -85,13 +85,13 @@ export const ActivePositionsHud: React.FC<ActivePositionsHudProps> = ({
               Live Broker Position ({openPositions.length}/2 Concurrency)
             </span>
           </div>
-          <Badge variant="neutral" size="xs">Capital.com Demo</Badge>
+          <Badge variant="neutral" size="xs">{openPositions[0]?.broker || "Exness Demo"}</Badge>
         </div>
 
         {openPositions.map((pos) => {
           const isProfit = Number(pos.upl) >= 0;
           const isBuy = pos.direction === "BUY";
-          const unitLabel = pos.pair.includes("XAU") || pos.pair.includes("XAG") ? "Oz" : "Units";
+          const unitLabel = pos.unitLabel || (pos.pair.includes("XAU") || pos.pair.includes("XAG") ? "Oz" : (pos.broker?.includes("Exness") ? "Lots" : "Units"));
 
           return (
             <Card

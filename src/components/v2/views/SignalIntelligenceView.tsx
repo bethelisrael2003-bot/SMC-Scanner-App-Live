@@ -625,7 +625,7 @@ export const SignalIntelligenceView: React.FC<SignalIntelligenceProps> = ({
             </h3>
           </div>
           <Badge variant={activePosition ? "success" : "neutral"} size="xs">
-            {activePosition ? "OPEN ON CAPITAL.COM" : "NO OPEN POSITION"}
+            {activePosition ? (activePosition.broker ? `OPEN ON ${activePosition.broker.toUpperCase()}` : "OPEN ON BROKER") : "NO OPEN POSITION"}
           </Badge>
         </div>
 

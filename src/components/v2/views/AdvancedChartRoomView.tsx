@@ -54,7 +54,7 @@ import {
 import { Card, Badge, Button, formatPairPrice, formatUSD } from "../ui";
 import { backCoordinator } from "../navigation/BackCoordinator";
 
-export type SupportedTimeframe = "M1" | "M15" | "H1" | "H4" | "D1";
+export type SupportedTimeframe = "M1" | "M5" | "M15" | "M30" | "H1" | "H4" | "D1";
 
 export type DrawingType = "horizontal" | "trendline";
 
@@ -93,7 +93,9 @@ const SUPPORTED_PAIRS = [
 
 const TIMEFRAMES: { id: SupportedTimeframe; label: string; desc: string; supported: boolean }[] = [
   { id: "M1", label: "M1", desc: "1 Minute", supported: true },
+  { id: "M5", label: "M5", desc: "5 Minutes", supported: true },
   { id: "M15", label: "M15", desc: "15 Minutes", supported: true },
+  { id: "M30", label: "M30", desc: "30 Minutes", supported: true },
   { id: "H1", label: "H1", desc: "1 Hour", supported: true },
   { id: "H4", label: "H4", desc: "4 Hours", supported: true },
   { id: "D1", label: "D1", desc: "Daily", supported: true },
@@ -903,7 +905,7 @@ export const AdvancedChartRoomView: React.FC<AdvancedChartRoomProps> = ({
 
             {activePosition && (
               <Badge variant="success" size="xs">
-                OPEN DEAL ON CAPITAL.COM
+                {activePosition.broker ? `OPEN DEAL ON ${activePosition.broker.toUpperCase()}` : "OPEN DEAL ON BROKER"}
               </Badge>
             )}
           </div>
@@ -954,14 +956,6 @@ export const AdvancedChartRoomView: React.FC<AdvancedChartRoomProps> = ({
                 </button>
               );
             })}
-
-            {/* Unsupported Timeframes Explicit Flag */}
-            <span
-              className="text-[10px] text-zinc-600 px-1.5 py-1 rounded cursor-not-allowed select-none line-through"
-              title="M5 & M30 are currently unmapped in Capital.com backend feed"
-            >
-              M5/M30
-            </span>
           </div>
 
           {/* Action Buttons: Drawing Layer, Fit & Expand */}
@@ -1330,7 +1324,7 @@ export const AdvancedChartRoomView: React.FC<AdvancedChartRoomProps> = ({
               Market Datafeed Origin
             </span>
             <p>
-              Candles stream from Capital.com Demo REST API (endpoint: <code className="text-cyan-400 font-mono text-[10px]">/api/candles/{encodeURIComponent(activePair)}/{timeframe}</code>). Chart candles represent indicative broker pricing for structural chart analysis.
+              Candles stream via Exness Trading API &amp; APEX market data engine (endpoint: <code className="text-cyan-400 font-mono text-[10px]">/api/candles/{encodeURIComponent(activePair)}/{timeframe}</code>). Native M5 &amp; M30 timeframes enabled.
             </p>
           </div>
 

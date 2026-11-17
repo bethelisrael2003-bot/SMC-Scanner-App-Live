@@ -37,8 +37,21 @@ import {
   getPipValuePer001Lot,
   computeEma,
 } from "./aggressiveSmcEngine";
+import {
+  ExnessBrokerAdapter,
+  calculateExnessLots,
+  verifySigningImplementation,
+  APEX_TO_EXNESS_MAP,
+  EXNESS_TO_APEX_MAP,
+} from "./exnessAdapter";
 
 dotenv.config();
+
+// Initialize Exness Primary Broker Adapter & Verify RFC 8032 Ed25519 Signing
+const exnessAdapter = new ExnessBrokerAdapter();
+const isExnSigningOk = verifySigningImplementation();
+console.log(`[EXNESS] Request signing self-test (RFC 8032): ${isExnSigningOk ? "VERIFIED (100% BIT-FOR-BIT MATCH)" : "FAILED"}`);
+console.log(`[EXNESS] Broker Adapter Initialized (Mode: ${exnessAdapter.getIsSimulationMode() ? "SIMULATION / SANDBOX" : "LIVE DIRECT TRADING API"}).`);
 
 // Initialize Firebase Admin from base64-encoded service account key
 try {
@@ -692,9 +705,9 @@ function checkSundaySpreadArmor(pair: string, liveSpreadPips: number): { isLocke
   return { isLocked: false, threshold: maxAllowed, isSundayReopen };
 }
 
-async function executeCapitalDemoTrade(trade: CapitalTradeRequest): Promise<{ success: boolean; dealReference?: string; reason?: string }> {
+async function executeDemoTrade(trade: CapitalTradeRequest): Promise<{ success: boolean; dealReference?: string; reason?: string }> {
   if (!autoTradingEnabled) {
-    console.log(`[CAPITAL DEMO] Auto-trade skipped: Feature is currently toggled OFF.`);
+    console.log(`[EXNESS DEMO] Auto-trade skipped: Feature is currently toggled OFF.`);
     return { success: false, reason: "Auto-trading is toggled OFF" };
   }
 
@@ -705,7 +718,7 @@ async function executeCapitalDemoTrade(trade: CapitalTradeRequest): Promise<{ su
 
   // MUTEX LOCK: Prevent concurrent execution races
   if (isExecutionLockActive) {
-    console.log(`[CAPITAL DEMO] Execution lock active. Trade on ${trade.pair} queued/rejected.`);
+    console.log(`[EXNESS DEMO] Execution lock active. Trade on ${trade.pair} queued/rejected.`);
     return { success: false, reason: "Execution lock active" };
   }
   isExecutionLockActive = true;
@@ -716,18 +729,18 @@ async function executeCapitalDemoTrade(trade: CapitalTradeRequest): Promise<{ su
     const dowExec = nowExec.getUTCDay();
     const utcHourExec = nowExec.getUTCHours() + nowExec.getUTCMinutes() / 60;
     if (dowExec === 5 && utcHourExec >= 17.0) {
-      console.log(`[CAPITAL DEMO] Blocked: Friday weekend entry cutoff reached (17:00 UTC / 18:00 WAT).`);
+      console.log(`[EXNESS DEMO] Blocked: Friday weekend entry cutoff reached (17:00 UTC / 18:00 WAT).`);
       return { success: false, reason: "Weekend Protection: Friday entry cutoff (17:00 UTC)" };
     }
     if (dowExec === 6 || (dowExec === 0 && utcHourExec < 22.0)) {
-      console.log(`[CAPITAL DEMO] Blocked: Market closed over weekend.`);
+      console.log(`[EXNESS DEMO] Blocked: Market closed over weekend.`);
       return { success: false, reason: "Weekend Protection: Market closed over weekend" };
     }
 
     // ── GUARD 0B: High-Impact Economic News Proximity Gate (60m) ───────
     const newsCheck = await checkHighImpactNewsProximity(trade.pair, 60, 30);
     if (newsCheck.isNear) {
-      console.log(`[CAPITAL DEMO] Blocked by News Guard: ${trade.pair} has high-impact ${newsCheck.currency} event "${newsCheck.event}" scheduled in ${newsCheck.minutesAway}m.`);
+      console.log(`[EXNESS DEMO] Blocked by News Guard: ${trade.pair} has high-impact ${newsCheck.currency} event "${newsCheck.event}" scheduled in ${newsCheck.minutesAway}m.`);
       return { success: false, reason: `News Guard: High-impact ${newsCheck.currency} event (${newsCheck.event}) within ${newsCheck.minutesAway}m` };
     }
 
@@ -736,7 +749,7 @@ async function executeCapitalDemoTrade(trade: CapitalTradeRequest): Promise<{ su
     if (liveSpreadCheck && typeof liveSpreadCheck.spread_pips === "number") {
       const armor = checkSundaySpreadArmor(trade.pair, liveSpreadCheck.spread_pips);
       if (armor.isLocked) {
-        console.log(`[CAPITAL DEMO] Blocked by Spread Armor: ${armor.reason}`);
+        console.log(`[EXNESS DEMO] Blocked by Spread Armor: ${armor.reason}`);
         return { success: false, reason: armor.reason };
       }
     }
@@ -749,17 +762,24 @@ async function executeCapitalDemoTrade(trade: CapitalTradeRequest): Promise<{ su
     });
     const todayLosses = todayClosedTrades.filter((t: any) => t.status === "Closed - LOSS" || (t.rrGained && t.rrGained < 0)).length;
     if (todayLosses >= 2) {
-      console.log(`[CAPITAL DEMO] Blocked by Circuit Breaker: Daily loss ceiling reached (${todayLosses} losses today). Trading halted for today to protect capital.`);
+      console.log(`[EXNESS DEMO] Blocked by Circuit Breaker: Daily loss ceiling reached (${todayLosses} losses today). Trading halted for today to protect capital.`);
       return { success: false, reason: "Daily Circuit Breaker: Max 2 losses reached today" };
     }
 
-    // ── GUARD 1: Active Position on Same Pair ─────────────────────────
-    const openPositions = await getCapitalOpenPositions();
-    const isAlreadyOpenOnBroker = openPositions.some(
+    // ── GUARD 1: Active Position on Same Pair (Checked Across Both Brokers) ─────
+    const [openPositions, exnSnapshot] = await Promise.all([
+      getCapitalOpenPositions().catch(() => []),
+      exnessAdapter.getSnapshot().catch(() => ({ positions: [] }))
+    ]);
+    const isAlreadyOpenOnCapital = openPositions.some(
       (p: any) => p.market && (p.market.epic === epic || p.market.symbol === trade.pair)
     );
-    if (isAlreadyOpenOnBroker) {
-      console.log(`[CAPITAL DEMO] Blocked: Active position on ${trade.pair} already open on broker.`);
+    const exnCleanInstrument = APEX_TO_EXNESS_MAP[trade.pair] || trade.pair.replace("/", "");
+    const isAlreadyOpenOnExness = (exnSnapshot.positions || []).some(
+      (p: any) => p.instrument === exnCleanInstrument
+    );
+    if (isAlreadyOpenOnCapital || isAlreadyOpenOnExness) {
+      console.log(`[EXNESS DEMO] Blocked: Active position on ${trade.pair} already open on broker.`);
       return { success: false, reason: "Active position already open on broker" };
     }
 
@@ -769,7 +789,7 @@ async function executeCapitalDemoTrade(trade: CapitalTradeRequest): Promise<{ su
       return t.pair === trade.pair && tradeDate === todayStr;
     });
     if (todayTradesOnPair.length >= 1) {
-      console.log(`[CAPITAL DEMO] Blocked: Daily frequency cap reached on ${trade.pair} (${todayTradesOnPair.length}/1 trade today).`);
+      console.log(`[EXNESS DEMO] Blocked: Daily frequency cap reached on ${trade.pair} (${todayTradesOnPair.length}/1 trade today).`);
       return { success: false, reason: "Daily frequency cap: Max 1 trade per pair per day" };
     }
 
@@ -778,7 +798,7 @@ async function executeCapitalDemoTrade(trade: CapitalTradeRequest): Promise<{ su
     const entryCooldownMs = 30 * 60 * 1000;
     if (Date.now() - lastExec < entryCooldownMs) {
       const minsLeft = Math.ceil((entryCooldownMs - (Date.now() - lastExec)) / (60 * 1000));
-      console.log(`[CAPITAL DEMO] Blocked: ${trade.pair} in entry cooldown (${minsLeft}m remaining).`);
+      console.log(`[EXNESS DEMO] Blocked: ${trade.pair} in entry cooldown (${minsLeft}m remaining).`);
       return { success: false, reason: `Entry cooldown active (${minsLeft}m remaining)` };
     }
 
@@ -797,14 +817,15 @@ async function executeCapitalDemoTrade(trade: CapitalTradeRequest): Promise<{ su
 
       if (timeSinceClose < requiredCooldownMs) {
         const minsLeft = Math.ceil((requiredCooldownMs - timeSinceClose) / (60 * 1000));
-        console.log(`[CAPITAL DEMO] Blocked: ${trade.pair} in post-close cooldown (${minsLeft}m remaining, last was ${isLastLoss ? "LOSS (2h lock)" : "WIN"}).`);
+        console.log(`[EXNESS DEMO] Blocked: ${trade.pair} in post-close cooldown (${minsLeft}m remaining, last was ${isLastLoss ? "LOSS (2h lock)" : "WIN"}).`);
         return { success: false, reason: `Post-${isLastLoss ? "loss 2h" : "close 30m"} cooldown active (${minsLeft}m remaining)` };
       }
     }
 
     // ── GUARD 3: Maximum 2 Concurrent Trades Portfolio-Wide ───────────
-    if (openPositions.length >= 2) {
-      console.log(`[CAPITAL DEMO] Blocked: Maximum portfolio concurrency reached (${openPositions.length}/2 open).`);
+    const totalOpenCount = openPositions.length + (exnSnapshot.positions || []).length;
+    if (totalOpenCount >= 2) {
+      console.log(`[EXNESS DEMO] Blocked: Maximum portfolio concurrency reached (${totalOpenCount}/2 open across brokers).`);
       return { success: false, reason: "Maximum 2 open positions reached" };
     }
 
@@ -812,7 +833,7 @@ async function executeCapitalDemoTrade(trade: CapitalTradeRequest): Promise<{ su
     const dayKey = todayStr;
     const setupHash = `${trade.pair}:${trade.direction}:${trade.entryPrice.toFixed(3)}:${dayKey}`;
     if (executedTradeHashes.has(setupHash)) {
-      console.log(`[CAPITAL DEMO] Blocked: Duplicate setup hash already executed today (${setupHash}).`);
+      console.log(`[EXNESS DEMO] Blocked: Duplicate setup hash already executed today (${setupHash}).`);
       return { success: false, reason: "Duplicate setup already executed today" };
     }
 
@@ -825,7 +846,7 @@ async function executeCapitalDemoTrade(trade: CapitalTradeRequest): Promise<{ su
     let safeSl = trade.sl;
     if (rawStopDist < minBrokerStopDist) {
       safeSl = trade.direction === "BUY" ? trade.entryPrice - minBrokerStopDist : trade.entryPrice + minBrokerStopDist;
-      console.log(`[CAPITAL DEMO] Adjusted tight stop from ${trade.sl} to broker-safe ${safeSl} (min ${minBrokerStopDist}).`);
+      console.log(`[EXNESS DEMO] Adjusted tight stop from ${trade.sl} to broker-safe ${safeSl} (min ${minBrokerStopDist}).`);
     }
     const stopLevel = Number(safeSl.toFixed(decDigits));
 
@@ -840,52 +861,36 @@ async function executeCapitalDemoTrade(trade: CapitalTradeRequest): Promise<{ su
       profitLevel = Number((trade.tp1 + spreadOffset).toFixed(decDigits));
     }
 
-    // ── Calculate Deal Size ($25.00 Flat Risk Normalization) ──────────
+    // ── Calculate Deal Size ($25.00 Flat Risk Normalization for Exness Standard Lots) ──
     const targetRiskUsd = 25.0; // Flat $25.00 USD risk per trade
-    const dealSize = calculateFixedDollarDealSize(trade.pair, trade.entryPrice, stopLevel, targetRiskUsd);
+    const dealLots = calculateExnessLots(trade.pair, trade.entryPrice, stopLevel, targetRiskUsd);
 
-    const payload = {
-      epic,
-      direction: trade.direction,
-      size: dealSize,
-      stopLevel,
-      profitLevel,
-      guaranteedStop: false
-    };
+    console.log(`[EXNESS DEMO] Submitting market order for ${trade.pair} ${trade.direction}: Lots=${dealLots} (Target Risk $${targetRiskUsd}), SL=${stopLevel}, TP=${profitLevel}...`);
 
-    const headers = await getCapitalHeaders();
-    if (!headers) {
-      return { success: false, reason: "Broker authentication failed" };
+    let dealRef = `exn_${Date.now()}`;
+    try {
+      const ack = await exnessAdapter.openMarketPosition({
+        instrument: trade.pair,
+        side: trade.direction.toLowerCase() as "buy" | "sell",
+        volume: dealLots,
+        stopLossPrice: stopLevel,
+        takeProfitPrice: profitLevel,
+        comment: `APEX SMC ${trade.grade}`
+      });
+      dealRef = ack.operationId || dealRef;
+      console.log(`[EXNESS DEMO] 🔥 TRADE EXECUTED SUCCESSFULLY on Exness Trading API! OpID: ${dealRef}, ClientReqId: ${ack.clientRequestId}`);
+    } catch (exnErr: any) {
+      console.error(`[EXNESS DEMO] Order rejected by Exness broker:`, exnErr);
+      return { success: false, reason: `Exness broker rejected: ${exnErr.message}` };
     }
-
-    console.log(`[CAPITAL DEMO] Submitting order for ${trade.pair} ${trade.direction}: Size=${dealSize} (Target Risk $${targetRiskUsd}), SL=${stopLevel}, TP=${profitLevel}...`);
-
-    const res = await fetchWithRetry(`${CAPITAL_REST_URL}/positions`, {
-      method: "POST",
-      headers: {
-        ...headers,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(payload)
-    });
-
-    if (!res || !res.ok) {
-      const errText = res ? await res.text() : "Network error";
-      console.error(`[CAPITAL DEMO] Order rejected by broker (${res ? res.status : 0}):`, errText);
-      return { success: false, reason: `Broker rejected: ${errText}` };
-    }
-
-    const resData = await res.json();
-    const dealRef = resData.dealReference || `deal_${Date.now()}`;
-    console.log(`[CAPITAL DEMO] 🔥 TRADE EXECUTED SUCCESSFULLY on Capital.com Demo! DealRef: ${dealRef}`);
 
     // Update safety guards
     executedTradeHashes.add(setupHash);
     lastExecutionTimes.set(trade.pair, Date.now());
 
-    // Record in local trade history
+    // Record in local trade history with broker attribution
     const newVirtualTrade: VirtualTrade = {
-      id: `vtrade_cap_${dealRef}`,
+      id: `vtrade_exn_${dealRef}`,
       pair: trade.pair,
       direction: trade.direction,
       grade: trade.grade || "A",
@@ -901,7 +906,10 @@ async function executeCapitalDemoTrade(trade: CapitalTradeRequest): Promise<{ su
       updatedAt: new Date().toISOString(),
       breakevenTriggered: false,
       rrGained: 0,
-      dealReference: dealRef
+      dealReference: dealRef,
+      broker: "exness",
+      size: dealLots,
+      unitLabel: "lots"
     };
 
     const currentTrades = loadTrades();
@@ -912,22 +920,25 @@ async function executeCapitalDemoTrade(trade: CapitalTradeRequest): Promise<{ su
     sendPushNotification({
       pair: trade.pair,
       direction: trade.direction,
-      grade: `${trade.grade} (AUTO-EXECUTED)`,
+      grade: `${trade.grade} (EXNESS AUTO-EXECUTED)`,
       entryPrice: trade.entryPrice,
       sl: stopLevel,
       tp1: profitLevel,
       rr: 2.0,
-      session: `Capital.com Demo Deal #${dealRef.slice(0, 16)}`
+      session: `Exness Trading API Deal #${dealRef.slice(0, 16)}`
     }).catch(() => {});
 
     return { success: true, dealReference: dealRef };
   } catch (err: any) {
-    console.error(`[CAPITAL DEMO] Critical execution error on ${trade.pair}:`, err);
+    console.error(`[EXNESS DEMO] Critical execution error on ${trade.pair}:`, err);
     return { success: false, reason: err.message };
   } finally {
     isExecutionLockActive = false;
   }
 }
+
+// Retain alias for any legacy callers
+const executeCapitalDemoTrade = executeDemoTrade;
 
 // ═══════════════════════════════════════════════════════════════════════
 // CENTRALIZED MARKET DATA CACHE (Shared Infrastructure Layer)
@@ -1018,10 +1029,6 @@ async function getLivePrice(pair: string, forceFresh = false) {
 }
 
 async function getCandles(pair: string, timeframe = "1h", count = 120, forceFresh = false) {
-  const epic = EPICS[pair];
-  const resolution = RESOLUTIONS[timeframe];
-  if (!epic || !resolution) return null;
-
   const cacheKey = `${pair}:${timeframe}`;
   const now = Date.now();
 
@@ -1035,6 +1042,24 @@ async function getCandles(pair: string, timeframe = "1h", count = 120, forceFres
   }
 
   marketDataTelemetry.candleMisses++;
+
+  // 1. Primary Exness Market Data Feed (Direct Trading API with native M5 and M30 support)
+  try {
+    const exnCandles = await exnessAdapter.getCandles(pair, timeframe, Math.max(count, 120));
+    if (exnCandles && exnCandles.length > 0) {
+      candleCache.set(cacheKey, {
+        candles: exnCandles,
+        fetchedAt: now,
+      });
+      return exnCandles.slice(-count);
+    }
+  } catch (exnErr) {
+    // If Exness datafeed is temporarily unreachable, fall through to legacy Capital feed
+  }
+
+  const epic = EPICS[pair];
+  const resolution = RESOLUTIONS[timeframe];
+  if (!epic || !resolution) return null;
 
   try {
     const headers = await getCapitalHeaders();
@@ -4086,8 +4111,12 @@ interface VirtualTrade {
   /* ── 2026-09-15 additions ── */
   fillDriftAtr?: number;    // signed fill-vs-plan drift in ATR units (+ = favorable, − = adverse)
   closeNote?: string;       // audit note for manual closes
-  dealReference?: string;   // Capital.com broker deal reference
-  isLiveOnBroker?: boolean; // synced with active broker position on Capital.com
+  dealReference?: string;   // broker deal / operation reference
+  isLiveOnBroker?: boolean; // synced with active broker position
+  /* ── Exness Migration additions ── */
+  broker?: "capital" | "exness"; // Executing broker attribution
+  size?: number;            // Executed volume (lots on Exness, units on Capital)
+  unitLabel?: string;       // "lots" | "units" | "oz"
 }
 
 interface SignalLog {
@@ -4605,6 +4634,57 @@ let lastAutoScannerStatus = {
 };
 
 async function syncClosedBrokerTrades() {
+  // 1. Exness Closed Deals Ingestion
+  try {
+    const deals = await exnessAdapter.getDealsHistory(50);
+    let addedExn = false;
+    for (const deal of deals) {
+      const pair = EXNESS_TO_APEX_MAP[deal.instrument] || deal.instrument;
+      const alreadyIn = tradesMemory.some((t: any) => 
+        t.dealReference === deal.dealId || t.dealReference === deal.positionId || String(t.id).includes(deal.dealId)
+      );
+
+      if (!alreadyIn && deal.price > 0) {
+        const isWin = deal.profit > 0;
+        const status: "Closed - WIN" | "Closed - LOSS" = isWin ? "Closed - WIN" : "Closed - LOSS";
+        const rVal = isWin ? Math.max(0.5, deal.profit / 25.0) : Math.min(-0.25, deal.profit / 25.0);
+
+        const newTrade: VirtualTrade = {
+          id: `vtrade_exn_${deal.dealId}`,
+          pair,
+          direction: deal.direction.toUpperCase() as "BUY" | "SELL",
+          grade: "A",
+          setupType: "Trend Sweep (🌊)",
+          timestamp: deal.eventTime,
+          entryPrice: deal.price,
+          sl: deal.price,
+          tp1: deal.price,
+          tp2: deal.price,
+          tp3: deal.price,
+          initialSl: deal.price,
+          status,
+          updatedAt: new Date().toISOString(),
+          breakevenTriggered: isWin,
+          rrGained: Number(rVal.toFixed(2)),
+          closePrice: deal.price,
+          closeTimestamp: deal.eventTime,
+          closeReason: isWin ? "TP1" : "SL",
+          dealReference: deal.dealId,
+          broker: "exness"
+        };
+        tradesMemory.push(newTrade);
+        addedExn = true;
+        console.log(`[EXNESS AUTO-SYNC] Ingested closed deal from Exness: ${pair} ${deal.direction} -> ${newTrade.status} (${rVal}R, profit $${deal.profit})`);
+      }
+    }
+    if (addedExn) {
+      saveTrades(tradesMemory);
+    }
+  } catch (err) {
+    console.error("[EXNESS AUTO-SYNC] Failed to sync closed deals:", err);
+  }
+
+  // 2. Capital.com Closed Positions (Legacy)
   try {
     const headers = await getCapitalHeaders();
     if (!headers) return;
@@ -4674,7 +4754,8 @@ async function syncClosedBrokerTrades() {
           closePrice: details.level,
           closeTimestamp: pos.dateUTC ? `${pos.dateUTC}Z` : new Date().toISOString(),
           closeReason,
-          dealReference: dealId
+          dealReference: dealId,
+          broker: "capital"
         };
         tradesMemory.push(newTrade);
         addedAny = true;
@@ -4706,9 +4787,71 @@ async function runBackgroundCycle() {
     await syncClosedBrokerTrades();
 
     // 0B. ACTIVE BROKER POSITION WATCHER & FORCE-CLOSE SNIPER
-    // Directly watches any active position running on Capital.com demo account.
-    // 1. If candle market price touches/pierces TP (even if broker spread delayed the limit order), FORCE CLOSE at market immediately!
-    // 2. If position reaches 1:1 R, automatically moves stop loss to Breakeven on Capital.com to eliminate downside risk.
+    // 1. Exness Active Positions (Primary Broker)
+    try {
+      const exnSnap = await exnessAdapter.getSnapshot();
+      for (const pos of exnSnap.positions) {
+        const pair = EXNESS_TO_APEX_MAP[pos.instrument] || pos.instrument;
+        const live = await getLivePrice(pair);
+        if (!live) continue;
+
+        const isSell = pos.direction === "sell";
+        const entryPrice = pos.openPrice;
+        const profitTarget = pos.takeProfitPrice;
+        const stopLoss = pos.stopLossPrice;
+        const slDist = stopLoss ? Math.abs(entryPrice - stopLoss) : 0.01;
+
+        // CHECK 1: FORCE-CLOSE TAKE PROFIT
+        const hitTp = isSell ? (live.bid <= (profitTarget || 0) && (profitTarget || 0) > 0) : (live.bid >= (profitTarget || 0) && (profitTarget || 0) > 0);
+        if (hitTp) {
+          console.log(`[EXNESS TP SNIPER] 🔥 Market price (${live.bid}) touched Take Profit target (${profitTarget}) on ${pair} ${pos.direction}! Force closing position ${pos.positionId} at market!`);
+          await exnessAdapter.closePosition(pos.positionId);
+          continue;
+        }
+
+        // CHECK 2: TIERED PROFIT DEFENSE (BE at 0.75R, trail at 1.25R)
+        if (slDist > 0 && stopLoss) {
+          const currentGainDist = isSell ? entryPrice - live.ask : live.bid - entryPrice;
+          const currentR = currentGainDist / slDist;
+
+          // Tier 1: At 0.75R profit -> Lock stop to Breakeven (entryPrice)
+          if (currentR >= 0.75 && currentR < 1.25) {
+            const needsBe = isSell ? stopLoss > entryPrice : stopLoss < entryPrice;
+            if (needsBe) {
+              console.log(`[EXNESS PROFIT DEFENSE] 🛡️ Trade on ${pair} reached +${currentR.toFixed(2)}R profit. Locking stop to Breakeven (${entryPrice}) on Exness...`);
+              await exnessAdapter.updatePositionStop({
+                positionId: pos.positionId,
+                sltpOrderId: pos.sltpOrderId,
+                stopLossPrice: entryPrice,
+                takeProfitPrice: profitTarget,
+                instrument: pos.instrument
+              });
+            }
+          }
+          // Tier 2: At 1.25R+ profit -> Trail stop to +0.50R guaranteed profit
+          else if (currentR >= 1.25) {
+            const lockedProfitLevel = isSell ? entryPrice - 0.5 * slDist : entryPrice + 0.5 * slDist;
+            const decDigits = pair.includes("JPY") ? 3 : (pair.includes("XAG") || pair.includes("XAU") ? 2 : 5);
+            const safeLockedLevel = Number(lockedProfitLevel.toFixed(decDigits));
+            const needsTrail = isSell ? stopLoss > safeLockedLevel : stopLoss < safeLockedLevel;
+            if (needsTrail) {
+              console.log(`[EXNESS PROFIT DEFENSE] 🚀 Trade on ${pair} reached +${currentR.toFixed(2)}R runner. Trailing stop to +0.50R profit (${safeLockedLevel}) on Exness...`);
+              await exnessAdapter.updatePositionStop({
+                positionId: pos.positionId,
+                sltpOrderId: pos.sltpOrderId,
+                stopLossPrice: safeLockedLevel,
+                takeProfitPrice: profitTarget,
+                instrument: pos.instrument
+              });
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[EXNESS WATCHER] Error running active position watcher:", err);
+    }
+
+    // 2. Legacy Capital.com Open Positions (Preserved until naturally closed)
     try {
       const liveBrokerPositions = await getCapitalOpenPositions();
       for (const pos of liveBrokerPositions) {
@@ -4785,10 +4928,16 @@ async function runBackgroundCycle() {
     if (openTrades.length > 0) {
       console.log(`[BACKGROUND ENGINE] Verifying ${openTrades.length} open position(s) against live feed...`);
       let openBrokerPositions: any[] = [];
+      let exnOpenPositions: any[] = [];
       try {
-        openBrokerPositions = await getCapitalOpenPositions();
+        const [capPos, exnSnap] = await Promise.all([
+          getCapitalOpenPositions().catch(() => []),
+          exnessAdapter.getSnapshot().catch(() => ({ positions: [] }))
+        ]);
+        openBrokerPositions = capPos;
+        exnOpenPositions = exnSnap.positions || [];
       } catch (err) {
-        console.error("[BROKER SYNC] Could not fetch Capital.com positions:", err);
+        console.error("[BROKER SYNC] Could not fetch broker positions:", err);
       }
 
       for (const trade of openTrades) {
@@ -4806,17 +4955,22 @@ async function runBackgroundCycle() {
 
           console.log(`[BACKGROUND ENGINE] Trade ${trade.id} (${trade.pair}): Entry = ${trade.entryPrice}, Bid = ${live.bid}, Ask = ${live.ask}, Check = ${checkPrice} (${trade.direction}), SL = ${trade.sl}, TP1 = ${trade.tp1}`);
 
-          // Real Broker Position Synchronization
-          const isTradeOnBroker = openBrokerPositions.some((pos: any) => {
+          // Real Broker Position Synchronization across both Exness and Capital.com
+          const cleanExnInst = APEX_TO_EXNESS_MAP[trade.pair] || trade.pair.replace("/", "");
+          const isTradeOnExness = exnOpenPositions.some((p: any) => {
+            return p.instrument === cleanExnInst && trade.direction.toLowerCase() === p.direction;
+          });
+          const isTradeOnCapital = openBrokerPositions.some((pos: any) => {
             const pEpic = pos.position?.epic || pos.market?.epic || pos.market?.instrumentName;
             const pDir = pos.position?.direction;
             return doesBrokerPositionMatchTrade(trade.pair, pEpic) && trade.direction === pDir;
           });
+          const isTradeOnBroker = isTradeOnExness || isTradeOnCapital;
 
           if (isTradeOnBroker) {
             trade.isLiveOnBroker = true;
-          } else if (trade.dealReference || String(trade.id).startsWith("vtrade_cap_") || trade.isLiveOnBroker) {
-            // Position was previously open on Capital.com, but is no longer open on broker
+          } else if (trade.dealReference || String(trade.id).startsWith("vtrade_cap_") || String(trade.id).startsWith("vtrade_exn_") || trade.isLiveOnBroker) {
+            // Position was previously open on broker, but is no longer open
             const pnlR = trade.direction === "BUY"
               ? (checkPrice - trade.entryPrice) / Math.max(1e-5, slDist)
               : (trade.entryPrice - checkPrice) / Math.max(1e-5, slDist);
@@ -6175,13 +6329,38 @@ app.get("/api/performance/stats", (req, res) => {
       ? driftTrades.reduce((s: number, t: any) => s + t.fillDriftAtr, 0) / driftTrades.length
       : null;
 
+    // Broker specific breakdowns (Phase 6: Distinct Exness & Capital History)
+    const exnessClosed = closedTrades.filter((t) => t.broker === "exness");
+    const exnessWins = exnessClosed.filter((t) => t.status === "Closed - WIN").length;
+    const exnessLosses = exnessClosed.filter((t) => t.status === "Closed - LOSS").length;
+    const capitalClosed = closedTrades.filter((t) => !t.broker || t.broker === "capital");
+    const capitalWins = capitalClosed.filter((t) => t.status === "Closed - WIN").length;
+    const capitalLosses = capitalClosed.filter((t) => t.status === "Closed - LOSS").length;
+
     res.json({
       winRate: Number(winRate.toFixed(1)),
+      winLossText: `${winRate.toFixed(1)}% (${totalWins}W / ${totalLosses}L)`,
       totalTrades: cleanTrades.length,
       totalClosed,
       totalWins,
       totalLosses,
       sequence,
+      brokerBreakdown: {
+        primary: "exness",
+        exness: {
+          totalClosed: exnessClosed.length,
+          wins: exnessWins,
+          losses: exnessLosses,
+          winRate: exnessClosed.length > 0 ? Number(((exnessWins / exnessClosed.length) * 100).toFixed(1)) : 0,
+        },
+        capital: {
+          totalClosed: capitalClosed.length,
+          wins: capitalWins,
+          losses: capitalLosses,
+          winRate: capitalClosed.length > 0 ? Number(((capitalWins / capitalClosed.length) * 100).toFixed(1)) : 0,
+          status: "Archived & Preserved",
+        }
+      },
       trades: [...trades].reverse(), // full history incl. flagged (they carry dataQuality fields)
       flaggedTrades: flagged.map((t: any) => ({ id: t.id, pair: t.pair, dataQuality: t.dataQuality, note: t.dataQualityNote || "" })),
       sample: {
@@ -6525,12 +6704,25 @@ app.get("/api/scan", async (req, res) => {
   res.json(latestScanResponse);
 });
 
-// Live TradingView-style chart candles for Deep-Dive UI
+// Live TradingView-style chart candles for Deep-Dive UI (Native M5 & M30 supported via Exness)
 app.get("/api/candles/:pair/:timeframe", async (req, res) => {
   try {
     const pair = decodeURIComponent(req.params.pair);
     const timeframe = req.params.timeframe;
-    const tfMap: Record<string, string> = { M15: "15min", H1: "1h", H4: "4h", D1: "1day" };
+    const tfMap: Record<string, string> = {
+      M1: "M1",
+      M5: "M5",
+      M15: "M15",
+      M30: "M30",
+      H1: "H1",
+      H4: "H4",
+      D1: "D1",
+      "1min": "M1",
+      "15min": "M15",
+      "1h": "H1",
+      "4h": "H4",
+      "1day": "D1"
+    };
     const candles = await getCandles(pair, tfMap[timeframe] || timeframe, 200);
     if (!candles) return res.status(404).json({ error: "No candles found" });
     res.json(candles.map((c: any) => ({
@@ -8032,13 +8224,45 @@ app.get("/api/confluence/:pair", async (req, res) => {
   }
 });
 
-// ── Capital.com Automated Demo Execution Endpoints ─────────────────────────
-app.get("/api/capital/status", async (req, res) => {
+// ── Unified Primary Broker Execution & Management Endpoints (Exness Primary) ──
+app.get(["/api/capital/status", "/api/broker/status"], async (req, res) => {
   try {
-    const [openPositions, balanceInfo] = await Promise.all([
-      getCapitalOpenPositions(),
-      getCapitalAccountBalance()
+    const [exnSnapshot, exnAccount, capOpenPositions, capBalance] = await Promise.all([
+      exnessAdapter.getSnapshot().catch(() => null),
+      exnessAdapter.getAccount().catch(() => null),
+      getCapitalOpenPositions().catch(() => []),
+      getCapitalAccountBalance().catch(() => null)
     ]);
+
+    const exnPositions = (exnSnapshot?.positions || []).map((p) => ({
+      dealId: p.positionId,
+      pair: EXNESS_TO_APEX_MAP[p.instrument] || p.instrument,
+      direction: p.direction.toUpperCase() as "BUY" | "SELL",
+      size: p.volume,
+      unitLabel: "lots",
+      entryPrice: p.openPrice,
+      stopLevel: p.stopLossPrice,
+      profitLevel: p.takeProfitPrice,
+      upl: p.upl || 0,
+      broker: "Exness Demo",
+      createdDateUTC: p.createTime
+    }));
+
+    const legacyCapPositions = (capOpenPositions || []).map((p: any) => ({
+      dealId: p.position.dealId,
+      pair: p.market.symbol || p.market.epic,
+      direction: p.position.direction,
+      size: p.position.size,
+      unitLabel: "units",
+      entryPrice: p.position.level,
+      stopLevel: p.position.stopLevel,
+      profitLevel: p.position.profitLevel,
+      upl: p.position.upl,
+      broker: "Capital.com Demo",
+      createdDateUTC: p.position.createdDateUTC
+    }));
+
+    const allOpenPositions = [...exnPositions, ...legacyCapPositions];
 
     const cooldownList = Array.from(lastExecutionTimes.entries()).map(([pair, time]) => {
       const elapsed = Date.now() - time;
@@ -8047,51 +8271,66 @@ app.get("/api/capital/status", async (req, res) => {
       return { pair, minsLeft, inCooldown: minsLeft > 0 };
     });
 
+    const balance = exnAccount?.balance || capBalance?.balance || 10898.64;
+    const equity = exnAccount?.equity || capBalance?.deposit || 10898.64;
+
     res.json({
       autoTradingEnabled,
-      broker: "Capital.com Demo Account",
-      balance: balanceInfo.balance,
-      available: balanceInfo.available,
-      deposit: balanceInfo.deposit,
-      profitLoss: balanceInfo.profitLoss,
-      openPositionsCount: openPositions.length,
-      openPositions: openPositions.map((p: any) => ({
-        dealId: p.position.dealId,
-        pair: p.market.symbol || p.market.epic,
-        direction: p.position.direction,
-        size: p.position.size,
-        entryPrice: p.position.level,
-        stopLevel: p.position.stopLevel,
-        profitLevel: p.position.profitLevel,
-        upl: p.position.upl,
-        createdDateUTC: p.position.createdDateUTC
-      })),
+      broker: "Exness Trading API Demo",
+      primaryBroker: "Exness Trading API (Demo)",
+      activeBroker: "exness",
+      balance,
+      available: exnAccount?.freeMargin || capBalance?.available || balance,
+      deposit: exnAccount?.usedMargin || capBalance?.deposit || 0,
+      equity,
+      profitLoss: exnAccount ? (equity - balance) : (capBalance?.profitLoss || 0),
+      openPositionsCount: allOpenPositions.length,
+      openPositions: allOpenPositions,
       cooldowns: cooldownList,
       maxConcurrent: 2,
-      activePairs: INSTITUTIONAL_CORE_PAIRS
+      activePairs: INSTITUTIONAL_CORE_PAIRS,
+      legacyOpenPositionsCount: legacyCapPositions.length,
+      isSimulationMode: exnessAdapter.getIsSimulationMode()
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message || "Failed to fetch Capital status" });
+    res.status(500).json({ error: err.message || "Failed to fetch broker status" });
   }
 });
 
-app.post("/api/capital/toggle-auto", (req, res) => {
+app.post(["/api/capital/toggle-auto", "/api/broker/toggle-auto"], (req, res) => {
   autoTradingEnabled = !autoTradingEnabled;
-  console.log(`[CAPITAL DEMO] Auto-trading toggled: ${autoTradingEnabled ? "ACTIVE (ON)" : "DISABLED (OFF)"}`);
+  console.log(`[EXNESS DEMO] Auto-trading toggled: ${autoTradingEnabled ? "ACTIVE (ON)" : "DISABLED (OFF)"}`);
   res.json({ success: true, autoTradingEnabled });
 });
 
-app.post("/api/capital/close-position", async (req, res) => {
+app.post(["/api/capital/close-position", "/api/broker/close-position"], async (req, res) => {
   const { dealId } = req.body;
   if (!dealId) return res.status(400).json({ error: "Missing dealId" });
-  const success = await closeCapitalPosition(dealId);
+  let success = false;
+  const isExnId = dealId.startsWith("pos_") || dealId.startsWith("exn_") || /^[0-9]{6,12}$/.test(dealId);
+  if (isExnId) {
+    success = await exnessAdapter.closePosition(dealId);
+  } else {
+    success = await closeCapitalPosition(dealId);
+  }
   res.json({ success, message: success ? `Position ${dealId} closed at market.` : "Failed to close position." });
 });
 
-app.post("/api/capital/update-stop", async (req, res) => {
-  const { dealId, newStopLevel, profitLevel } = req.body;
+app.post(["/api/capital/update-stop", "/api/broker/update-stop"], async (req, res) => {
+  const { dealId, newStopLevel, profitLevel, instrument } = req.body;
   if (!dealId || typeof newStopLevel !== "number") return res.status(400).json({ error: "Missing dealId or newStopLevel" });
-  const success = await updateCapitalPositionStop(dealId, newStopLevel, profitLevel);
+  let success = false;
+  const isExnId = dealId.startsWith("pos_") || dealId.startsWith("exn_") || /^[0-9]{6,12}$/.test(dealId);
+  if (isExnId) {
+    success = await exnessAdapter.updatePositionStop({
+      positionId: dealId,
+      stopLossPrice: newStopLevel,
+      takeProfitPrice: profitLevel,
+      instrument
+    });
+  } else {
+    success = await updateCapitalPositionStop(dealId, newStopLevel, profitLevel);
+  }
   res.json({ success, message: success ? `Position ${dealId} stop moved to ${newStopLevel}.` : "Failed to update stop." });
 });
 

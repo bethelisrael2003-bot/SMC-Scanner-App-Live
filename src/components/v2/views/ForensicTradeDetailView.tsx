@@ -465,7 +465,7 @@ export const ForensicTradeDetailView: React.FC<ForensicTradeDetailProps> = ({
             </h3>
           </div>
           <Badge variant="neutral" size="xs">
-            Capital.com CFD
+            {trade.broker === "exness" ? "Exness Trading API" : "Capital.com CFD"}
           </Badge>
         </div>
 
@@ -603,7 +603,7 @@ export const ForensicTradeDetailView: React.FC<ForensicTradeDetailProps> = ({
           <div className="relative">
             <span className="absolute -left-6 top-1 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-4 ring-[#0E131A]" />
             <div className="text-xs font-bold text-white flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-              <span>2. Position Opened on Capital.com</span>
+              <span>2. Position Opened on {trade.broker === "exness" ? "Exness Trading API" : "Capital.com"}</span>
               <span className="text-[10px] text-emerald-400/80 font-mono font-normal">
                 {trade.timestamp ? trade.timestamp : "Timestamp unavailable"}
               </span>

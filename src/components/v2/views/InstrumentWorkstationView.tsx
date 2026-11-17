@@ -92,7 +92,7 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
     if (!timestamp) {
       return {
         status: "live" as const,
-        label: "Capital.com Feed",
+        label: "Live Broker Feed",
         color: "text-emerald-400",
         dot: "bg-emerald-400",
       };
@@ -414,7 +414,7 @@ export const InstrumentWorkstationView: React.FC<InstrumentWorkstationProps> = (
             </h3>
           </div>
           <Badge variant={activePosition ? "success" : "neutral"} size="xs">
-            {activePosition ? "OPEN ON CAPITAL.COM" : "NO OPEN POSITION"}
+            {activePosition ? (activePosition.broker ? `OPEN ON ${activePosition.broker.toUpperCase()}` : "OPEN ON BROKER") : "NO OPEN POSITION"}
           </Badge>
         </div>
 
