@@ -16,6 +16,9 @@
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
+import dotenv from "dotenv";
+dotenv.config();
+
 import {
   ExnessBrokerAdapter,
   calculateExnessLots,
@@ -69,10 +72,10 @@ async function runRegressionAssertions() {
   const goldLots = calculateExnessLots("XAU/USD", 2400.0, 2390.0, 25.0);
   const silverLots = calculateExnessLots("XAG/USD", 31.50, 31.20, 25.0);
 
-  assert("EUR/USD Risk Parity Sizing", eurLots === 0.16, `EUR/USD: ${eurLots} lots (Risk $24.00 <= $25.00)`);
-  assert("GBP/JPY Risk Parity Sizing", gbpLots === 0.15, `GBP/JPY: ${gbpLots} lots (Risk $24.19 <= $25.00)`);
-  assert("XAU/USD Risk Parity Sizing", goldLots === 0.02, `XAU/USD: ${goldLots} lots (Risk $20.00 <= $25.00)`);
-  assert("XAG/USD Risk Parity Sizing", silverLots === 0.01, `XAG/USD: ${silverLots} lots (Risk $15.00 <= $25.00)`);
+  assert("EUR/USD Risk Parity Sizing", eurLots === 0.15, `EUR/USD: ${eurLots} lots (All-In Risk $24.00 <= $25.00)`);
+  assert("GBP/JPY Risk Parity Sizing", gbpLots === 0.14, `GBP/JPY: ${gbpLots} lots (All-In Risk $23.94 <= $25.00)`);
+  assert("XAU/USD Risk Parity Sizing", goldLots === 0.02, `XAU/USD: ${goldLots} lots (All-In Risk $20.40 <= $25.00)`);
+  assert("XAG/USD Risk Parity Sizing", silverLots === 0.01, `XAG/USD: ${silverLots} lots (All-In Risk $15.75 <= $25.00)`);
 
   // 3. Adapter Snapshot & Lifecycle
   const adapter = new ExnessBrokerAdapter();

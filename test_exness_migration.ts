@@ -19,6 +19,9 @@
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
+import dotenv from "dotenv";
+dotenv.config();
+
 import {
   ExnessBrokerAdapter,
   verifySigningImplementation,
@@ -201,27 +204,28 @@ export async function runExnessMigrationTestSuite(): Promise<{
     }
   }
 
-  // TEST 12: EUR/USD $25 Flat Risk Parity Sizing (Corrected Floored Calculation)
+  // TEST 12: EUR/USD $25 Flat Risk Parity Sizing (Strict All-In Risk <= $25.00)
   try {
     const entry = 1.10232;
     const sl = 1.10382; // 15 pips = 0.00150
     const evalResult = evaluateExnessRisk("EUR/USD", entry, sl, 25.0);
     const lots = evalResult.permittedLots;
 
-    // 15 pips * 100,000 * lots = 150 * lots.
-    // 25 / 150 = 0.16666...
-    // Floor to 0.01 step = 0.16 lots.
-    // Theoretical risk = 0.16 * 150 = $24.00 USD (strictly <= $25.00).
-    if (lots === 0.16 && evalResult.theoreticalStopRiskUsd <= 25.0 && !evalResult.isRejected) {
+    // Total cost per lot = StopRisk ($150) + SpreadCost ($10) = $160.
+    // 25 / 160 = 0.15625 -> Floored to 0.01 step = 0.15 lots.
+    // Theoretical stop risk = 0.15 * 150 = $22.50.
+    // Estimated spread cost = 0.15 * 10 = $1.50.
+    // Estimated all-in risk = $22.50 + $1.50 = $24.00 USD (strictly <= $25.00).
+    if (lots === 0.15 && evalResult.estimatedAllInRiskUsd <= 25.0 && !evalResult.isRejected) {
       results.push({
         id: 12,
         name: "EUR/USD $25 Flat Risk Parity Calculation",
         executionType: "LOCAL_CALCULATION",
         verdict: "PASS",
-        details: `Entry: ${entry}, SL: ${sl} (15 pips) -> ${lots} standard lots (Stop Risk: $${evalResult.theoreticalStopRiskUsd.toFixed(2)} USD <= $25.00 limit, Est Spread Cost: $${evalResult.estimatedSpreadCostUsd.toFixed(2)} USD).`,
+        details: `Entry: ${entry}, SL: ${sl} (15 pips) -> ${lots} standard lots (Stop Risk: $${evalResult.theoreticalStopRiskUsd.toFixed(2)}, Est Spread Cost: $${evalResult.estimatedSpreadCostUsd.toFixed(2)}, All-In Risk: $${evalResult.estimatedAllInRiskUsd.toFixed(2)} USD <= $25.00 limit).`,
       });
     } else {
-      throw new Error(`Unexpected lot size or risk breach for EUR/USD: lots=${lots}, risk=$${evalResult.theoreticalStopRiskUsd}`);
+      throw new Error(`Unexpected lot size or risk breach for EUR/USD: lots=${lots}, allInRisk=$${evalResult.estimatedAllInRiskUsd}`);
     }
   } catch (err: any) {
     results.push({
@@ -233,27 +237,28 @@ export async function runExnessMigrationTestSuite(): Promise<{
     });
   }
 
-  // TEST 13: GBP/JPY $25 Flat Risk Parity Sizing (Corrected Floored Calculation)
+  // TEST 13: GBP/JPY $25 Flat Risk Parity Sizing (Strict All-In Risk <= $25.00)
   try {
     const entry = 210.556;
     const sl = 210.306; // 25 pips (0.250 JPY)
     const evalResult = evaluateExnessRisk("GBP/JPY", entry, sl, 25.0, 155.0);
     const lots = evalResult.permittedLots;
 
-    // Risk per lot = (0.250 * 100,000) / 155 = 161.2903 USD.
-    // 25 / 161.2903 = 0.1550...
-    // Floor to 0.01 step = 0.15 lots.
-    // Theoretical risk = 0.15 * 161.2903 = $24.19 USD (strictly <= $25.00).
-    if (lots === 0.15 && evalResult.theoreticalStopRiskUsd <= 25.0 && !evalResult.isRejected) {
+    // Total cost per lot = StopRisk ($161.29) + SpreadCost ($9.68) = $170.97.
+    // 25 / 170.97 = 0.1462 -> Floored to 0.01 step = 0.14 lots.
+    // Theoretical stop risk = 0.14 * 161.29 = $22.58.
+    // Estimated spread cost = 0.14 * 9.68 = $1.35.
+    // Estimated all-in risk = $22.58 + $1.35 = $23.93 USD (strictly <= $25.00).
+    if (lots === 0.14 && evalResult.estimatedAllInRiskUsd <= 25.0 && !evalResult.isRejected) {
       results.push({
         id: 13,
         name: "GBP/JPY $25 Flat Risk Parity Calculation (JPY Cross)",
         executionType: "LOCAL_CALCULATION",
         verdict: "PASS",
-        details: `Entry: ${entry}, SL: ${sl} (25 pips) -> ${lots} standard lots (Stop Risk: $${evalResult.theoreticalStopRiskUsd.toFixed(2)} USD <= $25.00 limit, Est Spread Cost: $${evalResult.estimatedSpreadCostUsd.toFixed(2)} USD).`,
+        details: `Entry: ${entry}, SL: ${sl} (25 pips) -> ${lots} standard lots (Stop Risk: $${evalResult.theoreticalStopRiskUsd.toFixed(2)}, Est Spread Cost: $${evalResult.estimatedSpreadCostUsd.toFixed(2)}, All-In Risk: $${evalResult.estimatedAllInRiskUsd.toFixed(2)} USD <= $25.00 limit).`,
       });
     } else {
-      throw new Error(`Unexpected lot size or risk breach for GBP/JPY: lots=${lots}, risk=$${evalResult.theoreticalStopRiskUsd}`);
+      throw new Error(`Unexpected lot size or risk breach for GBP/JPY: lots=${lots}, allInRisk=$${evalResult.estimatedAllInRiskUsd}`);
     }
   } catch (err: any) {
     results.push({
@@ -265,27 +270,28 @@ export async function runExnessMigrationTestSuite(): Promise<{
     });
   }
 
-  // TEST 14: XAU/USD $25 Flat Risk Parity Sizing (Corrected Floored Calculation)
+  // TEST 14: XAU/USD $25 Flat Risk Parity Sizing (Strict All-In Risk <= $25.00)
   try {
     const entry = 2400.0;
     const sl = 2390.0; // $10 stop
     const evalResult = evaluateExnessRisk("XAU/USD", entry, sl, 25.0);
     const lots = evalResult.permittedLots;
 
-    // Risk per lot = 10 * 100 = $1,000 USD.
-    // 25 / 1000 = 0.025.
-    // Floor to 0.01 step = 0.02 lots.
-    // Theoretical risk = 0.02 * 1000 = $20.00 USD (strictly <= $25.00).
-    if (lots === 0.02 && evalResult.theoreticalStopRiskUsd <= 25.0 && !evalResult.isRejected) {
+    // Total cost per lot = StopRisk ($1000) + SpreadCost ($20) = $1020.
+    // 25 / 1020 = 0.0245 -> Floored to 0.01 step = 0.02 lots.
+    // Theoretical stop risk = 0.02 * 1000 = $20.00.
+    // Estimated spread cost = 0.02 * 20 = $0.40.
+    // Estimated all-in risk = $20.00 + $0.40 = $20.40 USD (strictly <= $25.00).
+    if (lots === 0.02 && evalResult.estimatedAllInRiskUsd <= 25.0 && !evalResult.isRejected) {
       results.push({
         id: 14,
         name: "XAU/USD $25 Flat Risk Parity Calculation (Gold)",
         executionType: "LOCAL_CALCULATION",
         verdict: "PASS",
-        details: `Entry: ${entry}, SL: ${sl} ($10 stop) -> ${lots} lots (2 troy oz) (Stop Risk: $${evalResult.theoreticalStopRiskUsd.toFixed(2)} USD <= $25.00 limit, Est Spread Cost: $${evalResult.estimatedSpreadCostUsd.toFixed(2)} USD).`,
+        details: `Entry: ${entry}, SL: ${sl} ($10 stop) -> ${lots} lots (2 troy oz) (Stop Risk: $${evalResult.theoreticalStopRiskUsd.toFixed(2)}, Est Spread Cost: $${evalResult.estimatedSpreadCostUsd.toFixed(2)}, All-In Risk: $${evalResult.estimatedAllInRiskUsd.toFixed(2)} USD <= $25.00 limit).`,
       });
     } else {
-      throw new Error(`Unexpected lot size or risk breach for XAU/USD: lots=${lots}, risk=$${evalResult.theoreticalStopRiskUsd}`);
+      throw new Error(`Unexpected lot size or risk breach for XAU/USD: lots=${lots}, allInRisk=$${evalResult.estimatedAllInRiskUsd}`);
     }
   } catch (err: any) {
     results.push({
@@ -297,27 +303,28 @@ export async function runExnessMigrationTestSuite(): Promise<{
     });
   }
 
-  // TEST 15: XAG/USD $25 Flat Risk Parity Sizing (Corrected Floored Calculation)
+  // TEST 15: XAG/USD $25 Flat Risk Parity Sizing (Strict All-In Risk <= $25.00)
   try {
     const entry = 31.50;
     const sl = 31.20; // $0.30 stop
     const evalResult = evaluateExnessRisk("XAG/USD", entry, sl, 25.0);
     const lots = evalResult.permittedLots;
 
-    // Risk per lot = 0.30 * 5000 = $1,500 USD.
-    // 25 / 1500 = 0.01666...
-    // Floor to 0.01 step = 0.01 lots.
-    // Theoretical risk = 0.01 * 1500 = $15.00 USD (strictly <= $25.00).
-    if (lots === 0.01 && evalResult.theoreticalStopRiskUsd <= 25.0 && !evalResult.isRejected) {
+    // Total cost per lot = StopRisk ($1500) + SpreadCost ($75) = $1575.
+    // 25 / 1575 = 0.0158 -> Floored to 0.01 step = 0.01 lots.
+    // Theoretical stop risk = 0.01 * 1500 = $15.00.
+    // Estimated spread cost = 0.01 * 75 = $0.75.
+    // Estimated all-in risk = $15.00 + $0.75 = $15.75 USD (strictly <= $25.00).
+    if (lots === 0.01 && evalResult.estimatedAllInRiskUsd <= 25.0 && !evalResult.isRejected) {
       results.push({
         id: 15,
         name: "XAG/USD $25 Flat Risk Parity Calculation (Silver)",
         executionType: "LOCAL_CALCULATION",
         verdict: "PASS",
-        details: `Entry: ${entry}, SL: ${sl} ($0.30 stop) -> ${lots} lots (50 troy oz) (Stop Risk: $${evalResult.theoreticalStopRiskUsd.toFixed(2)} USD <= $25.00 limit, Est Spread Cost: $${evalResult.estimatedSpreadCostUsd.toFixed(2)} USD).`,
+        details: `Entry: ${entry}, SL: ${sl} ($0.30 stop) -> ${lots} lots (50 troy oz) (Stop Risk: $${evalResult.theoreticalStopRiskUsd.toFixed(2)}, Est Spread Cost: $${evalResult.estimatedSpreadCostUsd.toFixed(2)}, All-In Risk: $${evalResult.estimatedAllInRiskUsd.toFixed(2)} USD <= $25.00 limit).`,
       });
     } else {
-      throw new Error(`Unexpected lot size or risk breach for XAG/USD: lots=${lots}, risk=$${evalResult.theoreticalStopRiskUsd}`);
+      throw new Error(`Unexpected lot size or risk breach for XAG/USD: lots=${lots}, allInRisk=$${evalResult.estimatedAllInRiskUsd}`);
     }
   } catch (err: any) {
     results.push({
@@ -335,7 +342,7 @@ export async function runExnessMigrationTestSuite(): Promise<{
     const ack = await adapter.openMarketPosition({
       instrument: "EUR/USD",
       side: "buy",
-      volume: 0.16, // Corrected lot size
+      volume: 0.15, // All-in capped lot size
       stopLossPrice: 1.10100,
       takeProfitPrice: 1.10500,
       comment: "APEX Migration Test 16",
@@ -366,7 +373,7 @@ export async function runExnessMigrationTestSuite(): Promise<{
   try {
     const snapshot = await adapter.getSnapshot();
     const openPos = snapshot.positions.find((p) => p.instrument === "EURUSD");
-    if (openPos && openPos.volume === 0.16 && openPos.direction === "buy") {
+    if (openPos && openPos.volume === 0.15 && openPos.direction === "buy") {
       activePositionId = openPos.positionId;
       results.push({
         id: 17,

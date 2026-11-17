@@ -330,14 +330,15 @@ export interface ExnessRiskEvaluation {
   riskPerLotUsd: number;
   spreadCostPerLotUsd: number;
   commissionPerLotUsd: number;
+  totalCostPerLotUsd: number;
   rawTheoreticalLots: number;
-  permittedLots: number; // Strictly floored to volumeStep, NEVER rounded upward if risk would exceed targetRiskUsd
-  theoreticalStopRiskUsd: number; // Exact USD risk if stopped out at SL (strictly <= targetRiskUsd)
+  permittedLots: number; // Strictly floored so that estimatedAllInRiskUsd <= targetRiskUsd
+  theoreticalStopRiskUsd: number; // Exact USD risk if stopped out at SL
   estimatedSpreadCostUsd: number;
   estimatedCommissionUsd: number;
-  estimatedAllInRiskUsd: number;
-  permittedLotsAllIn: number; // Sizing where estimated all-in risk (stop risk + spread + commission) <= targetRiskUsd
-  allInCappedRiskUsd: number;
+  estimatedAllInRiskUsd: number; // Stop risk + spread cost + commission (strictly <= targetRiskUsd)
+  permittedLotsStopLossOnly: number; // Sizing considering theoretical stop-loss alone
+  theoreticalStopOnlyRiskUsd: number;
   isRejected: boolean;
   rejectionReason?: string;
 }
@@ -348,8 +349,8 @@ export interface ExnessRiskEvaluation {
 export const EXNESS_DEFAULT_SPREADS: Record<string, number> = {
   EURUSD: 0.00010, // 1.0 pip
   GBPJPY: 0.015,   // 1.5 pips
-  XAUUSD: 0.20,    // $0.20 / oz
-  XAGUSD: 0.015,   // $0.015 / oz
+  XAUUSD: 0.20,    // $0.20 / oz ($20.00 / lot)
+  XAGUSD: 0.015,   // $0.015 / oz ($75.00 / lot)
 };
 
 /**
@@ -359,7 +360,8 @@ export const EXNESS_DEFAULT_SPREADS: Record<string, number> = {
  * 3. Minimum lot size and volume step increment (0.01).
  * 4. Strict flooring (never rounding upward) so monetary risk never exceeds targetRiskUsd.
  * 5. Distinct reporting of theoretical stop-loss risk vs estimated all-in trading cost (spread + commission).
- * 6. Trade rejection when minimum permitted volume would exceed target risk ceiling.
+ * 6. Strict ceiling: Total estimated trade risk (stop risk + spread + commission) <= $25.00.
+ * 7. Trade rejection when minimum permitted volume would exceed target risk ceiling.
  */
 export function evaluateExnessRisk(
   pair: string,
@@ -396,14 +398,15 @@ export function evaluateExnessRisk(
       riskPerLotUsd: 0,
       spreadCostPerLotUsd: 0,
       commissionPerLotUsd: commissionPerLot,
+      totalCostPerLotUsd: 0,
       rawTheoreticalLots: 0,
       permittedLots: 0,
       theoreticalStopRiskUsd: 0,
       estimatedSpreadCostUsd: 0,
       estimatedCommissionUsd: 0,
       estimatedAllInRiskUsd: 0,
-      permittedLotsAllIn: 0,
-      allInCappedRiskUsd: 0,
+      permittedLotsStopLossOnly: 0,
+      theoreticalStopOnlyRiskUsd: 0,
       isRejected: true,
       rejectionReason: "Invalid stop distance: Entry and Stop Loss prices are identical or invalid",
     };
@@ -431,11 +434,13 @@ export function evaluateExnessRisk(
     spreadCostPerLotUsd = spreadPrice * spec.contractSize;
   }
 
-  // Minimum tradable risk at volumeMin (0.01 lots)
-  const minVolStopRiskUsd = Number((spec.volumeMin * riskPerLotUsd).toFixed(2));
+  const totalCostPerLotUsd = riskPerLotUsd + spreadCostPerLotUsd + commissionPerLot;
 
-  // Requirement 8: Reject trades when minimum permitted volume would exceed risk limit
-  if (minVolStopRiskUsd > targetRiskUsd) {
+  // Minimum tradable risk at volumeMin (0.01 lots) including spread & commission
+  const minVolAllInRiskUsd = Number((spec.volumeMin * totalCostPerLotUsd).toFixed(2));
+
+  // Requirement 1 & 8: Reject trades when minimum permitted volume would exceed risk limit ($25.00)
+  if (minVolAllInRiskUsd > targetRiskUsd) {
     return {
       pair,
       cleanInstrument,
@@ -450,36 +455,35 @@ export function evaluateExnessRisk(
       riskPerLotUsd: Number(riskPerLotUsd.toFixed(2)),
       spreadCostPerLotUsd: Number(spreadCostPerLotUsd.toFixed(2)),
       commissionPerLotUsd: commissionPerLot,
-      rawTheoreticalLots: targetRiskUsd / riskPerLotUsd,
+      totalCostPerLotUsd: Number(totalCostPerLotUsd.toFixed(2)),
+      rawTheoreticalLots: targetRiskUsd / totalCostPerLotUsd,
       permittedLots: 0,
       theoreticalStopRiskUsd: 0,
       estimatedSpreadCostUsd: 0,
       estimatedCommissionUsd: 0,
       estimatedAllInRiskUsd: 0,
-      permittedLotsAllIn: 0,
-      allInCappedRiskUsd: 0,
+      permittedLotsStopLossOnly: 0,
+      theoreticalStopOnlyRiskUsd: 0,
       isRejected: true,
-      rejectionReason: `Trade rejected: Minimum tradable volume (${spec.volumeMin} lots) risks $${minVolStopRiskUsd.toFixed(2)} USD, which exceeds maximum target risk limit of $${targetRiskUsd.toFixed(2)} USD`,
+      rejectionReason: `Trade rejected: Minimum tradable volume (${spec.volumeMin} lots) all-in risk is $${minVolAllInRiskUsd.toFixed(2)} USD, which exceeds maximum target risk limit of $${targetRiskUsd.toFixed(2)} USD`,
     };
   }
 
-  // 2. Theoretical Sizing for Stop Loss Risk <= targetRiskUsd (Never rounded up)
-  const rawTheoreticalLots = targetRiskUsd / riskPerLotUsd;
-  // STRICT FLOOR to volumeStep (0.01) — Never Math.round!
-  const flooredLots = Math.floor(rawTheoreticalLots / spec.volumeStep) * spec.volumeStep;
-  const permittedLots = Number(Math.min(spec.volumeMax, Math.max(0, flooredLots)).toFixed(2));
+  // 2. Strict All-In Sizing: Floored to volumeStep (0.01) ensuring All-In Risk <= targetRiskUsd
+  const rawAllInLots = targetRiskUsd / totalCostPerLotUsd;
+  const flooredAllInLots = Math.floor(rawAllInLots / spec.volumeStep) * spec.volumeStep;
+  const permittedLots = Number(Math.min(spec.volumeMax, Math.max(0, flooredAllInLots)).toFixed(2));
 
   const theoreticalStopRiskUsd = Number((permittedLots * riskPerLotUsd).toFixed(2));
   const estimatedSpreadCostUsd = Number((permittedLots * spreadCostPerLotUsd).toFixed(2));
   const estimatedCommissionUsd = Number((permittedLots * commissionPerLot).toFixed(2));
   const estimatedAllInRiskUsd = Number((theoreticalStopRiskUsd + estimatedSpreadCostUsd + estimatedCommissionUsd).toFixed(2));
 
-  // 3. Sizing for All-In Risk Capped at targetRiskUsd
-  const totalCostPerLotUsd = riskPerLotUsd + spreadCostPerLotUsd + commissionPerLot;
-  const rawAllInLots = targetRiskUsd / totalCostPerLotUsd;
-  const flooredAllInLots = Math.floor(rawAllInLots / spec.volumeStep) * spec.volumeStep;
-  const permittedLotsAllIn = Number(Math.min(spec.volumeMax, Math.max(0, flooredAllInLots)).toFixed(2));
-  const allInCappedRiskUsd = Number((permittedLotsAllIn * totalCostPerLotUsd).toFixed(2));
+  // 3. Stop-Loss Only Sizing for Reference
+  const rawStopOnlyLots = targetRiskUsd / riskPerLotUsd;
+  const flooredStopOnlyLots = Math.floor(rawStopOnlyLots / spec.volumeStep) * spec.volumeStep;
+  const permittedLotsStopLossOnly = Number(Math.min(spec.volumeMax, Math.max(0, flooredStopOnlyLots)).toFixed(2));
+  const theoreticalStopOnlyRiskUsd = Number((permittedLotsStopLossOnly * riskPerLotUsd).toFixed(2));
 
   return {
     pair,
@@ -495,20 +499,22 @@ export function evaluateExnessRisk(
     riskPerLotUsd: Number(riskPerLotUsd.toFixed(2)),
     spreadCostPerLotUsd: Number(spreadCostPerLotUsd.toFixed(2)),
     commissionPerLotUsd: commissionPerLot,
-    rawTheoreticalLots,
+    totalCostPerLotUsd: Number(totalCostPerLotUsd.toFixed(2)),
+    rawTheoreticalLots: rawAllInLots,
     permittedLots,
     theoreticalStopRiskUsd,
     estimatedSpreadCostUsd,
     estimatedCommissionUsd,
     estimatedAllInRiskUsd,
-    permittedLotsAllIn,
-    allInCappedRiskUsd,
+    permittedLotsStopLossOnly,
+    theoreticalStopOnlyRiskUsd,
     isRejected: false,
   };
 }
 
 /**
- * Calculates standard lot deal size for Exness ensuring strict $25 flat risk parity.
+ * Calculates standard lot deal size for Exness ensuring strict $25 flat risk parity
+ * inclusive of stop loss risk, spread friction, and commission.
  * Never rounds upward. Returns 0 if trade is rejected by risk rules.
  */
 export function calculateExnessLots(
@@ -517,13 +523,13 @@ export function calculateExnessLots(
   slPrice: number,
   targetRiskUsd = 25.0,
   liveUsdJpy = 155.0,
-  capAllIn = false
+  stopLossOnly = false
 ): number {
   const evalResult = evaluateExnessRisk(pair, entryPrice, slPrice, targetRiskUsd, liveUsdJpy);
   if (evalResult.isRejected) {
     return 0;
   }
-  return capAllIn ? evalResult.permittedLotsAllIn : evalResult.permittedLots;
+  return stopLossOnly ? evalResult.permittedLotsStopLossOnly : evalResult.permittedLots;
 }
 
 /**
