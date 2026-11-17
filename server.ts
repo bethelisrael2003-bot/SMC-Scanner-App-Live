@@ -45,6 +45,7 @@ import {
   APEX_TO_EXNESS_MAP,
   EXNESS_TO_APEX_MAP,
 } from "./exnessAdapter";
+import { runRealExnessDemoTest } from "./test_live_exness_demo";
 
 dotenv.config();
 
@@ -8301,6 +8302,33 @@ app.get(["/api/capital/status", "/api/broker/status"], async (req, res) => {
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Failed to fetch broker status" });
+  }
+});
+
+// ── Non-Exposing Credentials Status Endpoint ──
+app.get("/api/broker/credentials-status", (req, res) => {
+  const creds = exnessAdapter.getCredentialsStatus();
+  res.json({
+    status: creds.configured ? "CONFIGURED" : "MISSING_CREDENTIALS",
+    apiKeyConfigured: creds.hasApiKey,
+    privateKeyConfigured: creds.hasPrivateKey,
+    accountIdConfigured: creds.hasAccountId,
+    isDemo: creds.isDemo,
+    discoveryBaseUrl: creds.discoveryBaseUrl,
+    isSimulationMode: creds.isSimulationMode,
+    message: creds.configured
+      ? "Exness Demo credentials detected and loaded into adapter."
+      : "Exness Demo credentials not configured in environment variables."
+  });
+});
+
+// ── Live Demo Verification Execution Endpoint ──
+app.get("/api/broker/verify-live", async (req, res) => {
+  try {
+    const report = await runRealExnessDemoTest();
+    res.json(report);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Live verification failed" });
   }
 });
 

@@ -580,6 +580,29 @@ export class ExnessBrokerAdapter {
     this.isSimulationMode = enabled;
   }
 
+  public getCredentialsStatus(): {
+    configured: boolean;
+    hasApiKey: boolean;
+    hasPrivateKey: boolean;
+    hasAccountId: boolean;
+    isDemo: boolean;
+    discoveryBaseUrl: string;
+    isSimulationMode: boolean;
+  } {
+    const hasApiKey = Boolean(this.config.apiKey && this.config.apiKey.length > 5);
+    const hasPrivateKey = Boolean(this.privateKeyObj);
+    const hasAccountId = Boolean(this.config.accountId && this.config.accountId.length > 2);
+    return {
+      configured: hasApiKey && hasPrivateKey && hasAccountId,
+      hasApiKey,
+      hasPrivateKey,
+      hasAccountId,
+      isDemo: Boolean(this.config.isDemo),
+      discoveryBaseUrl: this.config.discoveryBaseUrl || "https://gateway.exness.com",
+      isSimulationMode: this.isSimulationMode,
+    };
+  }
+
   /**
    * Resolves and caches the account Access Point from the Gateway.
    */

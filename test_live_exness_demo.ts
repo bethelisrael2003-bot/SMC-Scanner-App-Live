@@ -407,6 +407,6 @@ export async function runRealExnessDemoTest(): Promise<{
 }
 
 // Direct execution
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1]?.includes("test_live_exness_demo")) {
   runRealExnessDemoTest().catch(console.error);
 }
