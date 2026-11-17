@@ -63,16 +63,16 @@ async function runRegressionAssertions() {
     "Exness timeframe engine properly maps M5, M15, M30, H1, H4, D1"
   );
 
-  // 2. Risk Parity Calculations Across All Instruments
+  // 2. Risk Parity Calculations Across All Instruments (Floored to Volume Step, Never Exceeding $25 Max Risk)
   const eurLots = calculateExnessLots("EUR/USD", 1.10232, 1.10382, 25.0);
   const gbpLots = calculateExnessLots("GBP/JPY", 210.556, 210.306, 25.0, 155.0);
   const goldLots = calculateExnessLots("XAU/USD", 2400.0, 2390.0, 25.0);
   const silverLots = calculateExnessLots("XAG/USD", 31.50, 31.20, 25.0);
 
-  assert("EUR/USD Risk Parity Sizing", eurLots === 0.17, `EUR/USD: ${eurLots} lots`);
-  assert("GBP/JPY Risk Parity Sizing", gbpLots === 0.16, `GBP/JPY: ${gbpLots} lots`);
-  assert("XAU/USD Risk Parity Sizing", goldLots === 0.03, `XAU/USD: ${goldLots} lots`);
-  assert("XAG/USD Risk Parity Sizing", silverLots === 0.02, `XAG/USD: ${silverLots} lots`);
+  assert("EUR/USD Risk Parity Sizing", eurLots === 0.16, `EUR/USD: ${eurLots} lots (Risk $24.00 <= $25.00)`);
+  assert("GBP/JPY Risk Parity Sizing", gbpLots === 0.15, `GBP/JPY: ${gbpLots} lots (Risk $24.19 <= $25.00)`);
+  assert("XAU/USD Risk Parity Sizing", goldLots === 0.02, `XAU/USD: ${goldLots} lots (Risk $20.00 <= $25.00)`);
+  assert("XAG/USD Risk Parity Sizing", silverLots === 0.01, `XAG/USD: ${silverLots} lots (Risk $15.00 <= $25.00)`);
 
   // 3. Adapter Snapshot & Lifecycle
   const adapter = new ExnessBrokerAdapter();
@@ -93,7 +93,7 @@ async function runRegressionAssertions() {
 
   const snap = await adapter.getSnapshot();
   const openPos = snap.positions.find((p) => p.instrument === "EURUSD");
-  assert("Position Presence in Snapshot", !!openPos && openPos.volume === 0.17, `Found pos: ${openPos?.positionId}`);
+  assert("Position Presence in Snapshot", !!openPos && openPos.volume === eurLots, `Found pos: ${openPos?.positionId} (${openPos?.volume} lots)`);
 
   if (openPos) {
     const beMoved = await adapter.updatePositionStop({

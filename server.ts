@@ -40,6 +40,7 @@ import {
 import {
   ExnessBrokerAdapter,
   calculateExnessLots,
+  evaluateExnessRisk,
   verifySigningImplementation,
   APEX_TO_EXNESS_MAP,
   EXNESS_TO_APEX_MAP,
@@ -862,10 +863,16 @@ async function executeDemoTrade(trade: CapitalTradeRequest): Promise<{ success: 
     }
 
     // ── Calculate Deal Size ($25.00 Flat Risk Normalization for Exness Standard Lots) ──
-    const targetRiskUsd = 25.0; // Flat $25.00 USD risk per trade
-    const dealLots = calculateExnessLots(trade.pair, trade.entryPrice, stopLevel, targetRiskUsd);
+    const targetRiskUsd = 25.0; // Flat $25.00 USD maximum risk target per trade
+    const riskEval = evaluateExnessRisk(trade.pair, trade.entryPrice, stopLevel, targetRiskUsd);
 
-    console.log(`[EXNESS DEMO] Submitting market order for ${trade.pair} ${trade.direction}: Lots=${dealLots} (Target Risk $${targetRiskUsd}), SL=${stopLevel}, TP=${profitLevel}...`);
+    if (riskEval.isRejected || riskEval.permittedLots <= 0) {
+      console.log(`[EXNESS DEMO] 🛑 Blocked by Risk Guard: ${riskEval.rejectionReason || "Calculated volume is 0 or breaches $25.00 risk ceiling"}. Order aborted.`);
+      return { success: false, reason: riskEval.rejectionReason || "Risk limit exceeded: minimum permitted volume would exceed $25.00 maximum" };
+    }
+
+    const dealLots = riskEval.permittedLots;
+    console.log(`[EXNESS DEMO] Submitting market order for ${trade.pair} ${trade.direction}: Lots=${dealLots} (Theoretical Risk $${riskEval.theoreticalStopRiskUsd.toFixed(2)}, Est All-In $${riskEval.estimatedAllInRiskUsd.toFixed(2)}), SL=${stopLevel}, TP=${profitLevel}...`);
 
     let dealRef = `exn_${Date.now()}`;
     try {
