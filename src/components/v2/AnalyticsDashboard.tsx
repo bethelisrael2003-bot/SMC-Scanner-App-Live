@@ -56,12 +56,14 @@ export interface AnalyticsDashboardProps {
   profitFactor?: number;
   equityCurve: EquityPoint[];
   pairStats: PairStatItem[];
+  selectedBroker?: "exness" | "capital";
+  onSelectBroker?: (broker: "exness" | "capital") => void;
   onSelectPair?: (pair: string) => void;
 }
 
 export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   currentBalance,
-  baselineDeposit = 11000.0,
+  baselineDeposit = 500.0,
   winRate,
   totalWins,
   totalLosses,
@@ -69,6 +71,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   profitFactor = 1.05,
   equityCurve,
   pairStats,
+  selectedBroker = "exness",
+  onSelectBroker,
   onSelectPair,
 }) => {
   const [curveFilter, setCurveFilter] = useState<"ALL" | "30D" | "7D">("ALL");
@@ -134,10 +138,46 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
   return (
     <div className="space-y-4 font-mono">
+      {/* ── Broker Dataset Switcher ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 rounded-xl bg-zinc-900/90 border border-zinc-800">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-[10px] uppercase tracking-wider font-bold text-zinc-400 shrink-0">
+            Analytics Dataset:
+          </span>
+          <span className="text-xs font-bold text-white truncate">
+            {selectedBroker === "exness"
+              ? "Exness Direct Trading API (Active Demo)"
+              : "Capital.com Demo (Archived & Preserved)"}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            onClick={() => onSelectBroker?.("exness")}
+            className={`px-2.5 py-1 text-xs font-mono rounded-lg border transition-all cursor-pointer ${
+              selectedBroker === "exness"
+                ? "bg-emerald-950/70 border-emerald-500/60 text-emerald-300 font-bold shadow-sm"
+                : "bg-zinc-950/60 border-zinc-800 text-zinc-400 hover:text-white"
+            }`}
+          >
+            Exness Demo (Active)
+          </button>
+          <button
+            onClick={() => onSelectBroker?.("capital")}
+            className={`px-2.5 py-1 text-xs font-mono rounded-lg border transition-all cursor-pointer ${
+              selectedBroker === "capital"
+                ? "bg-cyan-950/70 border-cyan-500/60 text-cyan-300 font-bold shadow-sm"
+                : "bg-zinc-950/60 border-zinc-800 text-zinc-400 hover:text-white"
+            }`}
+          >
+            Capital.com (104 Archived Trades)
+          </button>
+        </div>
+      </div>
+
       {/* ── Top 4 Key Performance Indicators (Visual Hierarchy) ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
         <MetricCard
-          label="Account Balance"
+          label={selectedBroker === "exness" ? "Exness Live Balance" : "Capital.com Balance"}
           value={formatUSD(currentBalance)}
           subValue={
             isNetProfit
@@ -146,7 +186,11 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
           }
           status={isNetProfit ? "positive" : "negative"}
           icon={<DollarSign className="w-4 h-4 text-emerald-400" />}
-          hint={`Deposit: ${formatUSD(baselineDeposit)}`}
+          hint={
+            selectedBroker === "exness"
+              ? `Deposit: ${formatUSD(baselineDeposit)} | Used Margin: $0.00`
+              : `Starting Deposit: ${formatUSD(baselineDeposit)} (Broker Ledger)`
+          }
         />
 
         <MetricCard

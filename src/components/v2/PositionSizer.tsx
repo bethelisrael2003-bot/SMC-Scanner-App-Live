@@ -33,7 +33,7 @@ export const PositionSizer: React.FC<PositionSizerProps> = ({
   profiles,
   selectedIndex,
   onSelectIndex,
-  accountBalance = 11000.0,
+  accountBalance = 500.0,
 }) => {
   const [targetRiskUsd, setTargetRiskUsd] = useState<number>(25.0);
   const [slPips, setSlPips] = useState<number>(profiles[selectedIndex]?.defaultSl || 30.0);
@@ -73,7 +73,7 @@ export const PositionSizer: React.FC<PositionSizerProps> = ({
     }
 
     const unitLabel = activeProfile.pair.includes("XAU") || activeProfile.pair.includes("XAG") ? "Troy Oz" : "Units";
-    const accountRiskPct = (targetRiskUsd / (accountBalance || 11000)) * 100;
+    const accountRiskPct = (targetRiskUsd / (accountBalance || 500.0)) * 100;
 
     return {
       units,

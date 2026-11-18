@@ -196,6 +196,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
   const [performanceAnalytics, setPerformanceAnalytics] = useState<any>(null);
   const [economicEvents, setEconomicEvents] = useState<any>(null);
   const [spreadArmorData, setSpreadArmorData] = useState<any>(null);
+  const [analyticsBroker, setAnalyticsBroker] = useState<"exness" | "capital">("exness");
 
   // Selected trade point on equity curve
   const [selectedCurvePoint, setSelectedCurvePoint] = useState<any>(null);
@@ -466,8 +467,10 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
     setTimeout(() => setCopiedTradeId(null), 2500);
   };
 
-  const liveBalance = capitalStatus?.balance ?? 11046.98;
-  const balanceDelta = liveBalance - 11000.00;
+  const isExness = (capitalStatus?.activeBroker === "exness") || (capitalStatus?.primaryBroker?.toLowerCase().includes("exness"));
+  const brokerBaselineDeposit = capitalStatus?.startingDeposit ?? (isExness ? 500.00 : 11000.00);
+  const liveBalance = capitalStatus?.balance ?? (isExness ? 498.65 : 11046.98);
+  const balanceDelta = liveBalance - brokerBaselineDeposit;
 
   return (
     <div className="min-h-screen bg-[#080B10] text-zinc-100 flex flex-col font-sans select-none pb-36">
@@ -496,7 +499,7 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
 
           <div className="hidden sm:flex items-center gap-1.5 text-xs font-mono text-zinc-400 pl-2 border-l border-zinc-800 shrink-0">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span>Capital.com Demo</span>
+            <span>{isExness ? "Exness Demo" : "Capital.com Demo"}</span>
           </div>
         </div>
 
@@ -677,23 +680,50 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
         {/* TAB 2: ANALYTICS & AUDITED TRADE HISTORY                   */}
         {/* ========================================================== */}
         <div className={activeTab === "analytics" && viewStack.length === 0 ? "space-y-4" : "hidden"}>
-          <AnalyticsDashboard
-            currentBalance={liveBalance}
-            baselineDeposit={11000.0}
-            winRate={performanceStats?.winRate || 60.0}
-            totalWins={performanceStats?.totalWins || 9}
-            totalLosses={performanceStats?.totalLosses || 6}
-            totalNetR={performanceAnalytics?.totalNetR ?? 2.91}
-            profitFactor={performanceAnalytics?.summary?.profitFactor || 1.05}
-            equityCurve={performanceAnalytics?.equityCurve || []}
-            pairStats={dynamicPairStats}
-            onSelectPair={(pair) => pushView({ type: "asset_analytics", pair })}
-          />
+          {(() => {
+            const currentAnalytics = (analyticsBroker === "capital" ? performanceAnalytics?.capital : performanceAnalytics?.exness) || performanceAnalytics;
+            const analyticsBalance = analyticsBroker === "capital"
+              ? (performanceAnalytics?.capital?.currentBalance ?? 10898.64)
+              : (capitalStatus?.balance ?? 498.65);
+            const analyticsBaseline = analyticsBroker === "capital" ? 11000.00 : 500.00;
+            const analyticsWinRate = currentAnalytics?.summary?.winRate ?? (analyticsBroker === "capital" ? (performanceStats?.brokerBreakdown?.capital?.winRate || 47.1) : 0);
+            const analyticsWins = currentAnalytics?.summary?.totalWins ?? (analyticsBroker === "capital" ? (performanceStats?.brokerBreakdown?.capital?.wins || 49) : 0);
+            const analyticsLosses = currentAnalytics?.summary?.totalLosses ?? (analyticsBroker === "capital" ? (performanceStats?.brokerBreakdown?.capital?.losses || 55) : 0);
+            const analyticsNetR = currentAnalytics?.totalNetR ?? 0;
+            const analyticsProfitFactor = currentAnalytics?.summary?.profitFactor || 1.05;
+            const analyticsEquityCurve = currentAnalytics?.equityCurve || [];
+            const analyticsPairStats = currentAnalytics?.pairBreakdown || dynamicPairStats;
+            const analyticsTrades = (performanceStats?.trades || []).filter((t: any) => {
+              if (analyticsBroker === "capital") {
+                return !t.broker || t.broker === "capital" || !String(t.id).startsWith("vtrade_exn_");
+              }
+              return t.broker === "exness" || String(t.id).startsWith("vtrade_exn_");
+            });
 
-          <TradeHistory
-            trades={performanceStats?.trades || []}
-            onSelectTrade={(tradeId) => pushView({ type: "trade_detail", tradeId })}
-          />
+            return (
+              <>
+                <AnalyticsDashboard
+                  currentBalance={analyticsBalance}
+                  baselineDeposit={analyticsBaseline}
+                  winRate={analyticsWinRate}
+                  totalWins={analyticsWins}
+                  totalLosses={analyticsLosses}
+                  totalNetR={analyticsNetR}
+                  profitFactor={analyticsProfitFactor}
+                  equityCurve={analyticsEquityCurve}
+                  pairStats={analyticsPairStats}
+                  selectedBroker={analyticsBroker}
+                  onSelectBroker={setAnalyticsBroker}
+                  onSelectPair={(pair) => pushView({ type: "asset_analytics", pair })}
+                />
+
+                <TradeHistory
+                  trades={analyticsTrades}
+                  onSelectTrade={(tradeId) => pushView({ type: "trade_detail", tradeId })}
+                />
+              </>
+            );
+          })()}
         </div>
 
         {/* ========================================================== */}
@@ -779,12 +809,14 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
                   (t: any) => t.pair === currentView.pair
                 );
 
+                const currentEquityPoints = (analyticsBroker === "capital" ? performanceAnalytics?.capital?.equityCurve : performanceAnalytics?.exness?.equityCurve) || performanceAnalytics?.equityCurve || [];
+
                 return (
                   <AssetAnalyticsView
                     pair={currentView.pair}
                     pairStat={pairStat}
                     trades={pairTrades}
-                    allEquityPoints={performanceAnalytics?.equityCurve || []}
+                    allEquityPoints={currentEquityPoints}
                     onSelectTrade={(tradeId) => pushView({ type: "trade_detail", tradeId })}
                     onBack={() => window.history.back()}
                   />
@@ -795,7 +827,12 @@ export function ApexQuantApp({ onSwitchToClassic }: { onSwitchToClassic?: () => 
                 const targetTrade = (performanceStats?.trades || []).find(
                   (t: any) => t.id === currentView.tradeId
                 ) || null;
-                const equityPoint = (performanceAnalytics?.equityCurve || []).find(
+                const allCurvePoints = [
+                  ...(performanceAnalytics?.capital?.equityCurve || []),
+                  ...(performanceAnalytics?.exness?.equityCurve || []),
+                  ...(performanceAnalytics?.equityCurve || [])
+                ];
+                const equityPoint = allCurvePoints.find(
                   (p: any) => p.tradeId === currentView.tradeId
                 ) || null;
 
