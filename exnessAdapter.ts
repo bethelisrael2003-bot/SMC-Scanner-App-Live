@@ -551,11 +551,16 @@ export class ExnessBrokerAdapter {
   private simDeals: ExnessDeal[] = [];
 
   constructor(config?: Partial<ExnessCredentials>) {
+    let baseUrl = config?.discoveryBaseUrl || process.env.EXN_DISCOVERY_BASE_URL || "https://api.exness-api.com";
+    if (baseUrl.includes("gateway.exness.com")) {
+      baseUrl = "https://api.exness-api.com";
+    }
+
     this.config = {
       apiKey: config?.apiKey || process.env.EXN_API_KEY || "",
       privateKey: config?.privateKey || process.env.EXN_PRIVATE_KEY || "",
       accountId: config?.accountId || process.env.EXN_ACCOUNT_ID || "",
-      discoveryBaseUrl: config?.discoveryBaseUrl || process.env.EXN_DISCOVERY_BASE_URL || "https://gateway.exness.com",
+      discoveryBaseUrl: baseUrl,
       isDemo: config?.isDemo ?? (process.env.EXN_IS_DEMO !== "false"),
     };
 
@@ -629,25 +634,53 @@ export class ExnessBrokerAdapter {
       pathWithQuery: path,
     });
 
-    const url = `${this.config.discoveryBaseUrl}${path}`;
-    const res = await fetch(url, {
-      method: "GET",
-      headers,
-      signal: AbortSignal.timeout(15000),
-    });
+    // Support candidate discovery endpoints with automatic fallback
+    const rawCandidates = [
+      this.config.discoveryBaseUrl,
+      "https://api.exness-api.com",
+      "https://api.exness.com",
+    ].filter(Boolean);
 
-    if (!res.ok) {
-      throw new Error(`Exness Access Point discovery failed: HTTP ${res.status}`);
+    // Filter out known non-resolving mock hosts
+    const candidateHosts = rawCandidates.filter((h) => !h.includes("gateway.exness.com"));
+    if (candidateHosts.length === 0) {
+      candidateHosts.push("https://api.exness-api.com");
+    }
+    const uniqueHosts = Array.from(new Set(candidateHosts));
+
+    let lastError: any = null;
+    for (const host of uniqueHosts) {
+      try {
+        const url = `${host.replace(/\/+$/, "")}${path}`;
+        const res = await fetch(url, {
+          method: "GET",
+          headers: {
+            ...headers,
+            "User-Agent": "ApexTradingSystem/1.0",
+          },
+          signal: AbortSignal.timeout(15000),
+        });
+
+        if (!res.ok) {
+          const errText = await res.text().catch(() => "");
+          throw new Error(`HTTP ${res.status}: ${errText}`);
+        }
+
+        const data = (await res.json()) as { access_point?: string };
+        if (!data.access_point) {
+          throw new Error("Exness discovery response missing access_point URL");
+        }
+
+        this.cachedAccessPoint = data.access_point;
+        this.accessPointCachedAt = now;
+        return this.cachedAccessPoint;
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`[EXNESS DISCOVERY] Candidate host ${host} failed: ${err.message}. Trying next candidate...`);
+      }
     }
 
-    const data = (await res.json()) as { access_point?: string };
-    if (!data.access_point) {
-      throw new Error("Exness discovery response missing access_point URL");
-    }
-
-    this.cachedAccessPoint = data.access_point;
-    this.accessPointCachedAt = now;
-    return this.cachedAccessPoint;
+    throw new Error(`Exness Access Point discovery failed across all endpoints: ${lastError?.message || "Unknown error"}`);
   }
 
   /**
