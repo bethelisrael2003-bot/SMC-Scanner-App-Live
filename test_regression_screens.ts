@@ -69,11 +69,13 @@ async function runRegressionAssertions() {
   // 2. Risk Parity Calculations Across All Instruments (Floored to Volume Step, Never Exceeding $25 Max Risk)
   const eurLots = calculateExnessLots("EUR/USD", 1.10232, 1.10382, 25.0);
   const gbpLots = calculateExnessLots("GBP/JPY", 210.556, 210.306, 25.0, 155.0);
+  const gbpMissingRateLots = calculateExnessLots("GBP/JPY", 210.556, 210.306, 25.0);
   const goldLots = calculateExnessLots("XAU/USD", 2400.0, 2390.0, 25.0);
   const silverLots = calculateExnessLots("XAG/USD", 31.50, 31.20, 25.0);
 
   assert("EUR/USD Risk Parity Sizing", eurLots === 0.15, `EUR/USD: ${eurLots} lots (All-In Risk $24.00 <= $25.00)`);
   assert("GBP/JPY Risk Parity Sizing", gbpLots === 0.14, `GBP/JPY: ${gbpLots} lots (All-In Risk $23.94 <= $25.00)`);
+  assert("GBP/JPY Missing Rate Rejection", gbpMissingRateLots === 0, `GBP/JPY missing rate safely rejected with lots=${gbpMissingRateLots}`);
   assert("XAU/USD Risk Parity Sizing", goldLots === 0.02, `XAU/USD: ${goldLots} lots (All-In Risk $20.40 <= $25.00)`);
   assert("XAG/USD Risk Parity Sizing", silverLots === 0.01, `XAG/USD: ${silverLots} lots (All-In Risk $15.75 <= $25.00)`);
 

@@ -865,7 +865,42 @@ async function executeDemoTrade(trade: CapitalTradeRequest): Promise<{ success: 
 
     // ── Calculate Deal Size ($25.00 Flat Risk Normalization for Exness Standard Lots) ──
     const targetRiskUsd = 25.0; // Flat $25.00 USD maximum risk target per trade
-    const riskEval = evaluateExnessRisk(trade.pair, trade.entryPrice, stopLevel, targetRiskUsd);
+
+    // Dynamic Broker Spread & Real-Time FX Conversion Rate Injection
+    const liveSpreadPips = liveSpreadCheck?.spread_pips;
+    const pipMultiplier = trade.pair.includes("JPY") ? 0.01 : (trade.pair.includes("XAG") || trade.pair.includes("XAU") ? 0.01 : 0.0001);
+    const liveSpreadPrice = (typeof liveSpreadPips === "number" && liveSpreadPips > 0) ? liveSpreadPips * pipMultiplier : undefined;
+
+    let liveUsdJpy: number | undefined = undefined;
+    if (trade.pair.includes("JPY")) {
+      try {
+        const usdjpyCandles = await exnessAdapter.getCandles("USD/JPY", "M1", 1).catch(() => []);
+        if (usdjpyCandles && usdjpyCandles.length > 0 && usdjpyCandles[0].c > 100) {
+          liveUsdJpy = usdjpyCandles[0].c;
+        } else {
+          const usdjpyQuote = await getLivePrice("USD/JPY").catch(() => null);
+          if (usdjpyQuote && usdjpyQuote.bid > 100) {
+            liveUsdJpy = usdjpyQuote.bid;
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[EXNESS RISK GUARD] Failed to query fresh USD/JPY rate: ${err.message}`);
+      }
+
+      if (!liveUsdJpy || liveUsdJpy <= 0) {
+        console.log(`[EXNESS DEMO] 🛑 Blocked by Risk Guard: Fresh USD/JPY conversion rate unavailable for ${trade.pair}. Order aborted.`);
+        return { success: false, reason: "Trade rejected: Fresh USD/JPY conversion rate unavailable. Stale rate fallback prohibited." };
+      }
+    }
+
+    const riskEval = evaluateExnessRisk(
+      trade.pair,
+      trade.entryPrice,
+      stopLevel,
+      targetRiskUsd,
+      liveUsdJpy,
+      liveSpreadPrice
+    );
 
     if (riskEval.isRejected || riskEval.permittedLots <= 0) {
       console.log(`[EXNESS DEMO] 🛑 Blocked by Risk Guard: ${riskEval.rejectionReason || "Calculated volume is 0 or breaches $25.00 risk ceiling"}. Order aborted.`);

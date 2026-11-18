@@ -370,7 +370,7 @@ export function evaluateExnessRisk(
   entryPrice: number,
   slPrice: number,
   targetRiskUsd = 25.0,
-  liveUsdJpy = 155.0,
+  liveUsdJpy?: number,
   customSpreadPrice?: number,
   commissionPerLot = 0.0
 ): ExnessRiskEvaluation {
@@ -427,7 +427,36 @@ export function evaluateExnessRisk(
     riskPerLotUsd = stopDist * spec.contractSize;
     spreadCostPerLotUsd = spreadPrice * spec.contractSize;
   } else if (cleanInstrument.endsWith("JPY") || pair.includes("JPY")) {
-    // JPY quote currency: convert to USD using live USD/JPY rate
+    // JPY quote currency: requires a verified fresh USD/JPY rate. Reject trade if unavailable.
+    if (!liveUsdJpy || typeof liveUsdJpy !== "number" || liveUsdJpy <= 0 || isNaN(liveUsdJpy)) {
+      return {
+        pair,
+        cleanInstrument,
+        entryPrice,
+        slPrice,
+        stopDistance: stopDist,
+        contractSize: spec.contractSize,
+        targetRiskUsd,
+        volumeStep: spec.volumeStep,
+        volumeMin: spec.volumeMin,
+        volumeMax: spec.volumeMax,
+        riskPerLotUsd: 0,
+        spreadCostPerLotUsd: 0,
+        commissionPerLotUsd: commissionPerLot,
+        totalCostPerLotUsd: 0,
+        rawTheoreticalLots: 0,
+        permittedLots: 0,
+        theoreticalStopRiskUsd: 0,
+        estimatedSpreadCostUsd: 0,
+        estimatedCommissionUsd: 0,
+        estimatedAllInRiskUsd: 0,
+        permittedLotsStopLossOnly: 0,
+        theoreticalStopOnlyRiskUsd: 0,
+        isRejected: true,
+        rejectionReason: `Trade rejected: Fresh USD/JPY conversion rate is required to calculate risk for ${pair} but could not be retrieved. Stale rate fallback prohibited.`,
+      };
+    }
+    // Convert to USD using fresh live USD/JPY rate
     riskPerLotUsd = (stopDist * spec.contractSize) / liveUsdJpy;
     spreadCostPerLotUsd = (spreadPrice * spec.contractSize) / liveUsdJpy;
   } else {
@@ -524,7 +553,7 @@ export function calculateExnessLots(
   entryPrice: number,
   slPrice: number,
   targetRiskUsd = 25.0,
-  liveUsdJpy = 155.0,
+  liveUsdJpy?: number,
   stopLossOnly = false
 ): number {
   const evalResult = evaluateExnessRisk(pair, entryPrice, slPrice, targetRiskUsd, liveUsdJpy);

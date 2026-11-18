@@ -249,13 +249,19 @@ export async function runExnessMigrationTestSuite(): Promise<{
     // Theoretical stop risk = 0.14 * 161.29 = $22.58.
     // Estimated spread cost = 0.14 * 9.68 = $1.35.
     // Estimated all-in risk = $22.58 + $1.35 = $23.93 USD (strictly <= $25.00).
+    // Verify rejection when USD/JPY conversion rate is omitted (stale fallback prohibited)
+    const missingRateEval = evaluateExnessRisk("GBP/JPY", entry, sl, 25.0);
+    if (!missingRateEval.isRejected || missingRateEval.permittedLots !== 0) {
+      throw new Error("GBP/JPY was not rejected when USD/JPY rate was omitted!");
+    }
+
     if (lots === 0.14 && evalResult.estimatedAllInRiskUsd <= 25.0 && !evalResult.isRejected) {
       results.push({
         id: 13,
         name: "GBP/JPY $25 Flat Risk Parity Calculation (JPY Cross)",
         executionType: "LOCAL_CALCULATION",
         verdict: "PASS",
-        details: `Entry: ${entry}, SL: ${sl} (25 pips) -> ${lots} standard lots (Stop Risk: $${evalResult.theoreticalStopRiskUsd.toFixed(2)}, Est Spread Cost: $${evalResult.estimatedSpreadCostUsd.toFixed(2)}, All-In Risk: $${evalResult.estimatedAllInRiskUsd.toFixed(2)} USD <= $25.00 limit).`,
+        details: `Entry: ${entry}, SL: ${sl} (25 pips) with USD/JPY=155.0 -> ${lots} standard lots (Stop Risk: $${evalResult.theoreticalStopRiskUsd.toFixed(2)}, Est Spread Cost: $${evalResult.estimatedSpreadCostUsd.toFixed(2)}, All-In Risk: $${evalResult.estimatedAllInRiskUsd.toFixed(2)} USD <= $25.00 limit). Missing rate correctly rejected: ${missingRateEval.rejectionReason}`,
       });
     } else {
       throw new Error(`Unexpected lot size or risk breach for GBP/JPY: lots=${lots}, allInRisk=$${evalResult.estimatedAllInRiskUsd}`);
